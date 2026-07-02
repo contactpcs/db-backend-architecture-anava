@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: anava
+      POSTGRES_PASSWORD: anava_dev_password
+      POSTGRES_DB: anava_dev
+    ports:
+      - "5433:5432"  # host 5433: a native Postgres service already owns 5432 on this machine
+    volumes:
+      - anava_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anava -d anava_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # SQS-protocol-compatible local queue — same boto3 SQS calls work unchanged
+  # against real AWS SQS later, just swap the endpoint_url.
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.6.5
+    ports:
+      - "9324:9324"  # SQS API
+      - "9325:9325"  # web UI
+
+volumes:
+  anava_pg_data:

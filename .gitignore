@@ -1,0 +1,26 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs / editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python (in case anything outside backend/ needs it — backend/ has its own more specific .gitignore)
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Never commit real secrets from anywhere in the repo
+*.env
+!.env.example
+!backend/.env.example
+
+# Word doc lock files (created while a .docx is open)
+~$*.docx
+~$*.doc

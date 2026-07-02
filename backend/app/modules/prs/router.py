@@ -1,0 +1,53 @@
+from uuid import UUID
+
+from fastapi import APIRouter, Depends
+
+from app.core.db import RequestContext, get_db
+from app.core.permissions import require_role
+from app.modules.prs import schemas as s
+from app.modules.prs.service import PatientScaleAssignmentService, PrsAssessmentService, PrsCatalogService
+
+router = APIRouter()
+
+_ALL_STAFF = ("super_admin", "regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist")
+
+
+@router.get("/prs-catalog/diseases")
+async def list_diseases(db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    return await PrsCatalogService(db).diseases()
+
+
+@router.post("/patient-scale-assignments", response_model=s.PatientScaleAssignmentRead, status_code=201)
+async def assign_scale(body: s.PatientScaleAssignmentCreate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
+    return await PatientScaleAssignmentService(db).create(assigned_by=UUID(ctx.user_id), **body.model_dump())
+
+
+@router.get("/patients/{patient_id}/scale-assignments", response_model=list[s.PatientScaleAssignmentRead])
+async def list_scale_assignments(patient_id: UUID, assessment_stage: str | None = None, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    return await PatientScaleAssignmentService(db).list(patient_id, assessment_stage=assessment_stage)
+
+
+@router.post("/prs-assessment-instances", response_model=s.AssessmentInstanceRead, status_code=201)
+async def start_assessment(body: s.AssessmentInstanceCreate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    initiated_by = "doctor_on_behalf" if ctx.role != "patient" else "patient"
+    return await PrsAssessmentService(db).start(
+        patient_id=body.patient_id, disease_id=body.disease_id, assessment_stage=body.assessment_stage,
+        session_id=body.session_id, cycle_id=body.cycle_id,
+        administered_by=UUID(ctx.user_id) if ctx.role != "patient" else None, initiated_by=initiated_by,
+    )
+
+
+@router.get("/prs-assessment-instances/{instance_id}", response_model=s.AssessmentInstanceRead)
+async def get_assessment(instance_id: str, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    return await PrsAssessmentService(db).get(instance_id)
+
+
+@router.post("/prs-assessment-instances/{instance_id}/responses", response_model=s.AssessmentInstanceRead)
+async def submit_responses(instance_id: str, body: s.ResponsesSubmit, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    items = [item.model_dump() for item in body.responses]
+    return await PrsAssessmentService(db).submit_responses(instance_id, items=items, finalize_scale_id=body.finalize_scale_id)
+
+
+@router.get("/prs-assessment-instances/{instance_id}/results")
+async def get_results(instance_id: str, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    return await PrsAssessmentService(db).results(instance_id)
