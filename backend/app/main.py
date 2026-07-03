@@ -37,6 +37,12 @@ structlog.configure(
 
 app = FastAPI(title="Anava Clinic Backend", version="0.1.0")
 
+# Starlette wraps middleware in reverse add-order (last added = outermost),
+# so CORSMiddleware must be added LAST — otherwise AuthContextMiddleware
+# intercepts the OPTIONS preflight first, returns 401 (no route is public),
+# and the browser never sees an Access-Control-Allow-Origin header.
+app.add_middleware(RequestIDMiddleware)
+app.add_middleware(AuthContextMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origins,
@@ -44,9 +50,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# Order matters: auth context must run before any route's permission Depends.
-app.add_middleware(AuthContextMiddleware)
-app.add_middleware(RequestIDMiddleware)
 
 
 @app.exception_handler(AnavaException)

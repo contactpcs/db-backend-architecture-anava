@@ -17,6 +17,14 @@ async def list_diseases(db=Depends(get_db), _ctx: RequestContext = Depends(requi
     return await PrsCatalogService(db).diseases()
 
 
+@router.get("/prs-catalog/scale-questions", response_model=list[s.PrsQuestionRead])
+async def list_scale_questions(scale_id: str, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    # scale_id is a composite TEXT key containing "/" (e.g. "GAD-7/2026") —
+    # never usable as a path segment (breaks REST routing, see this
+    # codebase's own convention), so it's a query param here, not {scale_id}.
+    return await PrsCatalogService(db).questions_for_scale(scale_id)
+
+
 @router.post("/patient-scale-assignments", response_model=s.PatientScaleAssignmentRead, status_code=201)
 async def assign_scale(body: s.PatientScaleAssignmentCreate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
     return await PatientScaleAssignmentService(db).create(assigned_by=UUID(ctx.user_id), **body.model_dump())

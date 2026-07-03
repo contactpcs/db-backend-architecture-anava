@@ -35,6 +35,16 @@ class PrsCatalogService:
     async def diseases(self) -> list[dict]:
         return await self.repo.diseases()
 
+    async def questions_for_scale(self, scale_id: str) -> list[dict]:
+        # repo.questions_for_scale already existed (used internally by
+        # _finalize_scale's scoring) but was never exposed to a router — no
+        # endpoint anywhere returns a scale's question list. Found while
+        # building the patient self-registration wizard: without this, a
+        # patient has no way to actually see/answer the general_registration
+        # PRS scales, so registration_status can never reach
+        # general_prs_complete for ANY patient, self- or staff-registered.
+        return await self.repo.questions_for_scale(scale_id)
+
 
 class PatientScaleAssignmentService:
     def __init__(self, session: AsyncSession):

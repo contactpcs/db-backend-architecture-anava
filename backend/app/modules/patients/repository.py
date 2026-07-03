@@ -14,52 +14,135 @@ class PatientRepository:
 
     async def create_profile_and_patient(self, *, email: str, first_name: str, last_name: str, phone,
                                            gender, dob, address, primary_clinic_id: UUID,
-                                           emergency_contact_name, emergency_contact_phone) -> dict:
+                                           emergency_contact_name, emergency_contact_phone,
+                                           city=None, state=None, country=None, pincode=None,
+                                           self_registered: bool = False, approval_status: str = "not_required") -> dict:
+        # is_active = FALSE — gated until the patient signs the
+        # patient_onboarding consent (see consent/service.py ConsentRecordService.sign),
+        # or (self-registered) until a receptionist approves (patients.approval_status).
         profile = await fetch_one(
             self.session,
             text(
-                "INSERT INTO profiles (cognito_sub, email, first_name, last_name, phone, role, gender, dob, address) "
+                "INSERT INTO profiles (cognito_sub, email, first_name, last_name, phone, role, gender, dob, address, "
+                "city, state, country, pincode, is_active) "
                 "VALUES ('pending-' || gen_random_uuid()::TEXT, :email, :first_name, :last_name, :phone, "
-                "'patient', :gender, :dob, :address) RETURNING *"
+                "'patient', :gender, :dob, :address, :city, :state, :country, :pincode, FALSE) RETURNING *"
             ),
             {"email": email, "first_name": first_name, "last_name": last_name, "phone": phone,
-             "gender": gender, "dob": dob, "address": address},
+             "gender": gender, "dob": dob, "address": address,
+             "city": city, "state": state, "country": country, "pincode": pincode},
         )
         # mrn is set by the fn_generate_mrn() trigger (SQL/14_triggers.sql) — not passed here.
         patient = await fetch_one(
             self.session,
             text(
-                "INSERT INTO patients (profile_id, primary_clinic_id, emergency_contact_name, emergency_contact_phone) "
-                "VALUES (:profile_id, :clinic_id, :ec_name, :ec_phone) RETURNING *"
+                "INSERT INTO patients (profile_id, primary_clinic_id, emergency_contact_name, emergency_contact_phone, "
+                "self_registered, approval_status) "
+                "VALUES (:profile_id, :clinic_id, :ec_name, :ec_phone, :self_registered, :approval_status) RETURNING *"
             ),
             {"profile_id": profile["id"], "clinic_id": str(primary_clinic_id),
-             "ec_name": emergency_contact_name, "ec_phone": emergency_contact_phone},
+             "ec_name": emergency_contact_name, "ec_phone": emergency_contact_phone,
+             "self_registered": self_registered, "approval_status": approval_status},
         )
-        return patient
+        # Merge in the profile fields we already have in hand — avoids a
+        # second round-trip just to get what create() already fetched.
+        # cognito_sub included so callers (e.g. the public self-registration
+        # endpoint) can mint a login token immediately without a re-query.
+        return {
+            **patient, "first_name": profile["first_name"], "last_name": profile["last_name"],
+            "email": profile["email"], "phone": profile["phone"], "gender": profile["gender"],
+            "dob": profile["dob"], "address": profile["address"], "profile_is_active": profile["is_active"],
+            "cognito_sub": profile["cognito_sub"],
+        }
+
+    _SELECT_WITH_PROFILE = (
+        "SELECT pt.*, p.first_name, p.last_name, p.email, p.phone, p.gender, p.dob, p.address, "
+        "p.is_active AS profile_is_active FROM patients pt JOIN profiles p ON p.id = pt.profile_id"
+    )
 
     async def get(self, patient_id: UUID) -> dict | None:
-        return await fetch_optional(self.session, text("SELECT * FROM patients WHERE patient_id = :id"), {"id": str(patient_id)})
+        return await fetch_optional(
+            self.session, text(f"{self._SELECT_WITH_PROFILE} WHERE pt.patient_id = :id"), {"id": str(patient_id)}
+        )
 
     async def get_by_profile_id(self, profile_id: UUID) -> dict | None:
-        return await fetch_optional(self.session, text("SELECT * FROM patients WHERE profile_id = :pid"), {"pid": str(profile_id)})
+        return await fetch_optional(
+            self.session, text(f"{self._SELECT_WITH_PROFILE} WHERE pt.profile_id = :pid"), {"pid": str(profile_id)}
+        )
 
-    async def list(self, *, registration_status: str | None = None, clinic_id: UUID | None = None) -> list[dict]:
-        clauses, params = [], {}
+    async def list(self, *, registration_status: str | None = None, approval_status: str | None = None,
+                    clinic_id: UUID | None = None) -> list[dict]:
+        # pt.deleted_at IS NULL — soft-deleted patients (see delete() below)
+        # never show up in the active list, but the row is never removed.
+        clauses, params = ["pt.deleted_at IS NULL"], {}
         if registration_status:
-            clauses.append("registration_status = :status")
+            clauses.append("pt.registration_status = :status")
             params["status"] = registration_status
+        if approval_status:
+            clauses.append("pt.approval_status = :approval_status")
+            params["approval_status"] = approval_status
         if clinic_id:
-            clauses.append("primary_clinic_id = :clinic_id")
+            clauses.append("pt.primary_clinic_id = :clinic_id")
             params["clinic_id"] = str(clinic_id)
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        rows = (await self.session.execute(text(f"SELECT * FROM patients {where} ORDER BY created_at DESC"), params)).mappings().all()
+        where = f"WHERE {' AND '.join(clauses)}"
+        rows = (
+            await self.session.execute(text(f"{self._SELECT_WITH_PROFILE} {where} ORDER BY pt.created_at DESC"), params)
+        ).mappings().all()
         return [dict(r) for r in rows]
+
+    async def update(self, patient_id: UUID, *, profile_fields: dict, patient_fields: dict) -> dict | None:
+        patient = await self.get(patient_id)
+        if not patient:
+            return None
+        if profile_fields:
+            set_clause = ", ".join(f"{k} = :{k}" for k in profile_fields)
+            await self.session.execute(
+                text(f"UPDATE profiles SET {set_clause} WHERE id = :pid"),
+                {**profile_fields, "pid": str(patient["profile_id"])},
+            )
+        if patient_fields:
+            set_clause = ", ".join(f"{k} = :{k}" for k in patient_fields)
+            await self.session.execute(
+                text(f"UPDATE patients SET {set_clause} WHERE patient_id = :id"),
+                {**patient_fields, "id": str(patient_id)},
+            )
+        return await self.get(patient_id)
+
+    async def soft_delete(self, patient_id: UUID, *, deleted_by: UUID) -> dict | None:
+        """Never a real DELETE — PHI records are retained permanently (see
+        the table comment in SQL/04_patient_tables.sql). Marks both the
+        patient row and the profile deleted/inactive so they disappear from
+        active lists and can't log in, without losing any clinical history."""
+        patient = await self.get(patient_id)
+        if not patient:
+            return None
+        await self.session.execute(
+            text("UPDATE patients SET deleted_by = :by, deleted_at = NOW() WHERE patient_id = :id"),
+            {"by": str(deleted_by), "id": str(patient_id)},
+        )
+        await self.session.execute(
+            text("UPDATE profiles SET deleted_by = :by, deleted_at = NOW(), is_active = FALSE WHERE id = :pid"),
+            {"by": str(deleted_by), "pid": str(patient["profile_id"])},
+        )
+        return patient
 
     async def set_status(self, patient_id: UUID, status: str) -> dict | None:
         return await fetch_optional(
             self.session,
             text("UPDATE patients SET registration_status = :status WHERE patient_id = :id RETURNING *"),
             {"status": status, "id": str(patient_id)},
+        )
+
+    async def set_approval(self, patient_id: UUID, *, approval_status: str, approved_by: UUID | None,
+                            rejection_reason: str | None) -> dict | None:
+        return await fetch_optional(
+            self.session,
+            text(
+                "UPDATE patients SET approval_status = :status, approved_by = :approved_by, "
+                "approved_at = NOW(), rejection_reason = :reason WHERE patient_id = :id RETURNING *"
+            ),
+            {"status": approval_status, "approved_by": str(approved_by) if approved_by else None,
+             "reason": rejection_reason, "id": str(patient_id)},
         )
 
     async def complete_registration(self, patient_id: UUID, doctor_id: UUID | None) -> dict | None:

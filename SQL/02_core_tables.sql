@@ -55,6 +55,18 @@ CREATE TABLE prs_diseases (
 
 -- ------------------------------------------------------------
 -- regions — geographic containers (country + state unique pair)
+--
+-- regional_admin_id: ALWAYS a separate, independently-created
+-- regional_admin profile (RegionService.assign_admin) — never a
+-- clinic_admin. A region's first/main-branch clinic_admin can
+-- NEVER double as that region's regional_admin (Master Doc
+-- Section 5.2: "Regional Admin must be assigned before region's
+-- clinics can reach 'active' status", "One Regional Admin per
+-- region"). No staff (including a clinic's own clinic_admin) or
+-- patient can be onboarded anywhere in a region until this column
+-- is set — see app/modules/admin/service.py ClinicService.assign_admin,
+-- app/modules/staff/service.py _ensure_clinic_ready_for_staff,
+-- app/modules/patients/service.py PatientService.register.
 -- ------------------------------------------------------------
 CREATE TABLE regions (
     region_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),

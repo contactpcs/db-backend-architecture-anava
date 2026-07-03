@@ -4,6 +4,16 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
+class PrsQuestionRead(BaseModel):
+    question_id: str
+    question_text: str
+    answer_type: str
+    min_value: float | None = None
+    max_value: float | None = None
+    is_required: bool
+    display_order: int
+
+
 class PatientScaleAssignmentCreate(BaseModel):
     patient_id: UUID
     scale_id: str

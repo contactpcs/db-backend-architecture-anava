@@ -33,7 +33,7 @@ class AnamnesisCatalogService:
         self.repo = AnamnesisQuestionRepository(session)
 
     async def list_questions(self) -> list[dict]:
-        return await self.repo.list()
+        return await self.repo.list_with_options()
 
 
 class AnamnesisService:

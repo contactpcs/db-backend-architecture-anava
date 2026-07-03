@@ -14,9 +14,28 @@ class PatientRegister(BaseModel):
     gender: str | None = Field(default=None, pattern="^(male|female|other)$")
     dob: date | None = None
     address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    pincode: str | None = None
     emergency_contact_name: str | None = None
     emergency_contact_phone: str | None = None
     primary_clinic_id: UUID
+
+
+class PatientUpdate(BaseModel):
+    """Admin-editable demographic fields — split across profiles (identity)
+    and patients (clinical/contact) tables under the hood, but presented as
+    one flat PATCH from the caller's side."""
+
+    first_name: str | None = None
+    last_name: str | None = None
+    phone: str | None = None
+    gender: str | None = Field(default=None, pattern="^(male|female|other)$")
+    dob: date | None = None
+    address: str | None = None
+    emergency_contact_name: str | None = None
+    emergency_contact_phone: str | None = None
 
 
 class DiseaseSelectionCreate(BaseModel):
@@ -36,6 +55,30 @@ class PatientRead(BaseModel):
     emergency_contact_phone: str | None
     registration_completed_at: datetime | None
     created_at: datetime
+    # Joined from profiles — patients has no name/email/phone columns of its
+    # own (those live on profiles), and every list/detail screen needs them.
+    first_name: str
+    last_name: str
+    email: str
+    phone: str | None = None
+    gender: str | None = None
+    dob: date | None = None
+    address: str | None = None
+    profile_is_active: bool = True
+    # Self-registration gate — 'not_required' forever for staff-registered
+    # patients (unaffected, matches pre-existing behavior). Self-registered
+    # patients start 'pending' and only reach 'approved'/'rejected' once a
+    # receptionist decides, after registration_status='registration_complete'.
+    self_registered: bool = False
+    approval_status: str = "not_required"
+    approved_by: UUID | None = None
+    approved_at: datetime | None = None
+    rejection_reason: str | None = None
+
+
+class PatientApprovalDecision(BaseModel):
+    decision: str = Field(pattern="^(approved|rejected)$")
+    rejection_reason: str | None = None
 
 
 class DiseaseSelectionRead(BaseModel):

@@ -33,5 +33,13 @@ services:
       - "9324:9324"  # SQS API
       - "9325:9325"  # web UI
 
+  # Browser-based DB GUI, dev-only — http://localhost:8080
+  adminer:
+    image: adminer:latest
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+
 volumes:
   anava_pg_data:

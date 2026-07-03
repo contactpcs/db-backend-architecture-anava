@@ -4,6 +4,13 @@ from uuid import UUID
 from pydantic import BaseModel
 
 
+class AnamnesisOptionRead(BaseModel):
+    option_id: str
+    option_label: str
+    option_value: str
+    display_order: int
+
+
 class AnamnesisQuestionRead(BaseModel):
     question_id: str
     section_number: int
@@ -16,6 +23,7 @@ class AnamnesisQuestionRead(BaseModel):
     depends_on_question_id: str | None
     depends_on_value: str | None
     helper_text: str | None
+    options: list[AnamnesisOptionRead] = []
 
 
 class AnamnesisStart(BaseModel):

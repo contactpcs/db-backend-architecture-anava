@@ -1,0 +1,27 @@
+-- ============================================================
+-- Anava Clinic — DB Schema
+-- File 21: Regional admin independence (no DDL — policy note)
+--
+-- Corrects a bug where a region's first clinic_admin was silently
+-- pointer-linked into regions.regional_admin_id (no real
+-- regional_admin role/permissions granted) the first time a clinic
+-- in that region got its clinic_admin assigned. That link has been
+-- removed from the code (ClinicService.assign_admin).
+--
+-- Going forward: a region's regional_admin is ALWAYS a separate,
+-- independently-created person (RegionService.assign_admin) — a
+-- clinic_admin can never double as their own region's
+-- regional_admin, not even for the region's first/main-branch
+-- clinic. No clinic_admin, doctor, clinical_assistant,
+-- receptionist, or patient may be onboarded anywhere in a region
+-- until regions.regional_admin_id is set, and a clinic cannot
+-- transition setup -> active until its region has one either
+-- (Master Doc Section 5.2).
+--
+-- No column/constraint change needed — regions.regional_admin_id
+-- already exists (02_core_tables.sql) and was already nullable.
+-- This file exists purely to document the corrected policy at the
+-- same place the schema lives; the enforcement is in application
+-- code (see app/modules/admin/service.py, app/modules/staff/service.py,
+-- app/modules/patients/service.py).
+-- ============================================================

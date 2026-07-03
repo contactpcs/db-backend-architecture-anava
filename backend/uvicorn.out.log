@@ -1,0 +1,36 @@
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 153.05, "event": "request_completed", "request_id": "0625a518-bde0-4454-936e-1615de613027", "timestamp": "2026-07-03T10:46:26.050459Z", "level": "info"}
+INFO:     192.168.1.5:61870 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/scale-questions", "status_code": 200, "duration_ms": 214.16, "event": "request_completed", "request_id": "536f6064-9413-4ba2-9610-e0c99d5f928d", "timestamp": "2026-07-03T10:46:26.399640Z", "level": "info"}
+INFO:     192.168.1.5:61874 - "GET /api/v1/prs-catalog/scale-questions?scale_id=GAD-7/2026 HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 15.14, "event": "request_completed", "request_id": "265b4a8c-0708-470d-a527-7e2019f403b6", "timestamp": "2026-07-03T10:46:34.241676Z", "level": "info"}
+INFO:     192.168.1.5:55344 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/scale-questions", "status_code": 200, "duration_ms": 18.16, "event": "request_completed", "request_id": "5dd9d7d5-540a-4c70-8c23-923b4283e1af", "timestamp": "2026-07-03T10:46:34.470181Z", "level": "info"}
+INFO:     192.168.1.5:55345 - "GET /api/v1/prs-catalog/scale-questions?scale_id=GAD-7/2026 HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/auth/register", "status_code": 201, "duration_ms": 206.71, "event": "request_completed", "request_id": "446a1f72-718d-4a94-9d50-43b878d42666", "timestamp": "2026-07-03T10:53:27.662262Z", "level": "info"}
+INFO:     192.168.1.5:57534 - "POST /api/v1/auth/register HTTP/1.1" 201 Created
+{"method": "POST", "path": "/api/v1/patients/1490820d-b6b5-404d-b47c-74407621f688/disease-selection", "status_code": 201, "duration_ms": 160.35, "event": "request_completed", "request_id": "2a3eb392-e675-4bb8-bcee-c8d41349da65", "timestamp": "2026-07-03T10:53:28.494098Z", "level": "info"}
+INFO:     192.168.1.5:56727 - "POST /api/v1/patients/1490820d-b6b5-404d-b47c-74407621f688/disease-selection HTTP/1.1" 201 Created
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 37.9, "event": "request_completed", "request_id": "e59f004c-a6d3-4e86-b29c-a9c4e73841d5", "timestamp": "2026-07-03T10:53:28.707288Z", "level": "info"}
+INFO:     192.168.1.5:56728 - "GET /api/v1/consent-records HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/consent-records/c2891f52-d7d9-4da8-a48a-4981d8866de1/status", "status_code": 400, "duration_ms": 33.37, "event": "request_completed", "request_id": "8da6803a-7719-42c7-88ee-6903d7f7a9b5", "timestamp": "2026-07-03T10:53:28.925677Z", "level": "info"}
+INFO:     192.168.1.5:56729 - "PATCH /api/v1/consent-records/c2891f52-d7d9-4da8-a48a-4981d8866de1/status HTTP/1.1" 400 Bad Request
+{"method": "POST", "path": "/api/v1/patients/1490820d-b6b5-404d-b47c-74407621f688/anamnesis", "status_code": 201, "duration_ms": 121.49, "event": "request_completed", "request_id": "70081347-1b59-4d5c-9ad9-763840b513c0", "timestamp": "2026-07-03T10:53:29.166403Z", "level": "info"}
+INFO:     192.168.1.5:56730 - "POST /api/v1/patients/1490820d-b6b5-404d-b47c-74407621f688/anamnesis HTTP/1.1" 201 Created
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-8d3f1ad1-001", "status_code": 200, "duration_ms": 49.3, "event": "request_completed", "request_id": "1a96948b-1206-45d2-9ec1-cce5aa9bcee5", "timestamp": "2026-07-03T10:53:29.602471Z", "level": "info"}
+INFO:     192.168.1.5:56731 - "PATCH /api/v1/anamnesis/ANA-8d3f1ad1-001 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/1490820d-b6b5-404d-b47c-74407621f688/scale-assignments", "status_code": 200, "duration_ms": 25.18, "event": "request_completed", "request_id": "35decdcf-2ae2-4c70-b7fe-3d320b641d94", "timestamp": "2026-07-03T10:53:29.763424Z", "level": "info"}
+INFO:     192.168.1.5:56732 - "GET /api/v1/patients/1490820d-b6b5-404d-b47c-74407621f688/scale-assignments?assessment_stage=general_registration HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 124.65, "event": "request_completed", "request_id": "72038b48-9358-4d49-9875-57a7f4108d9f", "timestamp": "2026-07-03T11:02:24.020126Z", "level": "info"}
+INFO:     192.168.1.5:64385 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 15.79, "event": "request_completed", "request_id": "b87a9781-4b83-4530-be34-e71c2d56a4b8", "timestamp": "2026-07-03T11:02:44.532044Z", "level": "info"}
+INFO:     192.168.1.5:53902 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:59374 - "GET /api/v1/consent-templates HTTP/1.1" 401 Unauthorized
+INFO:     192.168.1.5:59374 - "OPTIONS /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 404, "duration_ms": 23.82, "event": "request_completed", "request_id": "7e11ac32-c65d-48a6-ad0c-544f27128a49", "timestamp": "2026-07-03T11:03:18.264050Z", "level": "info"}
+INFO:     192.168.1.5:59374 - "POST /api/v1/auth/local-login HTTP/1.1" 404 Not Found
+INFO:     192.168.1.5:61839 - "GET /api/v1/consent-templates HTTP/1.1" 401 Unauthorized
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 13.42, "event": "request_completed", "request_id": "2bb3d653-a03d-4b7a-bc9e-b102fb428cc0", "timestamp": "2026-07-03T11:04:15.188497Z", "level": "info"}
+INFO:     192.168.1.5:65478 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:51507 - "GET /api/v1/consent-templates HTTP/1.1" 401 Unauthorized
+INFO:     192.168.1.5:51873 - "OPTIONS /api/v1/auth/local-login HTTP/1.1" 200 OK
+INFO:     192.168.1.5:51873 - "POST /api/v1/auth/local-login HTTP/1.1" 500 Internal Server Error

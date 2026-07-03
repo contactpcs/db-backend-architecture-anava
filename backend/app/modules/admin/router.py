@@ -3,9 +3,17 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 
 from app.core.db import RequestContext, get_db
+from app.core.exceptions import PermissionError_
 from app.core.permissions import require_role
+from app.core.scoping import assert_clinic_scope
 from app.modules.admin import schemas as s
-from app.modules.admin.service import ClinicRequestService, ClinicService, RegionService, StaffAssignmentService
+from app.modules.admin.service import (
+    AdminAccountsService,
+    ClinicRequestService,
+    ClinicService,
+    RegionService,
+    StaffAssignmentService,
+)
 
 router = APIRouter()
 
@@ -42,6 +50,35 @@ async def update_region(
     return await RegionService(db).update(region_id, body.model_dump())
 
 
+@router.delete("/regions/{region_id}", status_code=204)
+async def delete_region(
+    region_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role("super_admin"))
+):
+    await RegionService(db).delete(region_id)
+
+
+@router.post("/regions/{region_id}/assign-admin", response_model=s.RegionRead, status_code=201)
+async def assign_regional_admin(
+    region_id: UUID,
+    body: s.RegionalAdminAssign,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role("super_admin")),
+):
+    return await RegionService(db).assign_admin(region_id, body.model_dump())
+
+
+# ----------------------------------------------------------------- admins --
+@router.get("/admins", response_model=list[s.AdminAccountRead])
+async def list_admins(
+    admin_type: str | None = None,
+    region_id: UUID | None = None,
+    clinic_id: UUID | None = None,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role("super_admin", "regional_admin")),
+):
+    return await AdminAccountsService(db).list(admin_type=admin_type, region_id=region_id, clinic_id=clinic_id)
+
+
 # ---------------------------------------------------------------- clinics --
 @router.post("/clinics", response_model=s.ClinicRead, status_code=201)
 async def create_clinic(
@@ -51,8 +88,17 @@ async def create_clinic(
 ):
     data = body.model_dump()
     data["region_id"] = str(data["region_id"])
-    data["clinic_admin_id"] = str(data["clinic_admin_id"])
     return await ClinicService(db).create(data)
+
+
+@router.post("/clinics/{clinic_id}/assign-admin", response_model=s.ClinicRead, status_code=201)
+async def assign_clinic_admin(
+    clinic_id: UUID,
+    body: s.ClinicAdminAssign,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role("super_admin", "regional_admin")),
+):
+    return await ClinicService(db).assign_admin(clinic_id, body.model_dump())
 
 
 @router.get("/clinics", response_model=list[s.ClinicRead])
@@ -79,8 +125,9 @@ async def update_clinic(
     clinic_id: UUID,
     body: s.ClinicUpdate,
     db=Depends(get_db),
-    _ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin")),
+    ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin")),
 ):
+    await assert_clinic_scope(ctx, db, clinic_id)
     fields = body.model_dump()
     if fields.get("clinic_admin_id"):
         fields["clinic_admin_id"] = str(fields["clinic_admin_id"])
@@ -97,6 +144,13 @@ async def change_clinic_status(
     return await ClinicService(db).change_status(clinic_id, body.status)
 
 
+@router.delete("/clinics/{clinic_id}", status_code=204)
+async def delete_clinic(
+    clinic_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role("super_admin", "regional_admin"))
+):
+    await ClinicService(db).delete(clinic_id)
+
+
 # --------------------------------------------------------- clinic requests --
 @router.post("/clinic-requests", response_model=s.ClinicRequestRead, status_code=201)
 async def create_clinic_request(
@@ -108,6 +162,8 @@ async def create_clinic_request(
     data["region_id"] = str(data["region_id"])
     if data.get("clinic_id"):
         data["clinic_id"] = str(data["clinic_id"])
+    if ctx.role == "regional_admin" and data["region_id"] != ctx.region_id:
+        raise PermissionError_("You can only submit clinic requests for your own region", code="REGION_SCOPE_MISMATCH")
     return await ClinicRequestService(db).create(data, submitted_by=UUID(ctx.user_id))
 
 
@@ -116,8 +172,10 @@ async def list_clinic_requests(
     region_id: UUID | None = None,
     status: str | None = None,
     db=Depends(get_db),
-    _ctx: RequestContext = Depends(require_role("super_admin", "regional_admin")),
+    ctx: RequestContext = Depends(require_role("super_admin", "regional_admin")),
 ):
+    if region_id is None and ctx.role == "regional_admin":
+        region_id = UUID(ctx.region_id)
     return await ClinicRequestService(db).list(region_id=region_id, status=status)
 
 

@@ -11,6 +11,11 @@
 -- under concurrent load drift silently (read-modify-write race).
 -- Use view v_doctor_active_patient_counts for live count queries.
 -- Capacity check: query view and compare against max_patient_count.
+--
+-- clinic_id: denormalized primary-clinic fast-lookup, added in
+-- File 20 (20_doctor_clinic_id.sql) after clinics exists. Kept in
+-- sync at write time; clinic_staff_assignments remains the source
+-- of truth for multi-clinic doctor membership.
 -- ------------------------------------------------------------
 CREATE TABLE doctors (
     doctor_id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),

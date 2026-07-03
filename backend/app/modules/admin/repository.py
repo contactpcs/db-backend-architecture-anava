@@ -48,6 +48,16 @@ class RegionRepository:
         ).mappings().first()
         return dict(row) if row else None
 
+    async def count_clinics(self, region_id: UUID) -> int:
+        return (
+            await self.session.execute(
+                text("SELECT count(*) FROM clinics WHERE region_id = :id"), {"id": str(region_id)}
+            )
+        ).scalar_one()
+
+    async def delete(self, region_id: UUID) -> None:
+        await self.session.execute(text("DELETE FROM regions WHERE region_id = :id"), {"id": str(region_id)})
+
 
 class ClinicRepository:
     def __init__(self, session: AsyncSession):
@@ -92,6 +102,90 @@ class ClinicRepository:
             )
         ).mappings().first()
         return dict(row) if row else None
+
+    async def count_for_region(self, region_id: UUID) -> int:
+        return (
+            await self.session.execute(
+                text("SELECT count(*) FROM clinics WHERE region_id = :id"), {"id": str(region_id)}
+            )
+        ).scalar_one()
+
+    async def count_dependents(self, clinic_id: UUID) -> int:
+        """Active staff assignments + patients — anything that would orphan
+        on delete. `patients` isn't owned by this module but is read-only
+        here purely for the delete-safety count."""
+        staff = (
+            await self.session.execute(
+                text("SELECT count(*) FROM clinic_staff_assignments WHERE clinic_id = :id AND is_active = TRUE"),
+                {"id": str(clinic_id)},
+            )
+        ).scalar_one()
+        patients = (
+            await self.session.execute(
+                text("SELECT count(*) FROM patients WHERE primary_clinic_id = :id"), {"id": str(clinic_id)}
+            )
+        ).scalar_one()
+        return staff + patients
+
+    async def delete(self, clinic_id: UUID) -> None:
+        await self.session.execute(text("DELETE FROM clinics WHERE clinic_id = :id"), {"id": str(clinic_id)})
+
+
+class AdminsRepository:
+    """`admins` table has no owning module yet — role-detail row for
+    super_admin/regional_admin/clinic_admin, mirrors doctors/CAs/receptionists."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create(self, *, profile_id: UUID, admin_type: str, region_id: UUID | None, clinic_id: UUID | None) -> dict:
+        row = (
+            await self.session.execute(
+                text(
+                    "INSERT INTO admins (profile_id, admin_type, region_id, clinic_id) "
+                    "VALUES (:profile_id, :admin_type, :region_id, :clinic_id) RETURNING *"
+                ),
+                {
+                    "profile_id": str(profile_id),
+                    "admin_type": admin_type,
+                    "region_id": str(region_id) if region_id else None,
+                    "clinic_id": str(clinic_id) if clinic_id else None,
+                },
+            )
+        ).mappings().one()
+        return dict(row)
+
+    # Joined with profiles/regions/clinics — this is a purpose-built admin
+    # management view, unlike the doctor/CA/receptionist/patient list
+    # endpoints (which deliberately return bare rows with no profile join).
+    async def list(self, *, admin_type: str | None = None, region_id: UUID | None = None, clinic_id: UUID | None = None) -> list[dict]:
+        clauses, params = [], {}
+        if admin_type:
+            clauses.append("a.admin_type = :admin_type")
+            params["admin_type"] = admin_type
+        if region_id:
+            clauses.append("a.region_id = :region_id")
+            params["region_id"] = str(region_id)
+        if clinic_id:
+            clauses.append("a.clinic_id = :clinic_id")
+            params["clinic_id"] = str(clinic_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = (
+            await self.session.execute(
+                text(
+                    "SELECT a.admin_id, a.profile_id, a.admin_type, a.region_id, a.clinic_id, a.created_at, "
+                    "p.first_name, p.last_name, p.email, p.phone, p.is_active, "
+                    "r.region_name, c.clinic_name "
+                    "FROM admins a "
+                    "JOIN profiles p ON p.id = a.profile_id "
+                    "LEFT JOIN regions r ON r.region_id = a.region_id "
+                    "LEFT JOIN clinics c ON c.clinic_id = a.clinic_id "
+                    f"{where} ORDER BY a.created_at DESC"
+                ),
+                params,
+            )
+        ).mappings().all()
+        return [dict(r) for r in rows]
 
 
 class ClinicRequestRepository:

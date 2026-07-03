@@ -30,7 +30,30 @@ class PatientService:
         self.disease_repo = DiseaseSelectionRepository(session)
         self.assignments = DoctorPatientAssignmentRepository(session)
 
-    async def register(self, data: dict) -> dict:
+    async def register(self, data: dict, *, self_registered: bool = False) -> dict:
+        clinic = (
+            await self.session.execute(
+                text(
+                    "SELECT c.clinic_admin_id, c.status, r.regional_admin_id "
+                    "FROM clinics c JOIN regions r ON r.region_id = c.region_id WHERE c.clinic_id = :id"
+                ),
+                {"id": str(data["primary_clinic_id"])},
+            )
+        ).mappings().first()
+        if clinic is None:
+            raise NotFoundError("Clinic not found", code="CLINIC_NOT_FOUND")
+        if clinic["regional_admin_id"] is None:
+            raise BusinessRuleError(
+                "This clinic's region has no regional_admin yet — assign one before registering patients",
+                code="REGIONAL_ADMIN_NOT_ASSIGNED",
+            )
+        if clinic["clinic_admin_id"] is None:
+            raise BusinessRuleError(
+                "This clinic has no clinic_admin yet — assign one before registering patients",
+                code="CLINIC_ADMIN_NOT_ASSIGNED",
+            )
+        if clinic["status"] in ("pending_closure", "closed"):
+            raise BusinessRuleError("Cannot register a patient at a clinic that is closing/closed", code="CLINIC_NOT_OPEN")
         try:
             patient = await self.repo.create_profile_and_patient(
                 email=data["email"], first_name=data["first_name"], last_name=data["last_name"],
@@ -38,9 +61,19 @@ class PatientService:
                 address=data.get("address"), primary_clinic_id=data["primary_clinic_id"],
                 emergency_contact_name=data.get("emergency_contact_name"),
                 emergency_contact_phone=data.get("emergency_contact_phone"),
+                city=data.get("city"), state=data.get("state"), country=data.get("country"), pincode=data.get("pincode"),
+                self_registered=self_registered, approval_status="pending" if self_registered else "not_required",
             )
         except IntegrityError as exc:
             raise ConflictError(f"Email {data['email']!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
+
+        # Local import — avoids a module-load-time circular import (consent doesn't import patients).
+        from app.modules.consent.service import ConsentRecordService
+
+        await ConsentRecordService(self.session).create(
+            consent_type="patient_onboarding", patient_id=patient["patient_id"], staff_id=None,
+            clinic_id=patient["primary_clinic_id"],
+        )
         await emit_event(
             self.session, aggregate_type="patient", aggregate_id=patient["patient_id"],
             event_type="patient_registered", payload={"patient_id": str(patient["patient_id"]), "mrn": patient["mrn"]},
@@ -56,7 +89,51 @@ class PatientService:
     async def list(self, **filters) -> list[dict]:
         return await self.repo.list(**filters)
 
-    async def select_disease(self, patient_id: UUID, *, disease_id, disease_unknown: bool, is_primary: bool) -> dict:
+    async def update(self, patient_id: UUID, fields: dict) -> dict:
+        await self.get(patient_id)  # 404 if missing
+        profile_keys = {"first_name", "last_name", "phone", "gender", "dob", "address"}
+        patient_keys = {"emergency_contact_name", "emergency_contact_phone"}
+        clean = {k: v for k, v in fields.items() if v is not None}
+        profile_fields = {k: v for k, v in clean.items() if k in profile_keys}
+        patient_fields = {k: v for k, v in clean.items() if k in patient_keys}
+        updated = await self.repo.update(patient_id, profile_fields=profile_fields, patient_fields=patient_fields)
+        return updated  # type: ignore[return-value]
+
+    async def decide_approval(self, patient_id: UUID, *, decision: str, decided_by: UUID,
+                               rejection_reason: str | None) -> dict:
+        """Receptionist review gate for self-registered patients — only
+        reachable once the patient has finished the whole 6-step wizard
+        themselves (Master Doc per this feature's design: receptionist only
+        sees the request after registration_complete, not partway through)."""
+        patient = await self.get(patient_id)
+        if patient["registration_status"] != "registration_complete":
+            raise BusinessRuleError("Patient hasn't completed registration yet", code="REGISTRATION_INCOMPLETE")
+        if patient["approval_status"] != "pending":
+            raise BusinessRuleError(f"Approval already {patient['approval_status']}", code="APPROVAL_ALREADY_DECIDED")
+
+        updated = await self.repo.set_approval(
+            patient_id, approval_status=decision, approved_by=decided_by, rejection_reason=rejection_reason,
+        )
+        if decision == "approved":
+            await self.session.execute(
+                text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(patient["profile_id"])}
+            )
+        await emit_event(
+            self.session, aggregate_type="patient", aggregate_id=patient_id,
+            event_type="patient_registration_decided", payload={"patient_id": str(patient_id), "decision": decision},
+        )
+        return await self.get(patient_id)
+
+    async def delete(self, patient_id: UUID, *, deleted_by: UUID) -> None:
+        await self.get(patient_id)  # 404 if missing
+        await self.repo.soft_delete(patient_id, deleted_by=deleted_by)
+        await emit_event(
+            self.session, aggregate_type="patient", aggregate_id=patient_id,
+            event_type="patient_deleted", payload={"patient_id": str(patient_id)},
+        )
+
+    async def select_disease(self, patient_id: UUID, *, disease_id, disease_unknown: bool, is_primary: bool,
+                              assigned_by: UUID | None = None) -> dict:
         patient = await self.get(patient_id)
         if not disease_id and not disease_unknown:
             raise BusinessRuleError("Either disease_id or disease_unknown must be set", code="DISEASE_SELECTION_REQUIRED")
@@ -64,6 +141,17 @@ class PatientService:
             patient_profile_id=patient["profile_id"], disease_id=disease_id,
             disease_unknown=disease_unknown, is_primary=is_primary,
         )
+        # Master Doc Section 9.3 — scales auto-assign off disease_selection at
+        # registration. PatientScaleAssignmentService.auto_assign_for_disease
+        # already existed but was never actually wired to this call (found
+        # while building patient self-registration — without this, NO patient,
+        # self- or staff-registered, could ever reach general_prs_complete).
+        if disease_id and assigned_by:
+            from app.modules.prs.service import PatientScaleAssignmentService
+
+            await PatientScaleAssignmentService(self.session).auto_assign_for_disease(
+                patient_id, disease_id, "general_registration", assigned_by,
+            )
         await emit_event(
             self.session, aggregate_type="patient", aggregate_id=patient_id,
             event_type="disease_selected", payload={"patient_id": str(patient_id), "disease_id": disease_id},

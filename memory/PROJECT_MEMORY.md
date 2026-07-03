@@ -313,3 +313,55 @@ Status as of June 2026:
 - Development order is strict: Doc → Schema → Code (no shortcuts)
 - No code written until schema is locked
 - Caveman mode active (terse responses, drop filler)
+
+---
+
+## PATIENT SELF-REGISTRATION + RECEPTIONIST APPROVAL GATE (2026-07-03)
+
+Two legitimate patient onboarding paths now exist, both using the same
+6-step `registration_status` machine:
+- **Staff-registered** (existing, unaffected): receptionist registers a
+  walk-in patient in person — witness present, consent activates the
+  account immediately, exactly as before.
+- **Self-registered** (new): patient reaches the public site (`/register`),
+  creates their own account (`POST /auth/register`, public, no auth), and
+  works through demographics → disease selection → consent (no witness,
+  since no one's physically present) → anamnesis → PRS assessment
+  themselves — account stays **inactive** the whole time. Only once
+  `registration_status='registration_complete'` does a receptionist see the
+  request (`/receptionist/approvals`, already-built page, previously wired
+  to dead stubs) and approve/reject it — approval is what finally flips
+  `is_active=TRUE`. See `SQL/24_patient_self_registration.sql` for the new
+  `patients.self_registered/approval_status/approved_by/approved_at/rejection_reason`
+  columns and `PATCH /patients/{id}/approval`.
+- Two adjacent pre-existing gaps had to be fixed for this to work at all
+  (would've blocked BOTH onboarding paths, not just self-registration):
+  scale auto-assignment (`PatientScaleAssignmentService.auto_assign_for_disease`
+  existed but was never called from `select_disease()`) and no endpoint
+  ever exposed a scale's question list (`GET /prs-catalog/scale-questions`
+  added, wraps an already-existing repo method).
+- Also fixed the literal original bug report: the public register page's
+  clinic dropdown was empty because `GET /auth/clinics` didn't exist —
+  added it (excludes only pending_closure/closed clinics, same convention
+  `_ensure_clinic_ready_for_staff` uses elsewhere).
+
+## STAFF ONBOARDING POLICY — CORRECTED (2026-07-03)
+
+Code had drifted from what this doc's own "THE 7 ROLES" section always said
+("Clinic Admin → ... requests staff", "Regional Admin → ... approves all
+staff") by letting clinic_admin AND regional_admin both create doctor/CA/
+receptionist profiles directly. Corrected back to the documented design —
+see `SQL/22_staff_onboarding_lockdown.sql` for the full policy note:
+
+- clinic_admin: submit staff_request only (open_position/candidate_referral)
+  + PATCH-update existing staff (now audited via outbox events). No create,
+  no delete.
+- regional_admin: approves staff_requests; approval no longer auto-creates
+  the profile — regional_admin creates it themselves as a separate step,
+  full CRUD retained.
+- super_admin: unchanged, full CRUD everywhere.
+- New rule: doctor/CA/receptionist `profiles.email` must be on an official
+  org domain (anavaclinic.com / anavaclinics.com / manahealthsciences.com) —
+  patients and admin-tier accounts are exempt.
+- Audit trail ("who referred/approved/when") was already fully covered by
+  existing `staff_requests` columns — no schema change needed.

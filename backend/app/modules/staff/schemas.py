@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
@@ -7,13 +7,28 @@ from pydantic import BaseModel, EmailStr, Field
 class StaffPersonCreate(BaseModel):
     """Shared shape for creating a new staff member's identity + role detail
     in one call. cognito_sub is a placeholder until Stage 13 wires the real
-    Cognito invite flow (Flow H) — see service.py docstring."""
+    Cognito invite flow (Flow H) — see service.py docstring.
+
+    Captures every profiles column that's meaningful to collect at
+    registration time (not just email/name/phone) so the record is complete
+    from day one rather than needing a separate profile-edit step later."""
 
     email: EmailStr
     first_name: str
     last_name: str
     phone: str | None = None
     clinic_id: UUID
+    gender: str | None = Field(default=None, pattern="^(male|female|other)$")
+    dob: date | None = None
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    pincode: str | None = None
+    # Set when this profile fulfills an approved staff_request (see
+    # StaffRequestRepository.fulfill) — optional, direct creates (no
+    # referral) leave this unset.
+    staff_request_id: UUID | None = None
 
 
 class DoctorCreate(StaffPersonCreate):
@@ -23,8 +38,23 @@ class DoctorCreate(StaffPersonCreate):
     max_patient_count: int = 30
 
 
-class DoctorUpdate(BaseModel):
+class StaffProfileUpdate(BaseModel):
+    """Shared profile-level fields every staff *Update schema accepts
+    alongside its own role-specific ones — admin edits go through one PATCH,
+    not a separate profile-edit endpoint."""
+
+    first_name: str | None = None
+    last_name: str | None = None
+    phone: str | None = None
+    gender: str | None = Field(default=None, pattern="^(male|female|other)$")
+    dob: date | None = None
+    address: str | None = None
+
+
+class DoctorUpdate(StaffProfileUpdate):
     specialization: str | None = None
+    license_number: str | None = None
+    hospital_affiliation: str | None = None
     max_patient_count: int | None = None
     availability_status: str | None = Field(
         default=None, pattern="^(available|at_capacity|on_leave|inactive)$"
@@ -39,10 +69,28 @@ class DoctorRead(BaseModel):
     max_patient_count: int
     availability_status: str
     created_at: datetime
+    # Joined from profiles — doctors has no name/email/phone columns of its
+    # own, and no is_active column either (availability_status is a
+    # different concept; profile_is_active is the real consent-gate signal).
+    first_name: str
+    last_name: str
+    email: str
+    phone: str | None = None
+    profile_is_active: bool = True
+    # Denormalized primary-clinic column (SQL/20_doctor_clinic_id.sql) —
+    # clinic_staff_assignments remains the source of truth for multi-clinic
+    # doctor membership, this is a fast-lookup convenience kept in sync at
+    # write time (see DoctorRepository.create).
+    clinic_id: UUID | None = None
 
 
 class ClinicalAssistantCreate(StaffPersonCreate):
     qualification: str | None = None
+
+
+class ClinicalAssistantUpdate(StaffProfileUpdate):
+    qualification: str | None = None
+    is_active: bool | None = None
 
 
 class ClinicalAssistantRead(BaseModel):
@@ -50,20 +98,34 @@ class ClinicalAssistantRead(BaseModel):
     profile_id: UUID
     clinic_id: UUID
     qualification: str | None
-    is_active: bool
+    is_active: bool  # this role slot's own on/off flag — NOT the consent-gate signal, see profile_is_active
     created_at: datetime
+    first_name: str
+    last_name: str
+    email: str
+    phone: str | None = None
+    profile_is_active: bool = True
 
 
 class ReceptionistCreate(StaffPersonCreate):
     pass
 
 
+class ReceptionistUpdate(StaffProfileUpdate):
+    is_active: bool | None = None
+
+
 class ReceptionistRead(BaseModel):
     receptionist_id: UUID
     profile_id: UUID
     clinic_id: UUID
-    is_active: bool
+    is_active: bool  # this role slot's own on/off flag — NOT the consent-gate signal, see profile_is_active
     created_at: datetime
+    first_name: str
+    last_name: str
+    email: str
+    phone: str | None = None
+    profile_is_active: bool = True
 
 
 class CaDoctorAssignmentCreate(BaseModel):
@@ -106,8 +168,15 @@ class StaffRequestRead(BaseModel):
     position_role: str
     candidate_name: str | None
     candidate_email: str | None
+    candidate_phone: str | None = None
+    candidate_credentials: dict = Field(default_factory=dict)
     status: str
     submitted_by: UUID
     reviewed_by: UUID | None
     review_notes: str | None
     created_at: datetime
+    # Set once a doctor/CA/receptionist profile is created against this
+    # request (see StaffRequestRepository.fulfill) — status itself stays
+    # 'approved' forever, this is the actual fulfillment signal.
+    fulfilled_profile_id: UUID | None = None
+    fulfilled_at: datetime | None = None

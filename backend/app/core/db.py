@@ -30,6 +30,7 @@ class RequestContext:
     role: str
     clinic_id: str | None
     region_id: str | None
+    is_active: bool = True
 
 
 _request_context: ContextVar[RequestContext | None] = ContextVar("_request_context", default=None)

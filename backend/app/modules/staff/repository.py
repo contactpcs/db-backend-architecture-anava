@@ -9,41 +9,75 @@ from app.core.sql_helpers import fetch_one, fetch_optional, insert_returning
 
 
 async def create_profile(session: AsyncSession, *, email: str, first_name: str, last_name: str,
-                          phone: str | None, role: str) -> dict:
+                          phone: str | None, role: str, is_active: bool = True,
+                          gender: str | None = None, dob=None, address: str | None = None,
+                          city: str | None = None, state: str | None = None, country: str | None = None,
+                          pincode: str | None = None) -> dict:
     """Every staff/admin identity starts as a profiles row. cognito_sub is a
     placeholder ('pending-<uuid>') until Stage 13's real Cognito invite flow
     replaces it — this module owns the write today because no dedicated
     profiles/identity module exists (profiles is core/universal per
-    Architecture Section 6, read by auth, not owned by any one module)."""
+    Architecture Section 6, read by auth, not owned by any one module).
+
+    is_active defaults True for backward compatibility, but every caller in
+    this codebase now passes is_active=False for newly-registered people —
+    they're gated inactive until they sign the onboarding consent (see
+    consent/service.py ConsentRecordService.sign)."""
     row = (
         await session.execute(
             text(
-                "INSERT INTO profiles (cognito_sub, email, first_name, last_name, phone, role) "
-                "VALUES ('pending-' || gen_random_uuid()::TEXT, :email, :first_name, :last_name, :phone, :role) "
+                "INSERT INTO profiles (cognito_sub, email, first_name, last_name, phone, role, is_active, "
+                "gender, dob, address, city, state, country, pincode) "
+                "VALUES ('pending-' || gen_random_uuid()::TEXT, :email, :first_name, :last_name, :phone, :role, "
+                ":is_active, :gender, :dob, :address, :city, :state, :country, :pincode) "
                 "RETURNING *"
             ),
-            {"email": email, "first_name": first_name, "last_name": last_name, "phone": phone, "role": role},
+            {
+                "email": email, "first_name": first_name, "last_name": last_name, "phone": phone, "role": role,
+                "is_active": is_active, "gender": gender, "dob": dob, "address": address, "city": city,
+                "state": state, "country": country, "pincode": pincode,
+            },
         )
     ).mappings().one()
     return dict(row)
+
+
+async def update_profile(session: AsyncSession, profile_id: UUID, fields: dict) -> None:
+    """Shared PATCH for the profile-level fields every staff *Update schema
+    accepts (first_name/last_name/phone/gender/dob/address) — role-specific
+    fields still go through that role's own repository.update()."""
+    if not fields:
+        return
+    set_clause = ", ".join(f"{k} = :{k}" for k in fields)
+    await session.execute(text(f"UPDATE profiles SET {set_clause} WHERE id = :pid"), {**fields, "pid": str(profile_id)})
+
+
+async def soft_delete_profile(session: AsyncSession, profile_id: UUID, *, deleted_by: UUID) -> None:
+    """Never a real DELETE — matches the same soft-delete convention as
+    patients (deactivate, keep the record for audit/history)."""
+    await session.execute(
+        text("UPDATE profiles SET deleted_by = :by, deleted_at = NOW(), is_active = FALSE WHERE id = :pid"),
+        {"by": str(deleted_by), "pid": str(profile_id)},
+    )
 
 
 class DoctorRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, *, profile_id: UUID, specialization, license_number, hospital_affiliation,
+    async def create(self, *, profile_id: UUID, clinic_id: UUID, specialization, license_number, hospital_affiliation,
                       max_patient_count: int) -> dict:
         row = (
             await self.session.execute(
                 text(
-                    "INSERT INTO doctors (profile_id, specialization, license_number, "
+                    "INSERT INTO doctors (profile_id, clinic_id, specialization, license_number, "
                     "hospital_affiliation, max_patient_count) VALUES "
-                    "(:profile_id, :specialization, :license_number, :hospital_affiliation, :max_patient_count) "
+                    "(:profile_id, :clinic_id, :specialization, :license_number, :hospital_affiliation, :max_patient_count) "
                     "RETURNING *"
                 ),
                 {
                     "profile_id": str(profile_id),
+                    "clinic_id": str(clinic_id),
                     "specialization": specialization,
                     "license_number": license_number,
                     "hospital_affiliation": hospital_affiliation,
@@ -56,25 +90,31 @@ class DoctorRepository:
     async def get(self, doctor_id: UUID) -> dict | None:
         row = (
             await self.session.execute(
-                text("SELECT * FROM doctors WHERE doctor_id = :id"), {"id": str(doctor_id)}
+                text(
+                    "SELECT d.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active "
+                    "FROM doctors d JOIN profiles p ON p.id = d.profile_id WHERE d.doctor_id = :id"
+                ),
+                {"id": str(doctor_id)},
             )
         ).mappings().first()
         return dict(row) if row else None
 
     async def list(self, *, clinic_id: UUID | None = None) -> list[dict]:
+        # profile_is_active is joined in from profiles — doctors has no
+        # is_active column of its own (availability_status covers a
+        # different concept), and this is the real consent-gate signal the
+        # frontend's staff list needs, not something derivable from `doctors` alone.
+        # d.deleted_at IS NULL excludes soft-deleted doctors from the active list.
+        base = (
+            "SELECT d.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active "
+            "FROM doctors d JOIN profiles p ON p.id = d.profile_id WHERE d.deleted_at IS NULL"
+        )
         if clinic_id:
             rows = (
-                await self.session.execute(
-                    text(
-                        "SELECT d.* FROM doctors d "
-                        "JOIN clinic_staff_assignments csa ON csa.profile_id = d.profile_id "
-                        "WHERE csa.clinic_id = :clinic_id AND csa.is_active = TRUE"
-                    ),
-                    {"clinic_id": str(clinic_id)},
-                )
+                await self.session.execute(text(f"{base} AND d.clinic_id = :clinic_id"), {"clinic_id": str(clinic_id)})
             ).mappings().all()
         else:
-            rows = (await self.session.execute(text("SELECT * FROM doctors"))).mappings().all()
+            rows = (await self.session.execute(text(base))).mappings().all()
         return [dict(r) for r in rows]
 
     async def update(self, doctor_id: UUID, fields: dict) -> dict | None:
@@ -88,6 +128,20 @@ class DoctorRepository:
             )
         ).mappings().first()
         return dict(row) if row else None
+
+    async def soft_delete(self, doctor_id: UUID, *, deleted_by: UUID) -> dict | None:
+        doctor = await self.get(doctor_id)
+        if not doctor:
+            return None
+        await self.session.execute(
+            text("UPDATE doctors SET deleted_by = :by, deleted_at = NOW() WHERE doctor_id = :id"),
+            {"by": str(deleted_by), "id": str(doctor_id)},
+        )
+        await self.session.execute(
+            text("UPDATE clinic_staff_assignments SET is_active = FALSE, removed_at = NOW() WHERE profile_id = :pid AND staff_role = 'doctor' AND is_active = TRUE"),
+            {"pid": str(doctor["profile_id"])},
+        )
+        return doctor
 
     async def active_patient_counts(self, doctor_ids: list[UUID]) -> dict[str, int]:
         if not doctor_ids:
@@ -109,7 +163,14 @@ class ClinicalAssistantRepository:
         self.session = session
 
     async def get(self, ca_id: UUID) -> dict | None:
-        return await fetch_optional(self.session, text("SELECT * FROM clinical_assistants WHERE ca_id = :id"), {"id": str(ca_id)})
+        return await fetch_optional(
+            self.session,
+            text(
+                "SELECT ca.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active FROM clinical_assistants ca "
+                "JOIN profiles p ON p.id = ca.profile_id WHERE ca.ca_id = :id"
+            ),
+            {"id": str(ca_id)},
+        )
 
     async def create(self, *, profile_id: UUID, clinic_id: UUID, qualification: str | None) -> dict:
         row = (
@@ -124,16 +185,43 @@ class ClinicalAssistantRepository:
         return dict(row)
 
     async def list(self, *, clinic_id: UUID | None = None) -> list[dict]:
+        base = (
+            "SELECT ca.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active "
+            "FROM clinical_assistants ca JOIN profiles p ON p.id = ca.profile_id WHERE ca.deleted_at IS NULL"
+        )
         if clinic_id:
             rows = (
-                await self.session.execute(
-                    text("SELECT * FROM clinical_assistants WHERE clinic_id = :clinic_id"),
-                    {"clinic_id": str(clinic_id)},
-                )
+                await self.session.execute(text(f"{base} AND ca.clinic_id = :clinic_id"), {"clinic_id": str(clinic_id)})
             ).mappings().all()
         else:
-            rows = (await self.session.execute(text("SELECT * FROM clinical_assistants"))).mappings().all()
+            rows = (await self.session.execute(text(base))).mappings().all()
         return [dict(r) for r in rows]
+
+    async def update(self, ca_id: UUID, fields: dict) -> dict | None:
+        if not fields:
+            return await self.get(ca_id)
+        set_clause = ", ".join(f"{k} = :{k}" for k in fields)
+        row = (
+            await self.session.execute(
+                text(f"UPDATE clinical_assistants SET {set_clause} WHERE ca_id = :id RETURNING *"),
+                {**fields, "id": str(ca_id)},
+            )
+        ).mappings().first()
+        return dict(row) if row else None
+
+    async def soft_delete(self, ca_id: UUID, *, deleted_by: UUID) -> dict | None:
+        ca = await self.get(ca_id)
+        if not ca:
+            return None
+        await self.session.execute(
+            text("UPDATE clinical_assistants SET deleted_by = :by, deleted_at = NOW(), is_active = FALSE WHERE ca_id = :id"),
+            {"by": str(deleted_by), "id": str(ca_id)},
+        )
+        await self.session.execute(
+            text("UPDATE clinic_staff_assignments SET is_active = FALSE, removed_at = NOW() WHERE profile_id = :pid AND staff_role = 'clinical_assistant' AND is_active = TRUE"),
+            {"pid": str(ca["profile_id"])},
+        )
+        return ca
 
 
 class ReceptionistRepository:
@@ -153,16 +241,53 @@ class ReceptionistRepository:
         return dict(row)
 
     async def list(self, *, clinic_id: UUID | None = None) -> list[dict]:
+        base = (
+            "SELECT r.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active "
+            "FROM receptionists r JOIN profiles p ON p.id = r.profile_id WHERE r.deleted_at IS NULL"
+        )
         if clinic_id:
             rows = (
-                await self.session.execute(
-                    text("SELECT * FROM receptionists WHERE clinic_id = :clinic_id"),
-                    {"clinic_id": str(clinic_id)},
-                )
+                await self.session.execute(text(f"{base} AND r.clinic_id = :clinic_id"), {"clinic_id": str(clinic_id)})
             ).mappings().all()
         else:
-            rows = (await self.session.execute(text("SELECT * FROM receptionists"))).mappings().all()
+            rows = (await self.session.execute(text(base))).mappings().all()
         return [dict(r) for r in rows]
+
+    async def get(self, receptionist_id: UUID) -> dict | None:
+        return await fetch_optional(
+            self.session,
+            text(
+                "SELECT r.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active FROM receptionists r "
+                "JOIN profiles p ON p.id = r.profile_id WHERE r.receptionist_id = :id"
+            ),
+            {"id": str(receptionist_id)},
+        )
+
+    async def update(self, receptionist_id: UUID, fields: dict) -> dict | None:
+        if not fields:
+            return await self.get(receptionist_id)
+        set_clause = ", ".join(f"{k} = :{k}" for k in fields)
+        row = (
+            await self.session.execute(
+                text(f"UPDATE receptionists SET {set_clause} WHERE receptionist_id = :id RETURNING *"),
+                {**fields, "id": str(receptionist_id)},
+            )
+        ).mappings().first()
+        return dict(row) if row else None
+
+    async def soft_delete(self, receptionist_id: UUID, *, deleted_by: UUID) -> dict | None:
+        receptionist = await self.get(receptionist_id)
+        if not receptionist:
+            return None
+        await self.session.execute(
+            text("UPDATE receptionists SET deleted_by = :by, deleted_at = NOW(), is_active = FALSE WHERE receptionist_id = :id"),
+            {"by": str(deleted_by), "id": str(receptionist_id)},
+        )
+        await self.session.execute(
+            text("UPDATE clinic_staff_assignments SET is_active = FALSE, removed_at = NOW() WHERE profile_id = :pid AND staff_role = 'receptionist' AND is_active = TRUE"),
+            {"pid": str(receptionist["profile_id"])},
+        )
+        return receptionist
 
 
 class CaDoctorAssignmentRepository:
@@ -229,6 +354,23 @@ class StaffRequestRepository:
         ).mappings().all()
         return [dict(r) for r in rows]
 
+    async def list_by_region(self, region_id: str, *, status: str | None = None) -> list[dict]:
+        clauses, params = ["c.region_id = :region_id"], {"region_id": region_id}
+        if status:
+            clauses.append("sr.status = :status")
+            params["status"] = status
+        where = " AND ".join(clauses)
+        rows = (
+            await self.session.execute(
+                text(
+                    f"SELECT sr.* FROM staff_requests sr JOIN clinics c ON c.clinic_id = sr.clinic_id "
+                    f"WHERE {where} ORDER BY sr.created_at DESC"
+                ),
+                params,
+            )
+        ).mappings().all()
+        return [dict(r) for r in rows]
+
     async def decide(self, request_id: UUID, *, status: str, reviewed_by: UUID, review_notes: str | None) -> dict | None:
         row = (
             await self.session.execute(
@@ -240,3 +382,12 @@ class StaffRequestRepository:
             )
         ).mappings().first()
         return dict(row) if row else None
+
+    async def fulfill(self, request_id: UUID, *, profile_id: UUID) -> None:
+        """Links the just-created doctor/CA/receptionist profile back to the
+        staff_request it fulfills. status stays 'approved' forever —
+        fulfilled_profile_id IS NOT NULL is the real fulfillment signal."""
+        await self.session.execute(
+            text("UPDATE staff_requests SET fulfilled_profile_id = :pid, fulfilled_at = NOW() WHERE request_id = :id"),
+            {"pid": str(profile_id), "id": str(request_id)},
+        )

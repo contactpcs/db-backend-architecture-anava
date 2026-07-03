@@ -23,8 +23,38 @@ PUBLIC_PATHS = {
     "/redoc",
     "/api/v1/auth/login",
     "/api/v1/auth/local-login",  # dev-only (Stage 13 removes this route entirely)
+    "/api/v1/auth/register",  # public patient self-registration — see patients module
+    "/api/v1/auth/clinics",  # public clinic picker for the self-registration form
     "/api/v1/webhooks/razorpay",  # authenticated via HMAC signature, not a user JWT
 }
+
+# Reachable even when profiles.is_active = FALSE — a newly-registered
+# staff/patient is inactive until they sign their onboarding consent, but
+# they still need to authenticate, see who they are, and sign it. Anything
+# not in this set is blocked with CONSENT_REQUIRED until they do.
+CONSENT_FLOW_PATH_PREFIXES = (
+    "/api/v1/auth/me",
+    "/api/v1/consent-templates",
+    "/api/v1/consent-records",
+)
+
+# A self-registered patient stays inactive through the ENTIRE 6-step
+# registration machine (demographics -> disease -> consent -> anamnesis ->
+# PRS -> registration_complete) — only a receptionist's later approval
+# activates them (patients.self_registered/approval_status, see
+# SQL/24_patient_self_registration.sql). So an inactive *patient*
+# specifically needs a wider allowance than CONSENT_FLOW_PATH_PREFIXES;
+# role-checks on each endpoint (require_role(...)) remain the real
+# authorization boundary — this only lifts the is_active gate, scoped to
+# role=='patient' below, never to inactive staff.
+PATIENT_SELF_REGISTRATION_PATH_PREFIXES = (
+    *CONSENT_FLOW_PATH_PREFIXES,
+    "/api/v1/patients",
+    "/api/v1/anamnesis",
+    "/api/v1/prs-catalog",
+    "/api/v1/patient-scale-assignments",
+    "/api/v1/prs-assessment-instances",
+)
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -62,10 +92,11 @@ async def _load_profile_and_scope(cognito_sub: str) -> RequestContext:
                 {"sub": cognito_sub},
             )
         ).first()
-        if row is None or not row.is_active:
-            raise PermissionError_("Profile not found or inactive", code="PROFILE_NOT_FOUND")
+        if row is None:
+            raise PermissionError_("Profile not found", code="PROFILE_NOT_FOUND")
 
         profile_id, role = str(row.id), row.role
+        is_active = row.is_active
         clinic_id: str | None = None
         region_id: str | None = None
 
@@ -101,7 +132,7 @@ async def _load_profile_and_scope(cognito_sub: str) -> RequestContext:
             if scope and scope.primary_clinic_id:
                 clinic_id = str(scope.primary_clinic_id)
 
-    return RequestContext(user_id=profile_id, role=role, clinic_id=clinic_id, region_id=region_id)
+    return RequestContext(user_id=profile_id, role=role, clinic_id=clinic_id, region_id=region_id, is_active=is_active)
 
 
 class AuthContextMiddleware(BaseHTTPMiddleware):
@@ -114,21 +145,36 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
+        if auth_header.startswith("Bearer "):
+            token = auth_header.removeprefix("Bearer ").strip()
+        elif request.url.path == "/api/v1/events/stream" and request.query_params.get("token"):
+            # Browser EventSource can't set custom headers — SSE is the one
+            # endpoint that accepts the token as a query param instead. Not
+            # opened up generally: query-param tokens are more exposure-prone
+            # (logs, browser history), so this stays scoped to just this path.
+            token = request.query_params["token"]
+        else:
             return JSONResponse(
                 status_code=401,
                 content={"error": {"code": "MISSING_TOKEN", "message": "Authorization header required"}},
             )
-        token = auth_header.removeprefix("Bearer ").strip()
 
         try:
             claims = await verify_token(token)
             ctx = await _load_profile_and_scope(claims["sub"])
-            set_request_context(ctx)
         except AnavaException as exc:
             return JSONResponse(
                 status_code=exc.status_code,
                 content={"error": {"code": exc.code, "message": exc.message, "details": exc.details}},
             )
 
+        if not ctx.is_active:
+            allowed_prefixes = PATIENT_SELF_REGISTRATION_PATH_PREFIXES if ctx.role == "patient" else CONSENT_FLOW_PATH_PREFIXES
+            if not request.url.path.startswith(allowed_prefixes):
+                return JSONResponse(
+                    status_code=403,
+                    content={"error": {"code": "CONSENT_REQUIRED", "message": "Sign your onboarding consent to continue", "details": None}},
+                )
+
+        set_request_context(ctx)
         return await call_next(request)

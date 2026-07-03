@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.db import RequestContext, get_db
 from app.core.permissions import require_role
+from app.core.scoping import assert_clinic_scope
 from app.modules.store import schemas as s
 from app.modules.store.service import DeviceAssignmentService, ProductService, StoreOrderService
 
@@ -23,8 +24,9 @@ async def list_products(category: str | None = None, db=Depends(get_db), _ctx: R
 
 
 @router.post("/store-orders", response_model=s.StoreOrderRead, status_code=201)
-async def create_store_order(body: s.StoreOrderCreate, db=Depends(get_db), ctx: RequestContext = Depends(require_role("super_admin", "receptionist"))):
+async def create_store_order(body: s.StoreOrderCreate, db=Depends(get_db), ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin", "receptionist"))):
     data = body.model_dump()
+    await assert_clinic_scope(ctx, db, data["clinic_id"])
     return await StoreOrderService(db).create(data, initiated_by=UUID(ctx.user_id))
 
 

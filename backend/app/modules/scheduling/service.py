@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -8,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError
+from app.core.pubsub import get_redis
 from app.modules.scheduling.repository import (
     AppointmentAuditLogRepository,
     AppointmentRepository,
@@ -15,6 +17,21 @@ from app.modules.scheduling.repository import (
     ScheduleOverrideRepository,
     WeeklyScheduleRepository,
 )
+
+_AVAILABILITY_TTL_SECONDS = 300
+
+
+def _availability_cache_key(doctor_profile_id: UUID, on_date: dt.date) -> str:
+    return f"availability:{doctor_profile_id}:{on_date.isoformat()}"
+
+
+async def _invalidate_availability(doctor_profile_id: UUID, on_date: dt.date) -> None:
+    """Redis is a perf optimization here, not a source of truth — a Redis
+    outage must never block booking/cancelling an appointment."""
+    try:
+        await get_redis().delete(_availability_cache_key(doctor_profile_id, on_date))
+    except Exception:
+        pass
 
 
 async def _resolve_doctor_profile_id(session: AsyncSession, doctor_id: UUID) -> UUID:
@@ -62,9 +79,11 @@ class ScheduleOverrideService:
         doctor_profile_id = await _resolve_doctor_profile_id(self.session, doctor_id)
         payload = {**data, "doctor_id": str(doctor_profile_id), "clinic_id": str(data["clinic_id"]), "created_by": str(created_by)}
         try:
-            return await self.repo.create(payload)
+            override = await self.repo.create(payload)
         except IntegrityError as exc:
             raise ConflictError("An override already exists for this doctor/date", code="OVERRIDE_ALREADY_EXISTS") from exc
+        await _invalidate_availability(doctor_profile_id, data["override_date"])
+        return override
 
     async def list_for_doctor(self, doctor_id: UUID) -> list[dict]:
         doctor_profile_id = await _resolve_doctor_profile_id(self.session, doctor_id)
@@ -73,9 +92,12 @@ class ScheduleOverrideService:
 
 class AvailabilityService:
     """Merges weekly recurring schedule + date overrides - existing
-    appointments to produce open slots. This is the Redis-cache candidate
-    flagged in Architecture Section 19 — not cached yet (Stage 8), correctness
-    first."""
+    appointments to produce open slots. Flagged as the Redis-cache candidate
+    in Architecture Section 19 (expensive join, read constantly during
+    booking) — cached here with a short TTL plus active invalidation from
+    every appointment/override mutation that can change the result, so a
+    missed invalidation self-heals within _AVAILABILITY_TTL_SECONDS instead
+    of serving stale slots indefinitely."""
 
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -85,10 +107,19 @@ class AvailabilityService:
 
     async def compute(self, doctor_id: UUID, on_date: dt.date) -> list[dict]:
         doctor_profile_id = await _resolve_doctor_profile_id(self.session, doctor_id)
+        cache_key = _availability_cache_key(doctor_profile_id, on_date)
+        try:
+            cached = await get_redis().get(cache_key)
+            if cached is not None:
+                return json.loads(cached)
+        except Exception:
+            pass
 
         override = await self.overrides.for_date(doctor_profile_id, on_date)
         if override and not override["is_available"]:
-            return []  # doctor explicitly blocked this date (leave/holiday)
+            slots: list[dict] = []  # doctor explicitly blocked this date (leave/holiday)
+            await self._cache_slots(cache_key, slots)
+            return slots
 
         if override and override["is_available"]:
             start, end, slot_minutes = override["start_time"], override["end_time"], override["slot_duration_minutes"] or 30
@@ -96,7 +127,9 @@ class AvailabilityService:
             weekly = await self.weekly.list_for_doctor(doctor_profile_id)
             rule = next((w for w in weekly if w["day_of_week"] == on_date.weekday() % 7 or w["day_of_week"] == (on_date.isoweekday() % 7)), None)
             if not rule:
-                return []
+                slots = []
+                await self._cache_slots(cache_key, slots)
+                return slots
             start, end, slot_minutes = rule["start_time"], rule["end_time"], rule["slot_duration_minutes"]
 
         booked = await self.appointments.list_for_doctor_on_date(doctor_profile_id, on_date)
@@ -111,7 +144,16 @@ class AvailabilityService:
             if (slot_start, slot_end) not in booked_ranges:
                 slots.append({"start_time": slot_start.isoformat(), "end_time": slot_end.isoformat()})
             current += step
+
+        await self._cache_slots(cache_key, slots)
         return slots
+
+    @staticmethod
+    async def _cache_slots(cache_key: str, slots: list[dict]) -> None:
+        try:
+            await get_redis().set(cache_key, json.dumps(slots), ex=_AVAILABILITY_TTL_SECONDS)
+        except Exception:
+            pass
 
 
 class AppointmentRequestService:
@@ -213,6 +255,7 @@ class AppointmentService:
             self.session, aggregate_type="appointment", aggregate_id=appointment["appointment_id"],
             event_type="appointment_booked", payload={"appointment_id": str(appointment["appointment_id"]), "doctor_id": str(doctor_profile_id)},
         )
+        await _invalidate_availability(doctor_profile_id, data["appointment_date"])
         return appointment
 
     async def get(self, appointment_id: UUID) -> dict:
@@ -242,6 +285,8 @@ class AppointmentService:
             event_type="appointment_cancelled" if status == "cancelled" else "appointment_status_changed",
             payload={"appointment_id": str(appointment_id), "status": status},
         )
+        if status == "cancelled":
+            await _invalidate_availability(appt["doctor_id"], appt["appointment_date"])
         return updated  # type: ignore[return-value]
 
     async def reschedule(self, appointment_id: UUID, data: dict, *, changed_by: UUID, changed_by_role: str) -> dict:
@@ -256,6 +301,7 @@ class AppointmentService:
             _patient_profile_id_override=old["patient_id"], _doctor_profile_id_override=True,
         )
         await self.repo.reschedule(appointment_id, new_appointment_id=new_appointment["appointment_id"])
+        await _invalidate_availability(old["doctor_id"], old["appointment_date"])
         await self._write_audit(
             appointment_id, changed_by=changed_by, changed_by_role=changed_by_role, previous_status=old["status"],
             new_status="rescheduled", previous_date=old["appointment_date"], new_date=data["appointment_date"],

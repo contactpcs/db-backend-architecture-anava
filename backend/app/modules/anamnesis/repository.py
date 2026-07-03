@@ -20,6 +20,24 @@ class AnamnesisQuestionRepository:
         ).mappings().all()
         return [dict(r) for r in rows]
 
+    async def list_with_options(self) -> list[dict]:
+        """Same as list() but with each question's radio/select/checkbox
+        options nested — the frontend catalog screen needs these to render
+        anything beyond free-text questions, and the plain list() response
+        never carried them (a real gap found wiring up the frontend)."""
+        questions = await self.list()
+        options_rows = (
+            await self.session.execute(
+                text("SELECT * FROM anamnesis_options ORDER BY question_id, display_order")
+            )
+        ).mappings().all()
+        options_by_question: dict[str, list[dict]] = {}
+        for row in options_rows:
+            options_by_question.setdefault(row["question_id"], []).append(dict(row))
+        for q in questions:
+            q["options"] = options_by_question.get(q["question_id"], [])
+        return questions
+
 
 class AnamnesisAssessmentRepository:
     def __init__(self, session: AsyncSession):

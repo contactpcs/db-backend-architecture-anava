@@ -2,11 +2,18 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, NotFoundError
 from app.modules.consent.repository import ConsentRecordRepository, ConsentTemplateRepository
+
+# Consent types that gate a profile's is_active flag — signing one of these
+# is what flips a newly-registered person from inactive to active (see
+# staff/repository.py create_profile and patients/repository.py
+# create_profile_and_patient, both of which now create is_active=FALSE).
+_ACTIVATES_PROFILE_TYPES = {"patient_onboarding", "staff_onboarding"}
 
 # Master Doc Section 11.1 — only patient_onboarding requires a witness.
 _WITNESS_REQUIRED_TYPES = {"patient_onboarding"}
@@ -66,7 +73,20 @@ class ConsentRecordService:
         record = await self.get(consent_id)
         if record["status"] != "pending":
             raise BusinessRuleError(f"Consent already {record['status']}", code="CONSENT_ALREADY_DECIDED")
-        if record["consent_type"] in _WITNESS_REQUIRED_TYPES and not witness_id:
+
+        # Self-registered patients sign remotely — no one present to witness,
+        # and activation is deferred to a receptionist's later approval
+        # instead of firing here (see patients.self_registered/approval_status,
+        # SQL/24_patient_self_registration.sql). Staff-registered patients
+        # (receptionist physically present) are completely unaffected.
+        self_registered = False
+        if record["consent_type"] == "patient_onboarding" and record["patient_id"]:
+            from app.modules.patients.repository import PatientRepository
+
+            patient = await PatientRepository(self.session).get_by_profile_id(record["patient_id"])
+            self_registered = bool(patient and patient["self_registered"])
+
+        if record["consent_type"] in _WITNESS_REQUIRED_TYPES and not witness_id and not self_registered:
             raise BusinessRuleError(
                 f"consent_type={record['consent_type']!r} requires a witness_id at signing",
                 code="WITNESS_REQUIRED",
@@ -81,6 +101,13 @@ class ConsentRecordService:
             self.session, aggregate_type="consent_record", aggregate_id=consent_id,
             event_type="consent_signed", payload={"consent_id": str(consent_id), "consent_type": record["consent_type"]},
         )
+        if record["consent_type"] in _ACTIVATES_PROFILE_TYPES and not self_registered:
+            signer_profile_id = record["patient_id"] or record["staff_id"]
+            if signer_profile_id:
+                await self.session.execute(
+                    text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(signer_profile_id)}
+                )
+
         if record["consent_type"] == "patient_onboarding" and record["patient_id"]:
             # Local import — avoids a module-load-time circular import
             # (patients/service.py imports staff, not consent; this is the

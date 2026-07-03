@@ -73,4 +73,22 @@
 \echo '>>> 18 Appointment Overlap Guard (double-booking prevention)'
 \i 18_appointment_overlap_guard.sql
 
+\echo '>>> 19 Admin Workflow Updates (clinic_admin_id nullable — 2-step clinic setup)'
+\i 19_admin_workflow_updates.sql
+
+\echo '>>> 20 Doctor clinic_id (denormalized primary-clinic column)'
+\i 20_doctor_clinic_id.sql
+
+\echo '>>> 21 Regional Admin Independence (policy note, no DDL)'
+\i 21_regional_admin_independence.sql
+
+\echo '>>> 22 Staff Onboarding Lockdown (policy note, no DDL)'
+\i 22_staff_onboarding_lockdown.sql
+
+\echo '>>> 23 Staff Request Fulfillment Link'
+\i 23_staff_request_fulfillment.sql
+
+\echo '>>> 24 Patient Self-Registration + Receptionist Approval Gate'
+\i 24_patient_self_registration.sql
+
 \echo '>>> Schema build complete. 57 tables created.'

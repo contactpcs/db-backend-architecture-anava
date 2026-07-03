@@ -32,6 +32,24 @@ class PaymentRepository:
     async def get_for_session(self, session_id: UUID) -> dict | None:
         return await fetch_optional(self.session, text("SELECT * FROM payments WHERE session_id = :id ORDER BY created_at DESC LIMIT 1"), {"id": str(session_id)})
 
+    async def list_by_clinic(self, clinic_id: UUID) -> list[dict]:
+        # payments has no clinic_id of its own — scoped via a two-hop join,
+        # since a payment is for either a clinical session or a store order,
+        # and both of those carry clinic_id.
+        rows = (
+            await self.session.execute(
+                text(
+                    "SELECT p.* FROM payments p "
+                    "LEFT JOIN sessions sess ON sess.session_id = p.session_id "
+                    "LEFT JOIN store_orders so ON so.order_id = p.order_id "
+                    "WHERE COALESCE(sess.clinic_id, so.clinic_id) = :clinic_id "
+                    "ORDER BY p.created_at DESC"
+                ),
+                {"clinic_id": str(clinic_id)},
+            )
+        ).mappings().all()
+        return [dict(r) for r in rows]
+
     async def set_status(self, payment_id: UUID, *, status: str, payment_method, waived_by, waived_reason, razorpay_payment_id=None) -> dict | None:
         paid_at_clause = ", paid_at = NOW()" if status == "paid" else ""
         rzp_clause = ", razorpay_payment_id = COALESCE(:rzp_payment, razorpay_payment_id)"

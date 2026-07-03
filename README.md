@@ -7,7 +7,7 @@ Neurological care platform backend for Anava Clinic (Mana Health Sciences Group)
 ```
 backend-v2/
 ├── backend/          FastAPI application — see backend/README below
-├── SQL/               DB schema (source of truth), 23 files, run in numeric order via 00_run_all.sql
+├── SQL/               DB schema (source of truth), 26 files, run in numeric order via 00_run_all.sql
 ├── Documents/          Architecture, API catalog, dev plan, and review docs (.md + .docx)
 ├── ERD/                Entity-relationship diagrams (PDF)
 ├── memory/             Project context/session notes (SESSION_START.md is the 30-second orientation)

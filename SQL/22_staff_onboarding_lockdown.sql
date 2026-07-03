@@ -1,0 +1,52 @@
+-- ============================================================
+-- Anava Clinic — DB Schema
+-- File 22: Staff onboarding lockdown (no DDL — policy note)
+--
+-- Corrects staff-hiring authority back to what Master Doc Section
+-- 8 / "THE 7 ROLES" always specified (clinic_admin "requests
+-- staff", regional_admin "approves all staff") — the code had
+-- drifted from this by letting clinic_admin AND regional_admin
+-- both call POST /doctors|/clinical-assistants|/receptionists
+-- directly, bypassing staff_requests entirely.
+--
+-- Corrected policy (app/modules/staff/router.py + service.py):
+--   - clinic_admin: can only submit a staff_request
+--     (open_position | candidate_referral) and PATCH-update an
+--     existing staff member's details. No POST, no DELETE.
+--     Every PATCH now emits an outbox_events row
+--     ("doctor_updated"/"staff_updated": who + which fields
+--     changed) — clinic_admin's one remaining write path is now
+--     fully audited.
+--   - regional_admin: reviews staff_requests
+--     (PATCH /staff-requests/{id}/decision). Approving a request
+--     no longer auto-creates the profile — regional_admin performs
+--     that as a separate, deliberate step via
+--     POST /doctors|/clinical-assistants|/receptionists (full CRUD
+--     retained, including DELETE).
+--   - super_admin: unchanged, full CRUD everywhere.
+--
+-- New rule: doctor/clinical_assistant/receptionist profiles.email
+-- must be on an official org domain — anavaclinic.com,
+-- anavaclinics.com, or manahealthsciences.com (see
+-- app.config.Settings.staff_allowed_email_domains, enforced in
+-- staff/service.py::_assert_staff_email_domain before create_profile
+-- for these three roles only). Patients and admin-tier accounts
+-- (clinic_admin/regional_admin/super_admin, created via
+-- admin/service.py) are NOT subject to this check.
+--
+-- Explicitly reverted in this same change: an earlier attempt to
+-- auto-generate an official email (firstname.lastname@domain) at
+-- staff_request approval time. Scrapped — approval is a pure
+-- status change again; staff_requests.candidate_email remains
+-- exactly what it always was, the personal email captured at
+-- referral time, never written to profiles.
+--
+-- Audit trail requirement ("who referred, who approved, when") was
+-- already fully satisfied by staff_requests.submitted_by/
+-- reviewed_by/created_at/updated_at — no column added.
+--
+-- No column/constraint change — profiles.email stays a single
+-- UNIQUE column; the domain check and CRUD-role gates are pure
+-- application-layer logic. This file exists purely to document the
+-- corrected policy at the same place the schema lives.
+-- ============================================================

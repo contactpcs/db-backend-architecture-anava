@@ -42,7 +42,12 @@ class Settings(BaseSettings):
     razorpay_key_secret: str | None = None
 
     # CORS
-    cors_allowed_origins: list[str] = ["http://localhost:3000"]
+    cors_allowed_origins: list[str] = ["http://localhost:3000", "http://localhost:3001"]
+
+    # Clinical staff (doctor/CA/receptionist) must log in with an official
+    # org email — patients are exempt, always use their own. Enforced at
+    # staff profile creation time (see staff/service.py).
+    staff_allowed_email_domains: list[str] = ["anavaclinic.com", "anavaclinics.com", "manahealthsciences.com"]
 
 
 @lru_cache

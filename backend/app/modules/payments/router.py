@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 
 from app.core.db import RequestContext, get_db
-from app.core.exceptions import PermissionError_
+from app.core.exceptions import BusinessRuleError, PermissionError_
 from app.core.permissions import require_role
 from app.modules.payments import schemas as s
 from app.modules.payments.service import PaymentService
@@ -17,6 +17,15 @@ _ALL_STAFF = ("super_admin", "regional_admin", "clinic_admin", "doctor", "clinic
 @router.post("/payments", response_model=s.PaymentRead, status_code=201)
 async def create_payment(body: s.PaymentCreate, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
     return await PaymentService(db).create(session_id=body.session_id, order_id=body.order_id, amount=body.amount, currency=body.currency)
+
+
+@router.get("/payments", response_model=list[s.PaymentRead])
+async def list_payments(clinic_id: UUID | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
+    if clinic_id is None and ctx.role == "clinic_admin":
+        clinic_id = UUID(ctx.clinic_id)
+    if clinic_id is None:
+        raise BusinessRuleError("clinic_id is required", code="CLINIC_ID_REQUIRED")
+    return await PaymentService(db).list(clinic_id)
 
 
 @router.get("/payments/{payment_id}", response_model=s.PaymentRead)

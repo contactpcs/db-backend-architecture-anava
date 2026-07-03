@@ -27,17 +27,64 @@ class RegionRead(BaseModel):
 
 
 class ClinicCreate(BaseModel):
+    """clinic_admin_id is deliberately absent — clinic creation is a 2-step
+    flow (create, then POST /clinics/{id}/assign-admin). is_main_branch is
+    also absent — the service auto-sets it to True for a region's first
+    clinic, callers don't choose it."""
+
     clinic_code: str
     clinic_name: str
     clinic_type: str = Field(pattern="^(anava_owned|partner|mobile)$")
     region_id: UUID
-    clinic_admin_id: UUID
-    is_main_branch: bool = False
     address: str | None = None
     city: str | None = None
     state: str | None = None
     phone: str | None = None
     email: str | None = None
+
+
+class ClinicAdminAssign(BaseModel):
+    """Creates a brand-new clinic_admin profile and assigns them to the
+    clinic in one call — there's no pre-existing pool of unassigned
+    clinic_admin profiles to pick from (no self-serve admin registration
+    exists), so this always creates the person too."""
+
+    email: str
+    first_name: str
+    last_name: str
+    phone: str | None = None
+
+
+class RegionalAdminAssign(BaseModel):
+    """Same shape as ClinicAdminAssign — creates the region's independent
+    regional_admin. Every region needs one of these before any clinic in
+    it can onboard a clinic_admin, other staff, or patients (Master Doc
+    Section 5.2)."""
+
+    email: str
+    first_name: str
+    last_name: str
+    phone: str | None = None
+
+
+class AdminAccountRead(BaseModel):
+    """Joined view over admins+profiles(+regions/clinics) — the only admin
+    list endpoint in this module that returns real names/emails, since it's
+    a purpose-built management screen rather than a generic resource list."""
+
+    admin_id: UUID
+    profile_id: UUID
+    admin_type: str
+    first_name: str
+    last_name: str
+    email: str
+    phone: str | None
+    is_active: bool
+    region_id: UUID | None
+    region_name: str | None
+    clinic_id: UUID | None
+    clinic_name: str | None
+    created_at: datetime
 
 
 class ClinicUpdate(BaseModel):
@@ -60,7 +107,7 @@ class ClinicRead(BaseModel):
     clinic_type: str
     status: str
     region_id: UUID
-    clinic_admin_id: UUID
+    clinic_admin_id: UUID | None
     is_main_branch: bool
     address: str | None
     city: str | None

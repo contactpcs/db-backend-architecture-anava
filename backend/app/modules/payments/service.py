@@ -62,6 +62,9 @@ class PaymentService:
             raise NotFoundError("Payment not found", code="PAYMENT_NOT_FOUND")
         return payment
 
+    async def list(self, clinic_id: UUID) -> list[dict]:
+        return await self.repo.list_by_clinic(clinic_id)
+
     async def update_status(self, payment_id: UUID, *, status: str, payment_method, waived_by=None, waived_reason=None, _razorpay_payment_id=None) -> dict:
         await self.get(payment_id)
         updated = await self.repo.set_status(payment_id, status=status, payment_method=payment_method, waived_by=waived_by, waived_reason=waived_reason, razorpay_payment_id=_razorpay_payment_id)
