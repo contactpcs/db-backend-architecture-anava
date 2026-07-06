@@ -9,7 +9,7 @@ from app.core.sql_helpers import fetch_one, fetch_optional, insert_returning
 
 
 async def create_profile(session: AsyncSession, *, email: str, first_name: str, last_name: str,
-                          phone: str | None, role: str, is_active: bool = True,
+                          phone: str | None, role: str, is_active: bool = True, consent_signed: bool = True,
                           gender: str | None = None, dob=None, address: str | None = None,
                           city: str | None = None, state: str | None = None, country: str | None = None,
                           pincode: str | None = None) -> dict:
@@ -19,23 +19,24 @@ async def create_profile(session: AsyncSession, *, email: str, first_name: str, 
     profiles/identity module exists (profiles is core/universal per
     Architecture Section 6, read by auth, not owned by any one module).
 
-    is_active defaults True for backward compatibility, but every caller in
-    this codebase now passes is_active=False for newly-registered people —
-    they're gated inactive until they sign the onboarding consent (see
-    consent/service.py ConsentRecordService.sign)."""
+    is_active/consent_signed both default True for backward compatibility,
+    but every caller in this codebase now passes both False for
+    newly-registered people — they're gated until they sign the onboarding
+    consent (see consent/service.py ConsentRecordService.sign, and
+    SQL/28_consent_redesign.sql for why these are two separate columns)."""
     row = (
         await session.execute(
             text(
                 "INSERT INTO profiles (cognito_sub, email, first_name, last_name, phone, role, is_active, "
-                "gender, dob, address, city, state, country, pincode) "
+                "consent_signed, gender, dob, address, city, state, country, pincode) "
                 "VALUES ('pending-' || gen_random_uuid()::TEXT, :email, :first_name, :last_name, :phone, :role, "
-                ":is_active, :gender, :dob, :address, :city, :state, :country, :pincode) "
+                ":is_active, :consent_signed, :gender, :dob, :address, :city, :state, :country, :pincode) "
                 "RETURNING *"
             ),
             {
                 "email": email, "first_name": first_name, "last_name": last_name, "phone": phone, "role": role,
-                "is_active": is_active, "gender": gender, "dob": dob, "address": address, "city": city,
-                "state": state, "country": country, "pincode": pincode,
+                "is_active": is_active, "consent_signed": consent_signed, "gender": gender, "dob": dob,
+                "address": address, "city": city, "state": state, "country": country, "pincode": pincode,
             },
         )
     ).mappings().one()

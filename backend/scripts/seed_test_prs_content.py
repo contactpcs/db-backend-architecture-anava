@@ -13,7 +13,7 @@ import asyncio
 
 from sqlalchemy import text
 
-from app.core.db import engine
+from app.core.db import get_migration_engine
 
 QUESTIONS = [
     ("GAD-7/001", "GAD-7/2026", "Feeling nervous, anxious, or on edge", "GAD7Q1"),
@@ -28,6 +28,11 @@ OPTIONS = [
 
 
 async def main() -> None:
+    # get_migration_engine(), not `engine` — rls_prs_questions_write/
+    # rls_prs_opts_write both require rls_user_role() = 'super_admin', which
+    # a standalone script (no HTTP request context) can never satisfy via
+    # the app's own RLS-scoped connection. See core/db.py::get_migration_engine.
+    engine = get_migration_engine()
     async with engine.begin() as conn:
         for order, (qid, scale_id, text_, code) in enumerate(QUESTIONS):
             await conn.execute(
@@ -56,6 +61,7 @@ async def main() -> None:
                 ),
                 {"id": sq_map_id, "scale_id": scale_id, "qid": qid, "order": order},
             )
+    await engine.dispose()
     print(f"Seeded {len(QUESTIONS)} test GAD-7 questions with options + scale mapping.")
 
 

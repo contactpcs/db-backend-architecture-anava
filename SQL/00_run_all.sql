@@ -91,4 +91,51 @@
 \echo '>>> 24 Patient Self-Registration + Receptionist Approval Gate'
 \i 24_patient_self_registration.sql
 
-\echo '>>> Schema build complete. 57 tables created.'
+\echo '>>> 25 Fix PRS Stage-Aware Completion Trigger'
+\i 25_fix_prs_stage_completion_trigger.sql
+
+\echo '>>> 26 Fix RLS Same-Clinic Patient Data Leak'
+\i 26_fix_rls_patient_clinic_leak.sql
+
+\echo '>>> 27 Fix Regional Admin Consent Scope (clinic_id nullable + region_id)'
+\i 27_fix_regional_admin_consent_scope.sql
+
+\echo '>>> 28 Consent Redesign (per-role templates + profiles.consent_signed)'
+\i 28_consent_redesign.sql
+
+\echo '>>> 29 Regional Admin Clinic Binding (region -> clinic -> regional_admin -> clinic_admin order)'
+\i 29_regional_admin_clinic_binding.sql
+
+\echo '>>> 31 Fix Profile Bootstrap Lookup RLS (auth middleware self-lookup by cognito_sub)'
+\i 31_fix_profile_bootstrap_lookup_rls.sql
+
+\echo '>>> 32 Fix Public Clinics Endpoint RLS (self-registration clinic picker)'
+\i 32_fix_public_clinics_endpoint_rls.sql
+
+\echo '>>> 33 Fix Local Login Email Lookup RLS (login-by-email self-lookup)'
+\i 33_fix_local_login_email_lookup_rls.sql
+
+\echo '>>> 34 Fix Admins RLS Regional Scope (regional_admin -> clinic_admin visibility)'
+\i 34_fix_admins_rls_regional_scope.sql
+
+\echo '>>> 35 Remove clinic_admin from staff_requests.position_role'
+\i 35_remove_clinic_admin_staff_request_role.sql
+
+\echo '>>> 36 Fix Consent Records Self-Sign RLS (doctor/CA/receptionist/patient sign loop)'
+\i 36_fix_consent_records_self_sign_rls.sql
+
+\echo '>>> Schema build complete. 60 tables created.'
+\echo '>>>'
+\echo '>>> NOT included above (run manually, in this order, once schema is up):'
+\echo '>>>   1. 30_rds_app_role_setup.sql — connected as master user. Creates the'
+\echo '>>>      anava_app role the backend actually runs as (no BYPASSRLS). Then'
+\echo '>>>      set its password yourself: ALTER ROLE anava_app WITH PASSWORD ...'
+\echo '>>>      (never put that statement in a committed file).'
+\echo '>>>   2. backend/scripts/seed_dev_profile.py (or bootstrap_superadmin.py in'
+\echo '>>>      a real Cognito environment) — the first account. Bootstrapping is'
+\echo '>>>      inherently privileged (every INSERT-policy on profiles/admins'
+\echo '>>>      requires an already-authenticated super_admin, which doesn'\''t exist'
+\echo '>>>      yet) — this and every other scripts/seed_*.py already connect via'
+\echo '>>>      get_migration_engine(), not the app'\''s own RLS-scoped connection.'
+\echo '>>>   3. backend/scripts/seed_prs_clinical_content.py — real PRS scale/'
+\echo '>>>      question content + anamnesis questions from Data/*.csv.'

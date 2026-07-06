@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.db import RequestContext, get_db
 from app.core.permissions import require_role
-from app.core.scoping import assert_clinic_scope
+from app.core.scoping import assert_clinic_scope, assert_patient_self
 from app.modules.patients import schemas as s
 from app.modules.patients.service import (
     FollowUpService,
@@ -32,15 +32,28 @@ async def register_patient(
 @router.get("/patients", response_model=list[s.PatientRead])
 async def list_patients(
     registration_status: str | None = None, approval_status: str | None = None, clinic_id: UUID | None = None,
-    db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
+    db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
-    if clinic_id is None and ctx.role in ("clinic_admin", "receptionist"):
+    # "patient" is allowed here so patients.service.ts's getDashboard()/
+    # getMyAnamnesis() (which call this same "RLS-scoped to own record"
+    # endpoint) don't 403. RLS (SQL/15_rls_policies.sql) is NOT the actual
+    # backstop for that scoping: the app's DB role connects as a Postgres
+    # superuser (rolbypassrls=TRUE), which unconditionally bypasses every
+    # RLS policy — so a patient caller must be forced to their own row here
+    # at the app layer, ignoring any clinic_id they might pass.
+    profile_id = UUID(ctx.user_id) if ctx.role == "patient" else None
+    if ctx.role == "patient":
+        clinic_id = None
+    elif clinic_id is None and ctx.role in ("clinic_admin", "receptionist"):
         clinic_id = UUID(ctx.clinic_id)
-    return await PatientService(db).list(registration_status=registration_status, approval_status=approval_status, clinic_id=clinic_id)
+    return await PatientService(db).list(
+        registration_status=registration_status, approval_status=approval_status, clinic_id=clinic_id, profile_id=profile_id
+    )
 
 
 @router.get("/patients/{patient_id}", response_model=s.PatientRead)
-async def get_patient(patient_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+async def get_patient(patient_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    await assert_patient_self(ctx, db, patient_id)
     return await PatientService(db).get(patient_id)
 
 
@@ -76,11 +89,18 @@ async def decide_patient_approval(
     )
 
 
+@router.get("/patients/{patient_id}/disease-selection", response_model=list[s.DiseaseSelectionRead])
+async def list_disease_selection(patient_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    await assert_patient_self(ctx, db, patient_id)
+    return await PatientService(db).list_diseases(patient_id)
+
+
 @router.post("/patients/{patient_id}/disease-selection", response_model=s.DiseaseSelectionRead, status_code=201)
 async def select_disease(
     patient_id: UUID, body: s.DiseaseSelectionCreate, db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
+    await assert_patient_self(ctx, db, patient_id)
     return await PatientService(db).select_disease(
         patient_id, disease_id=body.disease_id, disease_unknown=body.disease_unknown, is_primary=body.is_primary,
         assigned_by=UUID(ctx.user_id),

@@ -12,37 +12,44 @@ class ConsentTemplateRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get_active(self, consent_type: str) -> dict | None:
+    async def get_active(self, consent_type: str, role: str | None = None) -> dict | None:
+        # role IS NOT DISTINCT FROM handles NULL = NULL correctly — patient_
+        # onboarding and the other 6 non-role-split types have role IS NULL,
+        # staff_onboarding has one row per role (see SQL/28_consent_redesign.sql).
         return await fetch_optional(
             self.session,
             text(
                 "SELECT * FROM consent_templates WHERE consent_type = :t AND is_active = TRUE "
-                "ORDER BY version DESC LIMIT 1"
+                "AND role IS NOT DISTINCT FROM :role ORDER BY version DESC LIMIT 1"
             ),
-            {"t": consent_type},
+            {"t": consent_type, "role": role},
         )
 
     async def list(self) -> list[dict]:
         rows = (await self.session.execute(text("SELECT * FROM consent_templates ORDER BY consent_type, version"))).mappings().all()
         return [dict(r) for r in rows]
 
+    async def get(self, template_id: UUID) -> dict | None:
+        return await fetch_optional(self.session, text("SELECT * FROM consent_templates WHERE template_id = :id"), {"id": str(template_id)})
+
 
 class ConsentRecordRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, *, consent_type: str, template_id: UUID, patient_id, staff_id, clinic_id: UUID) -> dict:
+    async def create(self, *, consent_type: str, template_id: UUID, patient_id, staff_id, clinic_id, region_id=None) -> dict:
         return await fetch_one(
             self.session,
             text(
-                "INSERT INTO consent_records (consent_type, template_id, patient_id, staff_id, clinic_id) "
-                "VALUES (:consent_type, :template_id, :patient_id, :staff_id, :clinic_id) RETURNING *"
+                "INSERT INTO consent_records (consent_type, template_id, patient_id, staff_id, clinic_id, region_id) "
+                "VALUES (:consent_type, :template_id, :patient_id, :staff_id, :clinic_id, :region_id) RETURNING *"
             ),
             {
                 "consent_type": consent_type, "template_id": str(template_id),
                 "patient_id": str(patient_id) if patient_id else None,
                 "staff_id": str(staff_id) if staff_id else None,
-                "clinic_id": str(clinic_id),
+                "clinic_id": str(clinic_id) if clinic_id else None,
+                "region_id": str(region_id) if region_id else None,
             },
         )
 

@@ -63,4 +63,12 @@ class CurrentUserRead(BaseModel):
     clinic_id: UUID | None = None
     region_id: UUID | None = None
     is_active: bool = True
+    consent_signed: bool = True
     consent_type_required: str | None = None
+    # Self-registration wizard resume support — set whenever role=='patient'
+    # and self_registered=TRUE, on EVERY /auth/me call (not just right after
+    # POST /auth/register), so a patient who logs back in mid-wizard can be
+    # routed to whichever step they left off at instead of always /consent.
+    self_registered: bool = False
+    patient_id: UUID | None = None
+    registration_status: str | None = None

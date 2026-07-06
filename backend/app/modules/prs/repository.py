@@ -117,6 +117,19 @@ class AssessmentInstanceRepository:
     async def get(self, instance_id: str) -> dict | None:
         return await fetch_optional(self.session, text("SELECT * FROM prs_assessment_instances WHERE instance_id = :id"), {"id": instance_id})
 
+    async def list_for_patient(self, patient_profile_id: UUID, *, assessment_stage: str | None = None) -> list[dict]:
+        clauses, params = ["patient_id = :pid"], {"pid": str(patient_profile_id)}
+        if assessment_stage:
+            clauses.append("assessment_stage = :stage")
+            params["stage"] = assessment_stage
+        rows = (
+            await self.session.execute(
+                text(f"SELECT * FROM prs_assessment_instances WHERE {' AND '.join(clauses)} ORDER BY started_at DESC"),
+                params,
+            )
+        ).mappings().all()
+        return [dict(r) for r in rows]
+
 
 class PrsResponseRepository:
     def __init__(self, session: AsyncSession):

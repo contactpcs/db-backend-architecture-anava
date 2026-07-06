@@ -61,6 +61,15 @@ class AnamnesisService:
             raise NotFoundError("No anamnesis assessment found for this patient", code="ANAMNESIS_NOT_FOUND")
         return assessment
 
+    async def get_by_id(self, anamnesis_id: str) -> dict:
+        """Used by the router to resolve the owning profile_id for
+        assert_owns_profile() before returning responses / accepting a
+        submission — anamnesis_id alone doesn't reveal whose record it is."""
+        assessment = await self.assessments.get(anamnesis_id)
+        if not assessment:
+            raise NotFoundError("Anamnesis assessment not found", code="ANAMNESIS_NOT_FOUND")
+        return assessment
+
     async def get_responses(self, anamnesis_id: str) -> list[dict]:
         return await self.responses.list_for_assessment(anamnesis_id)
 

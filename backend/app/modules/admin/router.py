@@ -74,9 +74,24 @@ async def list_admins(
     region_id: UUID | None = None,
     clinic_id: UUID | None = None,
     db=Depends(get_db),
-    _ctx: RequestContext = Depends(require_role("super_admin", "regional_admin")),
+    ctx: RequestContext = Depends(require_role("super_admin", "regional_admin")),
 ):
+    # A regional_admin is always clamped to their own region — never take
+    # their word for region_id, or they could pass another region's id (or
+    # omit it) and see every clinic_admin in the system.
+    if ctx.role == "regional_admin":
+        region_id = UUID(ctx.region_id)
     return await AdminAccountsService(db).list(admin_type=admin_type, region_id=region_id, clinic_id=clinic_id)
+
+
+@router.patch("/admins/{admin_id}", response_model=s.AdminAccountRead)
+async def update_admin(
+    admin_id: UUID,
+    body: s.AdminAccountUpdate,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role("super_admin")),
+):
+    return await AdminAccountsService(db).update(admin_id, body.model_dump())
 
 
 # ---------------------------------------------------------------- clinics --

@@ -30,3 +30,33 @@ async def assert_clinic_scope(ctx: RequestContext, session: AsyncSession, clinic
         region_id = await clinic_region_id(session, clinic_id)
         if region_id != ctx.region_id:
             raise PermissionError_("You can only manage records for clinics in your own region", code="REGION_SCOPE_MISMATCH")
+
+
+async def assert_patient_self(ctx: RequestContext, session: AsyncSession, patient_id) -> None:
+    """Every anamnesis/PRS/disease-selection endpoint allows role='patient'
+    so a patient can work through their own self-registration wizard or
+    portal, but the routes take patients.patient_id as a path param with no
+    other restriction. RLS is meant to be the real backstop here (see
+    SQL/15_rls_policies.sql) but the app's DB role connects as a Postgres
+    superuser (rolbypassrls=TRUE), which unconditionally bypasses RLS — so
+    without this check, any authenticated patient could read/write any
+    OTHER patient's clinical data just by passing their patient_id. No-op
+    for staff roles (they're scoped elsewhere, e.g. assert_clinic_scope)."""
+    if ctx.role != "patient":
+        return
+    row = (
+        await session.execute(text("SELECT profile_id FROM patients WHERE patient_id = :id"), {"id": str(patient_id)})
+    ).mappings().first()
+    if not row or str(row["profile_id"]) != ctx.user_id:
+        raise PermissionError_("You can only access your own patient record", code="PATIENT_SCOPE_MISMATCH")
+
+
+def assert_owns_profile(ctx: RequestContext, profile_id) -> None:
+    """Same purpose as assert_patient_self, for records that already store
+    the owning profiles.id directly (anamnesis_assessments.patient_id,
+    prs_assessment_instances.patient_id — both profiles.id, not
+    patients.patient_id; see _resolve_profile_id in anamnesis/service.py
+    and prs/service.py). No DB call needed since the caller already has the
+    row in hand."""
+    if ctx.role == "patient" and str(profile_id) != ctx.user_id:
+        raise PermissionError_("You can only access your own patient record", code="PATIENT_SCOPE_MISMATCH")

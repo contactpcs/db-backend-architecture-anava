@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +14,7 @@ from app.modules.admin.repository import (
     RegionRepository,
     StaffAssignmentRepository,
 )
-from app.modules.staff.repository import create_profile
+from app.modules.staff.repository import create_profile, update_profile
 
 # Clinic status state machine (Master Doc Section 5.1 / Architecture Section 6).
 # pending_closure -> active covers "changed our mind, cancel the closure" —
@@ -34,6 +33,8 @@ class RegionService:
     def __init__(self, session: AsyncSession):
         self.session = session
         self.repo = RegionRepository(session)
+        self.clinic_repo = ClinicRepository(session)
+        self.staff_repo = StaffAssignmentRepository(session)
 
     async def create(self, *, region_name: str, country: str, state: str) -> dict:
         try:
@@ -70,40 +71,54 @@ class RegionService:
         await self.repo.delete(region_id)
 
     async def assign_admin(self, region_id: UUID, data: dict) -> dict:
-        """Creates a new regional_admin profile and links them to the
-        region. Mirrors ClinicService.assign_admin — same 2-step reasoning:
-        there's no self-serve admin registration, so this always creates the
-        person. This is the only way a region gets a regional_admin — a
-        clinic's clinic_admin is never linked as their region's
-        regional_admin, even for that region's first/main-branch clinic
-        (Master Doc Section 5.2)."""
+        """Creates a new regional_admin profile, based at the region's
+        main-branch clinic (its first-created one — data["clinic_id"] must
+        point at it exactly, not just any clinic in the region). Real order:
+        region created -> its first clinic created -> regional_admin
+        assigned from that clinic -> that same clinic's own separate
+        clinic_admin created afterward (ClinicService.assign_admin). The
+        regional_admin and that later clinic_admin are always different
+        people — this only fixes where the regional_admin is 'from', it
+        doesn't let a clinic_admin double as their own region's admin."""
         region = await self.get(region_id)
         if region["regional_admin_id"] is not None:
             raise BusinessRuleError("This region already has a regional_admin assigned", code="REGIONAL_ADMIN_ALREADY_ASSIGNED")
+
+        clinic = await self.clinic_repo.get(data["clinic_id"])
+        if not clinic:
+            raise NotFoundError("Clinic not found", code="CLINIC_NOT_FOUND")
+        if str(clinic["region_id"]) != str(region_id):
+            raise BusinessRuleError("This clinic does not belong to this region", code="CLINIC_NOT_IN_REGION")
+        if not clinic["is_main_branch"]:
+            raise BusinessRuleError(
+                "Regional admin must be assigned from this region's main-branch clinic "
+                "(its first-created clinic), not any other clinic",
+                code="CLINIC_NOT_MAIN_BRANCH",
+            )
 
         try:
             profile = await create_profile(
                 self.session, email=data["email"], first_name=data["first_name"],
                 last_name=data["last_name"], phone=data.get("phone"), role="regional_admin",
-                is_active=False,
+                is_active=False, consent_signed=False,
+                gender=data.get("gender"), dob=data.get("dob"), address=data.get("address"),
+                city=data.get("city"), state=data.get("state"), country=data.get("country"),
+                pincode=data.get("pincode"),
             )
         except IntegrityError as exc:
             raise ConflictError(f"Email {data['email']!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
 
         admins_repo = AdminsRepository(self.session)
-        await admins_repo.create(profile_id=profile["id"], admin_type="regional_admin", region_id=region_id, clinic_id=None)
+        await admins_repo.create(
+            profile_id=profile["id"], admin_type="regional_admin", region_id=region_id, clinic_id=clinic["clinic_id"],
+        )
+        await self.staff_repo.create(clinic_id=clinic["clinic_id"], profile_id=profile["id"], staff_role="regional_admin")
         updated = await self.repo.update(region_id, {"regional_admin_id": str(profile["id"])})
 
-        from app.modules.consent.service import ConsentRecordService
+        # Local import — avoids a module-load-time circular import (consent doesn't import admin).
+        from app.modules.consent.service import create_onboarding_consent
 
-        clinic_for_consent = await self.session.execute(
-            text("SELECT clinic_id FROM clinics WHERE region_id = :rid LIMIT 1"), {"rid": str(region_id)}
-        )
-        clinic_row = clinic_for_consent.mappings().first()
-        if clinic_row:
-            await ConsentRecordService(self.session).create(
-                consent_type="staff_onboarding", patient_id=None, staff_id=profile["id"], clinic_id=clinic_row["clinic_id"],
-            )
+        await create_onboarding_consent(self.session, role="regional_admin", profile_id=profile["id"], clinic_id=clinic["clinic_id"])
         return updated  # type: ignore[return-value]
 
 
@@ -162,7 +177,10 @@ class ClinicService:
             profile = await create_profile(
                 self.session, email=data["email"], first_name=data["first_name"],
                 last_name=data["last_name"], phone=data.get("phone"), role="clinic_admin",
-                is_active=False,  # inactive until they sign the staff_onboarding consent
+                is_active=False, consent_signed=False,  # inactive until they sign the staff_onboarding consent
+                gender=data.get("gender"), dob=data.get("dob"), address=data.get("address"),
+                city=data.get("city"), state=data.get("state"), country=data.get("country"),
+                pincode=data.get("pincode"),
             )
         except IntegrityError as exc:
             raise ConflictError(f"Email {data['email']!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
@@ -172,11 +190,9 @@ class ClinicService:
         updated = await self.repo.update(clinic_id, {"clinic_admin_id": str(profile["id"])})
 
         # Local import — avoids a module-load-time circular import (consent doesn't import admin).
-        from app.modules.consent.service import ConsentRecordService
+        from app.modules.consent.service import create_onboarding_consent
 
-        await ConsentRecordService(self.session).create(
-            consent_type="staff_onboarding", patient_id=None, staff_id=profile["id"], clinic_id=clinic_id,
-        )
+        await create_onboarding_consent(self.session, role="clinic_admin", profile_id=profile["id"], clinic_id=clinic_id)
 
         await emit_event(
             self.session, aggregate_type="clinic", aggregate_id=clinic_id,
@@ -335,7 +351,24 @@ class AdminAccountsService:
     they don't belong on this management view)."""
 
     def __init__(self, session: AsyncSession):
+        self.session = session
         self.repo = AdminsRepository(session)
 
     async def list(self, *, admin_type: str | None = None, region_id: UUID | None = None, clinic_id: UUID | None = None) -> list[dict]:
         return await self.repo.list(admin_type=admin_type, region_id=region_id, clinic_id=clinic_id)
+
+    async def get(self, admin_id: UUID) -> dict:
+        admin = await self.repo.get(admin_id)
+        if not admin:
+            raise NotFoundError("Admin not found", code="ADMIN_NOT_FOUND")
+        return admin
+
+    async def update(self, admin_id: UUID, fields: dict) -> dict:
+        admin = await self.get(admin_id)  # 404 if missing
+        clean = {k: v for k, v in fields.items() if v is not None}
+        if clean:
+            try:
+                await update_profile(self.session, admin["profile_id"], clean)
+            except IntegrityError as exc:
+                raise ConflictError(f"Email {clean.get('email')!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
+        return await self.get(admin_id)

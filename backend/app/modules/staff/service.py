@@ -20,16 +20,26 @@ from app.modules.staff.repository import (
     update_profile,
 )
 
-_PROFILE_UPDATE_KEYS = {"first_name", "last_name", "phone", "gender", "dob", "address"}
+_PROFILE_UPDATE_KEYS = {"first_name", "last_name", "email", "phone", "gender", "dob", "address"}
 
 
 def _split_profile_fields(fields: dict) -> tuple[dict, dict]:
     """Every staff *Update payload mixes profile-level fields (name/phone/...)
     with role-specific ones (specialization, qualification, ...) — this
-    splits them so each half goes to the table that actually owns it."""
+    splits them so each half goes to the table that actually owns it.
+
+    is_active is special-cased: it exists on both profiles and (for CA/
+    receptionist only — doctors use availability_status instead, no is_active
+    column) the role table, and deactivating a staff member must actually
+    block their login (profiles.is_active is the real access gate checked by
+    core/middleware.py), not just flip the role table's own flag. So it's
+    copied into profile_fields too, in addition to staying in role_fields for
+    whichever role table owns an is_active column of its own."""
     clean = {k: v for k, v in fields.items() if v is not None}
     profile_fields = {k: v for k, v in clean.items() if k in _PROFILE_UPDATE_KEYS}
     role_fields = {k: v for k, v in clean.items() if k not in _PROFILE_UPDATE_KEYS}
+    if "is_active" in role_fields:
+        profile_fields["is_active"] = role_fields["is_active"]
     return profile_fields, role_fields
 
 
@@ -92,6 +102,19 @@ def _assert_staff_email_domain(email: str) -> None:
         )
 
 
+async def _apply_profile_update(session: AsyncSession, profile_id, profile_fields: dict) -> None:
+    """Shared by Doctor/CA/Receptionist update() — re-validates the org-
+    domain rule when email is being changed (same rule enforced at create
+    time, see _assert_staff_email_domain) and turns a duplicate-email
+    constraint violation into the same clean error create() already gives."""
+    if "email" in profile_fields:
+        _assert_staff_email_domain(profile_fields["email"])
+    try:
+        await update_profile(session, profile_id, profile_fields)
+    except IntegrityError as exc:
+        raise ConflictError(f"Email {profile_fields.get('email')!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
+
+
 async def _resolve_staff_request(session: AsyncSession, staff_request_id, *, expected_role: str, clinic_id) -> dict | None:
     """Validates an optional staff_request_id passed into a Doctor/CA/
     Receptionist create() call — the request must be approved, unfulfilled,
@@ -114,19 +137,6 @@ async def _resolve_staff_request(session: AsyncSession, staff_request_id, *, exp
     return req
 
 
-async def _create_onboarding_consent(session: AsyncSession, *, staff_id, clinic_id) -> None:
-    """Every new staff profile is created is_active=FALSE (see create_profile)
-    — this generates the pending staff_onboarding consent_record they'll see
-    and sign on first login, which is what flips them back to active (see
-    consent/service.py ConsentRecordService.sign). Local import to avoid a
-    module-load-time circular import (consent doesn't import staff)."""
-    from app.modules.consent.service import ConsentRecordService
-
-    await ConsentRecordService(session).create(
-        consent_type="staff_onboarding", patient_id=None, staff_id=staff_id, clinic_id=clinic_id,
-    )
-
-
 class DoctorService:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -142,7 +152,7 @@ class DoctorService:
         try:
             profile = await create_profile(
                 self.session, email=data["email"], first_name=data["first_name"],
-                last_name=data["last_name"], phone=data.get("phone"), role="doctor", is_active=False,
+                last_name=data["last_name"], phone=data.get("phone"), role="doctor", is_active=False, consent_signed=False,
                 gender=data.get("gender"), dob=data.get("dob"), address=data.get("address"),
                 city=data.get("city"), state=data.get("state"), country=data.get("country"),
                 pincode=data.get("pincode"),
@@ -156,7 +166,9 @@ class DoctorService:
             max_patient_count=data.get("max_patient_count", 30),
         )
         await self.assignments.create(clinic_id=data["clinic_id"], profile_id=profile["id"], staff_role="doctor")
-        await _create_onboarding_consent(self.session, staff_id=profile["id"], clinic_id=data["clinic_id"])
+        from app.modules.consent.service import create_onboarding_consent
+
+        await create_onboarding_consent(self.session, role="doctor", profile_id=profile["id"], clinic_id=data["clinic_id"])
         if staff_request:
             await StaffRequestRepository(self.session).fulfill(staff_request["request_id"], profile_id=profile["id"])
         await emit_event(
@@ -178,7 +190,7 @@ class DoctorService:
         doctor = await self.get(doctor_id)
         profile_fields, role_fields = _split_profile_fields(fields)
         if profile_fields:
-            await update_profile(self.session, doctor["profile_id"], profile_fields)
+            await _apply_profile_update(self.session, doctor["profile_id"], profile_fields)
         if role_fields:
             await self.repo.update(doctor_id, role_fields)
         await emit_event(
@@ -220,7 +232,7 @@ class ClinicalAssistantService:
         try:
             profile = await create_profile(
                 self.session, email=data["email"], first_name=data["first_name"],
-                last_name=data["last_name"], phone=data.get("phone"), role="clinical_assistant", is_active=False,
+                last_name=data["last_name"], phone=data.get("phone"), role="clinical_assistant", is_active=False, consent_signed=False,
                 gender=data.get("gender"), dob=data.get("dob"), address=data.get("address"),
                 city=data.get("city"), state=data.get("state"), country=data.get("country"),
                 pincode=data.get("pincode"),
@@ -230,7 +242,9 @@ class ClinicalAssistantService:
 
         ca = await self.repo.create(profile_id=profile["id"], clinic_id=data["clinic_id"], qualification=data.get("qualification"))
         await self.assignments.create(clinic_id=data["clinic_id"], profile_id=profile["id"], staff_role="clinical_assistant")
-        await _create_onboarding_consent(self.session, staff_id=profile["id"], clinic_id=data["clinic_id"])
+        from app.modules.consent.service import create_onboarding_consent
+
+        await create_onboarding_consent(self.session, role="clinical_assistant", profile_id=profile["id"], clinic_id=data["clinic_id"])
         if staff_request:
             await StaffRequestRepository(self.session).fulfill(staff_request["request_id"], profile_id=profile["id"])
         await emit_event(
@@ -252,7 +266,7 @@ class ClinicalAssistantService:
         ca = await self.get(ca_id)
         profile_fields, role_fields = _split_profile_fields(fields)
         if profile_fields:
-            await update_profile(self.session, ca["profile_id"], profile_fields)
+            await _apply_profile_update(self.session, ca["profile_id"], profile_fields)
         if role_fields:
             await self.repo.update(ca_id, role_fields)
         await emit_event(
@@ -282,7 +296,7 @@ class ReceptionistService:
         try:
             profile = await create_profile(
                 self.session, email=data["email"], first_name=data["first_name"],
-                last_name=data["last_name"], phone=data.get("phone"), role="receptionist", is_active=False,
+                last_name=data["last_name"], phone=data.get("phone"), role="receptionist", is_active=False, consent_signed=False,
                 gender=data.get("gender"), dob=data.get("dob"), address=data.get("address"),
                 city=data.get("city"), state=data.get("state"), country=data.get("country"),
                 pincode=data.get("pincode"),
@@ -292,7 +306,9 @@ class ReceptionistService:
 
         receptionist = await self.repo.create(profile_id=profile["id"], clinic_id=data["clinic_id"])
         await self.assignments.create(clinic_id=data["clinic_id"], profile_id=profile["id"], staff_role="receptionist")
-        await _create_onboarding_consent(self.session, staff_id=profile["id"], clinic_id=data["clinic_id"])
+        from app.modules.consent.service import create_onboarding_consent
+
+        await create_onboarding_consent(self.session, role="receptionist", profile_id=profile["id"], clinic_id=data["clinic_id"])
         if staff_request:
             await StaffRequestRepository(self.session).fulfill(staff_request["request_id"], profile_id=profile["id"])
         await emit_event(
@@ -315,7 +331,7 @@ class ReceptionistService:
         receptionist = await self.get(receptionist_id)
         profile_fields, role_fields = _split_profile_fields(fields)
         if profile_fields:
-            await update_profile(self.session, receptionist["profile_id"], profile_fields)
+            await _apply_profile_update(self.session, receptionist["profile_id"], profile_fields)
         if role_fields:
             await self.repo.update(receptionist_id, role_fields)
         await emit_event(

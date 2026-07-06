@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
@@ -87,6 +88,13 @@ class PrsAssessmentService:
         self.scale_results = PrsScaleResultRepository(session)
         self.catalog = PrsCatalogRepository(session)
 
+    async def list_for_patient(self, patient_id: UUID, *, assessment_stage: str | None = None) -> list[dict]:
+        """Used by the admin/staff patient-detail view to show a patient's
+        PRS history (e.g. their general_registration assessment) without
+        needing to already know an instance_id."""
+        profile_id = await _resolve_profile_id(self.session, patient_id)
+        return await self.instances.list_for_patient(profile_id, assessment_stage=assessment_stage)
+
     async def start(self, *, patient_id: UUID, disease_id: str, assessment_stage: str, session_id, cycle_id,
                      administered_by=None, initiated_by: str = "patient") -> dict:
         profile_id = await _resolve_profile_id(self.session, patient_id)
@@ -122,8 +130,16 @@ class PrsAssessmentService:
                 self.session, aggregate_type="prs_assessment_instance", aggregate_id=instance_id,
                 event_type="prs_scale_scored", payload={"instance_id": instance_id, "scale_id": finalize_scale_id},
             )
-            instance = await self.get(instance_id)  # re-fetch — the recalculate_final_result()
-            # trigger may have just flipped status to 'completed' (SQL/07_prs_tables.sql)
+            # recalculate_final_result is a DEFERRABLE INITIALLY DEFERRED constraint
+            # trigger (SQL/07_prs_tables.sql) — it only fires at COMMIT, which hasn't
+            # happened yet inside this same request/transaction. Without forcing it
+            # now, the re-fetch below always sees the pre-trigger 'in_progress' status,
+            # so registration_status could never auto-advance past anamnesis_complete
+            # even when this was genuinely the last scale (confirmed: instances were
+            # actually 'completed' in the DB after commit, but the patient stayed
+            # stuck mid-wizard because this check ran too early to see it).
+            await self.session.execute(text("SET CONSTRAINTS trg_recalculate_final_result IMMEDIATE"))
+            instance = await self.get(instance_id)  # re-fetch — the trigger has now run
             if instance["status"] == "completed" and instance["assessment_stage"] == "general_registration":
                 await emit_event(
                     self.session, aggregate_type="prs_assessment_instance", aggregate_id=instance_id,

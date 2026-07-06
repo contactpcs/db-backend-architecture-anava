@@ -155,6 +155,24 @@ class AdminsRepository:
         ).mappings().one()
         return dict(row)
 
+    async def get(self, admin_id: UUID) -> dict | None:
+        row = (
+            await self.session.execute(
+                text(
+                    "SELECT a.admin_id, a.profile_id, a.admin_type, a.region_id, a.clinic_id, a.created_at, "
+                    "p.first_name, p.last_name, p.email, p.phone, p.is_active, "
+                    "r.region_name, c.clinic_name "
+                    "FROM admins a "
+                    "JOIN profiles p ON p.id = a.profile_id "
+                    "LEFT JOIN regions r ON r.region_id = a.region_id "
+                    "LEFT JOIN clinics c ON c.clinic_id = a.clinic_id "
+                    "WHERE a.admin_id = :id"
+                ),
+                {"id": str(admin_id)},
+            )
+        ).mappings().first()
+        return dict(row) if row else None
+
     # Joined with profiles/regions/clinics — this is a purpose-built admin
     # management view, unlike the doctor/CA/receptionist/patient list
     # endpoints (which deliberately return bare rows with no profile join).
@@ -164,7 +182,11 @@ class AdminsRepository:
             clauses.append("a.admin_type = :admin_type")
             params["admin_type"] = admin_type
         if region_id:
-            clauses.append("a.region_id = :region_id")
+            # clinic_admin rows have a.region_id = NULL (they're clinic-
+            # scoped, not region-scoped directly) — reach their region via
+            # the clinic join instead, or this filter would silently drop
+            # every clinic_admin no matter which region is asked for.
+            clauses.append("(a.region_id = :region_id OR c.region_id = :region_id)")
             params["region_id"] = str(region_id)
         if clinic_id:
             clauses.append("a.clinic_id = :clinic_id")

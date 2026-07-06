@@ -90,7 +90,12 @@ Region Setup (Super Admin: unique country+state pair)
     ↓
 Clinic Request (clinic_requests table) → Super Admin approves
     ↓
-status=setup (onboard Clinic Admin + min: 1 Doctor + 1 CA + 1 Receptionist)
+First Clinic created in region (auto is_main_branch=TRUE — no picker, it's a fact of creation order)
+    ↓
+Regional Admin assigned FROM that main-branch clinic (must carry its clinic_id, not just region_id —
+    e.g. Andhra Pradesh's regional admin is based at Vijaywada Anava, its first clinic)
+    ↓
+status=setup (that same clinic's own separate Clinic Admin created next, then min: 1 Doctor + 1 CA + 1 Receptionist)
     ↓
 status=active (all patient care happens here)
     ↓
@@ -99,8 +104,13 @@ status=pending_closure (Regional Admin identifies receiving clinic → transfer 
 status=closed (TERMINAL — no records deleted)
 ```
 
+**2026-07-04 correction**: region → clinic → regional_admin → clinic_admin, not region → regional_admin → clinic. A
+regional_admin is a distinct person from that clinic's own clinic_admin (created afterward), but must be assigned FROM
+the region's main-branch clinic specifically — `admins.clinic_id` is now required (not forbidden) for regional_admin,
+and they get a normal `clinic_staff_assignments` row at that clinic too. See `SQL/29_regional_admin_clinic_binding.sql`.
+
 3 clinic types: anava_owned | partner (needs clinic_join_anava + clinic_leave_anava consents) | mobile (future)
-Main branch: is_main_branch=TRUE — holds regional stock
+Main branch: is_main_branch=TRUE — holds regional stock, and is where that region's regional_admin is based
 
 ---
 
@@ -170,6 +180,26 @@ Special Event (any phase): Patient Relocation Transfer
 | staff_offboarding | Any staff leaves | No |
 | clinic_join_anava | Partner joins | No |
 | clinic_leave_anava | Partner closes | No |
+
+**2026-07-04 redesign**: `staff_onboarding` templates are now split one-per-role
+(doctor/CA/receptionist/clinic_admin/regional_admin/super_admin — `consent_templates.role`
+column) instead of one shared `[ROLE]`-placeholder template. `profiles` also gained a
+dedicated `consent_signed` column, separate from `is_active`:
+- `is_active` — the real access gate + admin's manual on/off switch (unchanged meaning).
+- `consent_signed` — pure "did they sign" flag. For staff roles the two are kept in sync
+  at sign-time (signing flips both together). For patients, `is_active` still only flips
+  at registration-complete/approval (unchanged) — `consent_signed` is just informational there.
+- Self-heal in `core/middleware.py`: if a staff role's `is_active=FALSE` but `consent_signed`
+  is already `TRUE`, that's a deliberate admin deactivation, not a bricked account — do NOT
+  auto-reactivate. Only heals when BOTH flags are stuck false despite a real signed
+  `consent_records` row existing (the actual bricked-account case).
+- `consent/service.py::sign()` is idempotent — signing an already-signed consent returns
+  success (the existing record) instead of erroring, so a duplicate submit (double-click,
+  network retry) can't produce a scary error after the real sign already succeeded.
+- One shared helper `create_onboarding_consent()` replaces 4 near-duplicate inline
+  consent-creation call sites (staff/admin/patients services) — that duplication is exactly
+  how a regional_admin once got permanently bricked (one of the 4 copies had a gap the
+  others didn't). See `SQL/28_consent_redesign.sql`, `SQL/27_fix_regional_admin_scope.sql`.
 
 ---
 
@@ -365,3 +395,79 @@ see `SQL/22_staff_onboarding_lockdown.sql` for the full policy note:
   patients and admin-tier accounts are exempt.
 - Audit trail ("who referred/approved/when") was already fully covered by
   existing `staff_requests` columns — no schema change needed.
+
+## STAFF DEACTIVATE BUTTON FIX (2026-07-04)
+
+Deactivating a doctor/CA/receptionist from the admin UI updated only the role
+table's own `is_active` column (`clinical_assistants.is_active` /
+`receptionists.is_active`), never `profiles.is_active` (the real login gate)
+— so the account stayed fully usable, and the admin list (which displays
+`profile_is_active`, joined from `profiles`) showed no visible change either,
+making the button look broken. Fixed in `staff/service.py::_split_profile_fields`
+— `is_active` now writes to both tables in one PATCH. Doctors are unaffected
+(they use `availability_status`, no `is_active` column on that table).
+
+## EDIT-DETAILS + EMAIL EDITING FOR SUPER ADMIN (2026-07-04)
+
+Super admin can now edit details for every entity type:
+- **Patients, staff (doctor/CA/receptionist), clinics** — already had edit
+  forms + backend support, no changes needed.
+- **Admins (regional_admin/clinic_admin)** — had ZERO edit capability before
+  (list + view only). Added `PATCH /admins/{admin_id}` (super_admin only) +
+  an Edit form on the Admins page.
+- **Regions** — had create/activate/deactivate/delete but no rename. Added
+  an Edit form (region_name only — country/state are the region's identity
+  key via a UNIQUE constraint, stay fixed after creation).
+- **Email is now editable everywhere** (patients, staff, admins) — was
+  previously locked on the theory that email = login identity, but Cognito
+  auth (Stage 13) actually binds via `cognito_sub`, not email, so email is
+  just a contact field like any other. Doctor/CA/receptionist email changes
+  re-validate the org-domain rule (`anavaclinic.com`/etc.) same as at
+  creation; all three surfaces turn a duplicate-email DB conflict into a
+  clean `409 EMAIL_ALREADY_EXISTS`.
+
+**Real incident during this work**: a test query (`WHERE admin_type='regional_admin' LIMIT 1`)
+accidentally matched the user's real regional_admin account instead of a
+freshly-created test one, briefly overwriting their name/phone. Caught via
+`audit_logs` (which stores before/after JSON on every UPDATE) and restored
+exactly. **Lesson: always scope live-test queries to an exact ID/email you
+just created, never a broad `LIMIT 1` filter, in a DB that also holds the
+user's real data.**
+
+## CONSENT PAGE DOUBLE-SUBMIT FIX (2026-07-04)
+
+"Sign & Continue" could fire two PATCH requests from what felt like one
+click — `handleSign()` in `consent/page.tsx` guarded re-entry only via
+React state (`signing`), but state updates aren't synchronous and the
+function is `async` (yields at its first `await`), leaving a real gap for a
+second click to slip through before the button actually disabled. Fixed
+with a `useRef` guard (updates synchronously, no render delay) — this is
+the actual client-side source of that bug, on top of the server-side
+idempotent-sign fix above. Also fixed a related dead-end: if the page's
+load effect ever finds "nothing pending" (e.g. after a duplicate sign
+already succeeded), it now checks for an already-signed record before
+showing "contact your clinic admin" — finds one, and just proceeds instead
+of erroring.
+
+## CURRENT DEV DATABASE STATE (2026-07-04)
+
+The local Docker Postgres was deliberately wiped down to just the
+`dev-super-admin` bootstrap profile as part of the region/clinic reorder
+work above (needed to apply a stricter constraint that old test data
+violated) — then the user rebuilt real data through the actual UI
+afterward. As of now (verified by direct query, not assumed):
+- 1 region: **Andhra Pradesh**
+- 1 clinic: **Anava Vijayawada** (`ANV-01`, `is_main_branch=TRUE`, `status=setup`)
+- Regional admin: `ra.ap@anavaclinic.com` (based at Anava Vijayawada, per the new
+  region→clinic→regional_admin order)
+- Clinic admin: `ca.vja@anavaclinic.com`
+- Doctor: `dr.vja@anavaclinic.com` (Mohan Naidu)
+- Receptionist: `reception@anavaclinic.com` (Sneha Sanjana)
+- All 5 non-bootstrap-unrelated profiles are `is_active=TRUE` — onboarding
+  fully completed for each. No patients registered yet. Clinic status is
+  still `setup` (hasn't gone `active` — check `_MIN_STAFF_ROLES_FOR_ACTIVE`
+  in `admin/service.py` if that transition is attempted, needs doctor+CA+receptionist).
+- **This is real user data, not test data — never bulk-wipe or overwrite it.**
+  Any future live-testing in this DB must use clearly-prefixed throwaway
+  data (e.g. `zzz.*@...`) and clean up by exact ID afterward, per the
+  incident noted above.

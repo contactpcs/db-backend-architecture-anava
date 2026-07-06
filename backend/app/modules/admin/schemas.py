@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class RegionCreate(BaseModel):
@@ -53,17 +53,47 @@ class ClinicAdminAssign(BaseModel):
     first_name: str
     last_name: str
     phone: str | None = None
+    gender: str | None = Field(default=None, pattern="^(male|female|other)$")
+    dob: date | None = None
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    pincode: str | None = None
 
 
 class RegionalAdminAssign(BaseModel):
-    """Same shape as ClinicAdminAssign — creates the region's independent
-    regional_admin. Every region needs one of these before any clinic in
-    it can onboard a clinic_admin, other staff, or patients (Master Doc
-    Section 5.2)."""
+    """Creates the region's regional_admin — a person based at the region's
+    main-branch clinic (its first-created clinic), which must already exist.
+    clinic_id must reference that exact clinic (validated in the service,
+    not just any clinic in the region). Every region needs one of these
+    before its clinics can onboard a clinic_admin, other staff, or patients."""
 
+    clinic_id: UUID
     email: str
     first_name: str
     last_name: str
+    phone: str | None = None
+    gender: str | None = Field(default=None, pattern="^(male|female|other)$")
+    dob: date | None = None
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    pincode: str | None = None
+
+
+class AdminAccountUpdate(BaseModel):
+    """Profile-level fields only (matches StaffProfileUpdate's convention) —
+    no admin_type/region_id/clinic_id (structural, changed via dedicated
+    flows like RegionService.assign_admin, not a generic edit). Unlike
+    doctor/CA/receptionist, an admin's email has no org-domain restriction
+    to re-check on change (admins are exempt — see staff/service.py::
+    _assert_staff_email_domain's docstring)."""
+
+    first_name: str | None = None
+    last_name: str | None = None
+    email: EmailStr | None = None
     phone: str | None = None
 
 

@@ -4,18 +4,44 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from app.config import get_settings
+from app.config import build_ssl_context, get_settings
 
 settings = get_settings()
+
+# asyncpg wants an ssl.SSLContext (or True/False), not libpq's sslmode string.
+_connect_args: dict = {}
+_ssl_context = build_ssl_context()
+if _ssl_context is not None:
+    _connect_args["ssl"] = _ssl_context
 
 engine: AsyncEngine = create_async_engine(
     settings.database_url,
     pool_size=settings.db_pool_size,
     max_overflow=settings.db_max_overflow,
     pool_pre_ping=True,
+    connect_args=_connect_args,
 )
 
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+
+
+def get_migration_engine() -> AsyncEngine:
+    """For standalone scripts (bootstrap_superadmin.py, seed_*.py) — never
+    import `engine` directly for a write to a table with an RLS INSERT policy
+    (profiles, prs_diseases/scales/questions/options, admins, ...). Those
+    policies require rls_user_role() = 'super_admin' (or similar), which is
+    only ever set by AuthContextMiddleware inside a real HTTP request — a
+    bare script has no such context, and in real environments `engine` is
+    also the scoped anava_app role (NOBYPASSRLS), so the INSERT is rejected
+    outright regardless of context. Bootstrapping/seeding the very first
+    data into a fresh system is inherently a privileged, one-time operation
+    — use the master connection for it, the same one alembic uses for DDL.
+    Discovered the hard way migrating to RDS: seed_dev_profile.py failed with
+    InsufficientPrivilegeError until pointed at this instead of `engine`."""
+    return create_async_engine(
+        settings.migration_database_url or settings.database_url,
+        connect_args=_connect_args,
+    )
 
 
 @dataclass(frozen=True)
@@ -31,6 +57,7 @@ class RequestContext:
     clinic_id: str | None
     region_id: str | None
     is_active: bool = True
+    consent_signed: bool = True
 
 
 _request_context: ContextVar[RequestContext | None] = ContextVar("_request_context", default=None)

@@ -9,14 +9,24 @@ from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, NotFoundError
 from app.modules.consent.repository import ConsentRecordRepository, ConsentTemplateRepository
 
-# Consent types that gate a profile's is_active flag — signing one of these
-# is what flips a newly-registered person from inactive to active (see
-# staff/repository.py create_profile and patients/repository.py
-# create_profile_and_patient, both of which now create is_active=FALSE).
-_ACTIVATES_PROFILE_TYPES = {"patient_onboarding", "staff_onboarding"}
 
-# Master Doc Section 11.1 — only patient_onboarding requires a witness.
-_WITNESS_REQUIRED_TYPES = {"patient_onboarding"}
+_STAFF_ROLES = ("super_admin", "regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist")
+
+
+async def create_onboarding_consent(session: AsyncSession, *, role: str, profile_id, clinic_id=None, region_id=None) -> dict:
+    """Single entry point for creating a new profile's onboarding consent
+    record, used by every registration path (staff create, admin
+    assign-admin, patient register) instead of each duplicating this logic
+    slightly differently — that duplication is exactly how the regional_admin
+    consent-creation gap happened."""
+    consent_type = "staff_onboarding" if role in _STAFF_ROLES else "patient_onboarding"
+    return await ConsentRecordService(session).create(
+        consent_type=consent_type,
+        patient_id=profile_id if consent_type == "patient_onboarding" else None,
+        staff_id=profile_id if consent_type == "staff_onboarding" else None,
+        clinic_id=clinic_id, region_id=region_id,
+        role=role if consent_type == "staff_onboarding" else None,
+    )
 
 
 class ConsentTemplateService:
@@ -33,7 +43,10 @@ class ConsentRecordService:
         self.repo = ConsentRecordRepository(session)
         self.templates = ConsentTemplateRepository(session)
 
-    async def create(self, *, consent_type: str, patient_id, staff_id, clinic_id: UUID) -> dict:
+    async def create(self, *, consent_type: str, patient_id, staff_id, clinic_id: UUID | None = None,
+                      region_id: UUID | None = None, role: str | None = None) -> dict:
+        if clinic_id is None and region_id is None:
+            raise BusinessRuleError("Either clinic_id or region_id must be set", code="CONSENT_SCOPE_REQUIRED")
         # consent_records.patient_id references profiles(id), not
         # patients.patient_id — same distinction as anamnesis/prs (Stage 6
         # fix). staff_id has no equivalent unified "staff.staff_id" concept
@@ -47,12 +60,12 @@ class ConsentRecordService:
             if not patient:
                 raise NotFoundError("Patient not found", code="PATIENT_NOT_FOUND")
             patient_id = patient["profile_id"]
-        template = await self.templates.get_active(consent_type)
+        template = await self.templates.get_active(consent_type, role)
         if not template:
-            raise NotFoundError(f"No active template for consent_type={consent_type!r}", code="CONSENT_TEMPLATE_NOT_FOUND")
+            raise NotFoundError(f"No active template for consent_type={consent_type!r} role={role!r}", code="CONSENT_TEMPLATE_NOT_FOUND")
         record = await self.repo.create(
             consent_type=consent_type, template_id=template["template_id"],
-            patient_id=patient_id, staff_id=staff_id, clinic_id=clinic_id,
+            patient_id=patient_id, staff_id=staff_id, clinic_id=clinic_id, region_id=region_id,
         )
         await emit_event(
             self.session, aggregate_type="consent_record", aggregate_id=record["consent_id"],
@@ -71,42 +84,57 @@ class ConsentRecordService:
 
     async def sign(self, consent_id: UUID, *, signed_by: UUID, witness_id, signature_data: str, ip_address) -> dict:
         record = await self.get(consent_id)
+        if record["status"] == "signed":
+            # Idempotent: a duplicate submit (double-click, network retry)
+            # landing after the first one already succeeded should look like
+            # success too, not a scary error — the desired end state (signed)
+            # already holds. Only "revoked" is a genuine conflict worth
+            # surfacing below.
+            return record
         if record["status"] != "pending":
             raise BusinessRuleError(f"Consent already {record['status']}", code="CONSENT_ALREADY_DECIDED")
 
-        # Self-registered patients sign remotely — no one present to witness,
-        # and activation is deferred to a receptionist's later approval
-        # instead of firing here (see patients.self_registered/approval_status,
-        # SQL/24_patient_self_registration.sql). Staff-registered patients
-        # (receptionist physically present) are completely unaffected.
-        self_registered = False
-        if record["consent_type"] == "patient_onboarding" and record["patient_id"]:
-            from app.modules.patients.repository import PatientRepository
-
-            patient = await PatientRepository(self.session).get_by_profile_id(record["patient_id"])
-            self_registered = bool(patient and patient["self_registered"])
-
-        if record["consent_type"] in _WITNESS_REQUIRED_TYPES and not witness_id and not self_registered:
-            raise BusinessRuleError(
-                f"consent_type={record['consent_type']!r} requires a witness_id at signing",
-                code="WITNESS_REQUIRED",
-            )
-        template = await self.templates.get_active(record["consent_type"])
+        # Hash the exact template this record was created against (via
+        # template_id), not whatever's "currently active" for the type/role —
+        # the active row can have moved on (new version, or now split by
+        # role) by the time someone actually signs.
+        template = await self.templates.get(record["template_id"])
         content_hash = template["content_hash"] if template else None
         updated = await self.repo.sign(
             consent_id, signed_by=signed_by, witness_id=witness_id,
             signature_data=signature_data, ip_address=ip_address, content_hash_at_signing=content_hash,
         )
+        if updated is None:
+            # Truly concurrent double-submit — both requests read status=
+            # 'pending' above before either commit, but repo.sign()'s own
+            # WHERE status='pending' means only one UPDATE actually matched.
+            # The loser lands here instead of crashing on a None response.
+            return await self.get(consent_id)
         await emit_event(
             self.session, aggregate_type="consent_record", aggregate_id=consent_id,
             event_type="consent_signed", payload={"consent_id": str(consent_id), "consent_type": record["consent_type"]},
         )
-        if record["consent_type"] in _ACTIVATES_PROFILE_TYPES and not self_registered:
-            signer_profile_id = record["patient_id"] or record["staff_id"]
-            if signer_profile_id:
-                await self.session.execute(
-                    text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(signer_profile_id)}
-                )
+        # consent_signed is a plain "did they sign" flag, set for whichever
+        # role signed — separate from is_active (see profiles.consent_signed,
+        # SQL/28_consent_redesign.sql). is_active handling stays split by role
+        # below since staff and patients activate on different triggers.
+        signer_id = record["staff_id"] or record["patient_id"]
+        await self.session.execute(
+            text("UPDATE profiles SET consent_signed = TRUE WHERE id = :id"), {"id": str(signer_id)}
+        )
+
+        # staff_onboarding activates immediately — no registration-test flow
+        # applies to staff. patient_onboarding does NOT activate here for
+        # either self- or staff-registered patients anymore: every patient
+        # must complete the full registration-test sequence (disease
+        # selection, anamnesis, general PRS) first. Activation happens at
+        # registration_complete (_complete_registration, auto for
+        # approval_status='not_required') or at receptionist approval
+        # (decide_approval, for self-registered) — never at consent sign.
+        if record["consent_type"] == "staff_onboarding" and record["staff_id"]:
+            await self.session.execute(
+                text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(record["staff_id"])}
+            )
 
         if record["consent_type"] == "patient_onboarding" and record["patient_id"]:
             # Local import — avoids a module-load-time circular import

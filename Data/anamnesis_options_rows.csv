@@ -1,0 +1,32 @@
+option_id,question_id,option_label,option_value,display_order
+ANA/S02/Q003/O01,ANA/S02/Q003,Yes,yes,1
+ANA/S02/Q003/O02,ANA/S02/Q003,No,no,2
+ANA/S02/Q007/O01,ANA/S02/Q007,Daily,daily,1
+ANA/S02/Q007/O02,ANA/S02/Q007,Several times a week,several-times-week,2
+ANA/S02/Q007/O03,ANA/S02/Q007,Weekly,weekly,3
+ANA/S02/Q007/O04,ANA/S02/Q007,Monthly,monthly,4
+ANA/S02/Q007/O05,ANA/S02/Q007,Occasionally,occasionally,5
+ANA/S02/Q008/O01,ANA/S02/Q008,Mild,mild,1
+ANA/S02/Q008/O02,ANA/S02/Q008,Moderate,moderate,2
+ANA/S02/Q008/O03,ANA/S02/Q008,Severe,severe,3
+ANA/S02/Q008/O04,ANA/S02/Q008,Very Severe,very-severe,4
+ANA/S02/Q009/O01,ANA/S02/Q009,Getting better,better,1
+ANA/S02/Q009/O02,ANA/S02/Q009,Getting worse,worse,2
+ANA/S02/Q009/O03,ANA/S02/Q009,Staying about the same,same,3
+ANA/S02/Q009/O04,ANA/S02/Q009,Fluctuating,fluctuating,4
+ANA/S03/Q001/O01,ANA/S03/Q001,Sleep Issues,sleep,1
+ANA/S03/Q001/O02,ANA/S03/Q001,Concentration Problems,concentration,2
+ANA/S03/Q001/O03,ANA/S03/Q001,Memory Issues,memory,3
+ANA/S03/Q001/O04,ANA/S03/Q001,Gastrointestinal Issues,gastrointestinal,4
+ANA/S03/Q001/O05,ANA/S03/Q001,Mood Fluctuations,mood,5
+ANA/S03/Q001/O06,ANA/S03/Q001,Fatigue,fatigue,6
+ANA/S03/Q001/O07,ANA/S03/Q001,Weakness,weakness,7
+ANA/S03/Q001/O08,ANA/S03/Q001,Pain,pain,8
+ANA/S03/Q001/O09,ANA/S03/Q001,Depression/Anxiety,depression,9
+ANA/S03/Q001/O10,ANA/S03/Q001,Bladder Function Issues,bladder,10
+ANA/S04/Q001/O01,ANA/S04/Q001,Yes,yes,1
+ANA/S04/Q001/O02,ANA/S04/Q001,No,no,2
+ANA/S07/Q001/O01,ANA/S07/Q001,Yes,yes,1
+ANA/S07/Q001/O02,ANA/S07/Q001,No,no,2
+ANA/S08/Q001/O01,ANA/S08/Q001,Yes,yes,1
+ANA/S08/Q001/O02,ANA/S08/Q001,No,no,2

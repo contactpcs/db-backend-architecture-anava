@@ -68,11 +68,10 @@ class PatientService:
             raise ConflictError(f"Email {data['email']!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
 
         # Local import — avoids a module-load-time circular import (consent doesn't import patients).
-        from app.modules.consent.service import ConsentRecordService
+        from app.modules.consent.service import create_onboarding_consent
 
-        await ConsentRecordService(self.session).create(
-            consent_type="patient_onboarding", patient_id=patient["patient_id"], staff_id=None,
-            clinic_id=patient["primary_clinic_id"],
+        await create_onboarding_consent(
+            self.session, role="patient", profile_id=patient["patient_id"], clinic_id=patient["primary_clinic_id"],
         )
         await emit_event(
             self.session, aggregate_type="patient", aggregate_id=patient["patient_id"],
@@ -91,12 +90,15 @@ class PatientService:
 
     async def update(self, patient_id: UUID, fields: dict) -> dict:
         await self.get(patient_id)  # 404 if missing
-        profile_keys = {"first_name", "last_name", "phone", "gender", "dob", "address"}
+        profile_keys = {"first_name", "last_name", "email", "phone", "gender", "dob", "address"}
         patient_keys = {"emergency_contact_name", "emergency_contact_phone"}
         clean = {k: v for k, v in fields.items() if v is not None}
         profile_fields = {k: v for k, v in clean.items() if k in profile_keys}
         patient_fields = {k: v for k, v in clean.items() if k in patient_keys}
-        updated = await self.repo.update(patient_id, profile_fields=profile_fields, patient_fields=patient_fields)
+        try:
+            updated = await self.repo.update(patient_id, profile_fields=profile_fields, patient_fields=patient_fields)
+        except IntegrityError as exc:
+            raise ConflictError(f"Email {profile_fields.get('email')!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
         return updated  # type: ignore[return-value]
 
     async def decide_approval(self, patient_id: UUID, *, decision: str, decided_by: UUID,
@@ -158,6 +160,12 @@ class PatientService:
         )
         await self.advance_registration_status(patient_id)
         return selection
+
+    async def list_diseases(self, patient_id: UUID) -> list[dict]:
+        """Used by the admin/staff patient-detail view to show which
+        condition(s) a patient selected."""
+        patient = await self.get(patient_id)
+        return await self.disease_repo.list_for_patient(patient["profile_id"])
 
     async def advance_registration_status(self, patient_id: UUID) -> dict:
         """Re-derives registration_status from scratch by checking every
@@ -225,6 +233,16 @@ class PatientService:
         # mistake as the patients.patient_id vs profiles.id confusion above.
         await self.repo.complete_registration(patient_id, doctor["profile_id"])
         await self.assignments.create(doctor_id=doctor["profile_id"], patient_id=patient["profile_id"], clinic_id=patient["primary_clinic_id"])
+        # Staff-registered patients (approval_status='not_required') have no
+        # receptionist approval gate to wait on — activate them the moment
+        # they finish the same registration-test sequence self-registered
+        # patients go through (disease selection, anamnesis, general PRS).
+        # Self-registered patients (approval_status='pending') stay inactive
+        # here; decide_approval() is what activates them.
+        if patient["approval_status"] == "not_required":
+            await self.session.execute(
+                text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(patient["profile_id"])}
+            )
         updated = await self.repo.get(patient_id)
         await emit_event(
             self.session, aggregate_type="patient", aggregate_id=patient_id,

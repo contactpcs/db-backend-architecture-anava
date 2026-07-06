@@ -30,6 +30,7 @@ class PatientUpdate(BaseModel):
 
     first_name: str | None = None
     last_name: str | None = None
+    email: EmailStr | None = None
     phone: str | None = None
     gender: str | None = Field(default=None, pattern="^(male|female|other)$")
     dob: date | None = None

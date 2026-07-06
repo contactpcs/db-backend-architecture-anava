@@ -1,36 +1,1077 @@
-{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 153.05, "event": "request_completed", "request_id": "0625a518-bde0-4454-936e-1615de613027", "timestamp": "2026-07-03T10:46:26.050459Z", "level": "info"}
-INFO:     192.168.1.5:61870 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
-{"method": "GET", "path": "/api/v1/prs-catalog/scale-questions", "status_code": 200, "duration_ms": 214.16, "event": "request_completed", "request_id": "536f6064-9413-4ba2-9610-e0c99d5f928d", "timestamp": "2026-07-03T10:46:26.399640Z", "level": "info"}
-INFO:     192.168.1.5:61874 - "GET /api/v1/prs-catalog/scale-questions?scale_id=GAD-7/2026 HTTP/1.1" 200 OK
-{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 15.14, "event": "request_completed", "request_id": "265b4a8c-0708-470d-a527-7e2019f403b6", "timestamp": "2026-07-03T10:46:34.241676Z", "level": "info"}
-INFO:     192.168.1.5:55344 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
-{"method": "GET", "path": "/api/v1/prs-catalog/scale-questions", "status_code": 200, "duration_ms": 18.16, "event": "request_completed", "request_id": "5dd9d7d5-540a-4c70-8c23-923b4283e1af", "timestamp": "2026-07-03T10:46:34.470181Z", "level": "info"}
-INFO:     192.168.1.5:55345 - "GET /api/v1/prs-catalog/scale-questions?scale_id=GAD-7/2026 HTTP/1.1" 200 OK
-{"method": "POST", "path": "/api/v1/auth/register", "status_code": 201, "duration_ms": 206.71, "event": "request_completed", "request_id": "446a1f72-718d-4a94-9d50-43b878d42666", "timestamp": "2026-07-03T10:53:27.662262Z", "level": "info"}
-INFO:     192.168.1.5:57534 - "POST /api/v1/auth/register HTTP/1.1" 201 Created
-{"method": "POST", "path": "/api/v1/patients/1490820d-b6b5-404d-b47c-74407621f688/disease-selection", "status_code": 201, "duration_ms": 160.35, "event": "request_completed", "request_id": "2a3eb392-e675-4bb8-bcee-c8d41349da65", "timestamp": "2026-07-03T10:53:28.494098Z", "level": "info"}
-INFO:     192.168.1.5:56727 - "POST /api/v1/patients/1490820d-b6b5-404d-b47c-74407621f688/disease-selection HTTP/1.1" 201 Created
-{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 37.9, "event": "request_completed", "request_id": "e59f004c-a6d3-4e86-b29c-a9c4e73841d5", "timestamp": "2026-07-03T10:53:28.707288Z", "level": "info"}
-INFO:     192.168.1.5:56728 - "GET /api/v1/consent-records HTTP/1.1" 200 OK
-{"method": "PATCH", "path": "/api/v1/consent-records/c2891f52-d7d9-4da8-a48a-4981d8866de1/status", "status_code": 400, "duration_ms": 33.37, "event": "request_completed", "request_id": "8da6803a-7719-42c7-88ee-6903d7f7a9b5", "timestamp": "2026-07-03T10:53:28.925677Z", "level": "info"}
-INFO:     192.168.1.5:56729 - "PATCH /api/v1/consent-records/c2891f52-d7d9-4da8-a48a-4981d8866de1/status HTTP/1.1" 400 Bad Request
-{"method": "POST", "path": "/api/v1/patients/1490820d-b6b5-404d-b47c-74407621f688/anamnesis", "status_code": 201, "duration_ms": 121.49, "event": "request_completed", "request_id": "70081347-1b59-4d5c-9ad9-763840b513c0", "timestamp": "2026-07-03T10:53:29.166403Z", "level": "info"}
-INFO:     192.168.1.5:56730 - "POST /api/v1/patients/1490820d-b6b5-404d-b47c-74407621f688/anamnesis HTTP/1.1" 201 Created
-{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-8d3f1ad1-001", "status_code": 200, "duration_ms": 49.3, "event": "request_completed", "request_id": "1a96948b-1206-45d2-9ec1-cce5aa9bcee5", "timestamp": "2026-07-03T10:53:29.602471Z", "level": "info"}
-INFO:     192.168.1.5:56731 - "PATCH /api/v1/anamnesis/ANA-8d3f1ad1-001 HTTP/1.1" 200 OK
-{"method": "GET", "path": "/api/v1/patients/1490820d-b6b5-404d-b47c-74407621f688/scale-assignments", "status_code": 200, "duration_ms": 25.18, "event": "request_completed", "request_id": "35decdcf-2ae2-4c70-b7fe-3d320b641d94", "timestamp": "2026-07-03T10:53:29.763424Z", "level": "info"}
-INFO:     192.168.1.5:56732 - "GET /api/v1/patients/1490820d-b6b5-404d-b47c-74407621f688/scale-assignments?assessment_stage=general_registration HTTP/1.1" 200 OK
-{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 124.65, "event": "request_completed", "request_id": "72038b48-9358-4d49-9875-57a7f4108d9f", "timestamp": "2026-07-03T11:02:24.020126Z", "level": "info"}
-INFO:     192.168.1.5:64385 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
-{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 15.79, "event": "request_completed", "request_id": "b87a9781-4b83-4530-be34-e71c2d56a4b8", "timestamp": "2026-07-03T11:02:44.532044Z", "level": "info"}
-INFO:     192.168.1.5:53902 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
-INFO:     192.168.1.5:59374 - "GET /api/v1/consent-templates HTTP/1.1" 401 Unauthorized
-INFO:     192.168.1.5:59374 - "OPTIONS /api/v1/auth/local-login HTTP/1.1" 200 OK
-{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 404, "duration_ms": 23.82, "event": "request_completed", "request_id": "7e11ac32-c65d-48a6-ad0c-544f27128a49", "timestamp": "2026-07-03T11:03:18.264050Z", "level": "info"}
-INFO:     192.168.1.5:59374 - "POST /api/v1/auth/local-login HTTP/1.1" 404 Not Found
-INFO:     192.168.1.5:61839 - "GET /api/v1/consent-templates HTTP/1.1" 401 Unauthorized
-{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 13.42, "event": "request_completed", "request_id": "2bb3d653-a03d-4b7a-bc9e-b102fb428cc0", "timestamp": "2026-07-03T11:04:15.188497Z", "level": "info"}
-INFO:     192.168.1.5:65478 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
-INFO:     192.168.1.5:51507 - "GET /api/v1/consent-templates HTTP/1.1" 401 Unauthorized
-INFO:     192.168.1.5:51873 - "OPTIONS /api/v1/auth/local-login HTTP/1.1" 200 OK
-INFO:     192.168.1.5:51873 - "POST /api/v1/auth/local-login HTTP/1.1" 500 Internal Server Error
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 63.8, "event": "request_completed", "request_id": "4875c537-ad00-4f68-a8e3-d2f4fd29f7c4", "timestamp": "2026-07-03T15:35:23.358172Z", "level": "info"}
+INFO:     192.168.1.5:55580 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/disease-selection", "status_code": 200, "duration_ms": 92.75, "event": "request_completed", "request_id": "ba75e132-5504-4029-b0ad-2e7a5a5d1ce6", "timestamp": "2026-07-03T15:35:23.513445Z", "level": "info"}
+INFO:     192.168.1.5:55582 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/prs-instances", "status_code": 200, "duration_ms": 34.09, "event": "request_completed", "request_id": "7e9296a1-bd01-41ad-a560-bc61fdb5cb6f", "timestamp": "2026-07-03T15:35:23.592895Z", "level": "info"}
+INFO:     192.168.1.5:55583 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/prs-instances HTTP/1.1" 200 OK
+INFO:     192.168.1.5:58111 - "OPTIONS /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 4.31, "event": "request_completed", "request_id": "43f58d5a-4020-4930-882d-5489e87fb2fb", "timestamp": "2026-07-03T15:39:00.731457Z", "level": "info"}
+INFO:     192.168.1.5:58111 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+INFO:     192.168.1.5:58111 - "OPTIONS /api/v1/auth/me HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/me", "status_code": 200, "duration_ms": 5.73, "event": "request_completed", "request_id": "5feab501-e87b-4abd-a959-0b97d9a86fc9", "timestamp": "2026-07-03T15:39:00.746288Z", "level": "info"}
+INFO:     192.168.1.5:58111 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+INFO:     192.168.1.5:58111 - "OPTIONS /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+INFO:     192.168.1.5:58886 - "OPTIONS /api/v1/patients HTTP/1.1" 200 OK
+INFO:     192.168.1.5:56657 - "OPTIONS /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+INFO:     192.168.1.5:58111 - "OPTIONS /api/v1/patients HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 34.6, "event": "request_completed", "request_id": "c04768a3-70b8-4be1-9ecd-53d124db6215", "timestamp": "2026-07-03T15:39:01.370525Z", "level": "info"}
+INFO:     192.168.1.5:58111 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 6.89, "event": "request_completed", "request_id": "36f6b5d6-ef04-4b4b-96ea-fa14529146dd", "timestamp": "2026-07-03T15:39:01.379660Z", "level": "info"}
+INFO:     192.168.1.5:56657 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 12.63, "event": "request_completed", "request_id": "65f1bc3c-e66e-4b3b-b4fe-c3964d1dd753", "timestamp": "2026-07-03T15:39:01.390827Z", "level": "info"}
+INFO:     192.168.1.5:58886 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 6.57, "event": "request_completed", "request_id": "24f5933e-9ef0-40e9-aa06-7f87987ad5af", "timestamp": "2026-07-03T15:39:01.391888Z", "level": "info"}
+INFO:     192.168.1.5:58111 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 5.52, "event": "request_completed", "request_id": "4c88a02a-8921-4635-ab85-8792edce19d5", "timestamp": "2026-07-03T15:39:15.317446Z", "level": "info"}
+INFO:     192.168.1.5:63822 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 7.21, "event": "request_completed", "request_id": "4d97b509-888d-43eb-a524-6bd8e82b5cda", "timestamp": "2026-07-03T15:39:15.318517Z", "level": "info"}
+INFO:     192.168.1.5:62689 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 32.41, "event": "request_completed", "request_id": "f12da7d0-65c2-4440-b138-b4a816a5ab54", "timestamp": "2026-07-03T15:39:15.358942Z", "level": "info"}
+INFO:     192.168.1.5:64207 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 5.98, "event": "request_completed", "request_id": "bc6bcc37-9821-456f-831c-73fd73dd856f", "timestamp": "2026-07-03T15:39:15.371291Z", "level": "info"}
+INFO:     192.168.1.5:63822 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 4.74, "event": "request_completed", "request_id": "e035f65d-2604-4a6f-b88d-d6b52a42b0bb", "timestamp": "2026-07-03T15:39:18.308654Z", "level": "info"}
+INFO:     192.168.1.5:63822 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/me", "status_code": 200, "duration_ms": 5.64, "event": "request_completed", "request_id": "9d206ede-e017-48a2-890c-481fd88a142e", "timestamp": "2026-07-03T15:39:18.321986Z", "level": "info"}
+INFO:     192.168.1.5:63822 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 11.28, "event": "request_completed", "request_id": "6617a654-8f63-4a60-bb97-ad0f6a492b1c", "timestamp": "2026-07-03T15:39:18.374847Z", "level": "info"}
+INFO:     192.168.1.5:63822 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 10.33, "event": "request_completed", "request_id": "aeebe028-d28a-40db-a267-495bcd33c405", "timestamp": "2026-07-03T15:39:18.378069Z", "level": "info"}
+INFO:     192.168.1.5:64207 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 12.11, "event": "request_completed", "request_id": "edc70ae3-667d-487a-9758-e233347e8f78", "timestamp": "2026-07-03T15:39:18.395429Z", "level": "info"}
+INFO:     192.168.1.5:62689 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 11.13, "event": "request_completed", "request_id": "4d8d6489-f016-4b66-976d-7dad3d927f3c", "timestamp": "2026-07-03T15:39:18.399135Z", "level": "info"}
+INFO:     192.168.1.5:63822 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 7.25, "event": "request_completed", "request_id": "1fe1380a-731a-43df-a7c8-d8235b05c15e", "timestamp": "2026-07-03T15:39:42.300217Z", "level": "info"}
+INFO:     192.168.1.5:50466 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/me", "status_code": 200, "duration_ms": 5.74, "event": "request_completed", "request_id": "ea805fdc-8c68-4fa6-85c6-c205a2b317ee", "timestamp": "2026-07-03T15:39:42.314526Z", "level": "info"}
+INFO:     192.168.1.5:50466 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 12.64, "event": "request_completed", "request_id": "986d1ced-502d-47aa-9cda-25cd7cb42535", "timestamp": "2026-07-03T15:39:42.368442Z", "level": "info"}
+INFO:     192.168.1.5:50466 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 14.92, "event": "request_completed", "request_id": "ec620993-264a-44c1-9492-74c204fefcbd", "timestamp": "2026-07-03T15:39:42.384432Z", "level": "info"}
+INFO:     192.168.1.5:62102 - "GET /api/v1/patients HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 13.06, "event": "request_completed", "request_id": "ad0214b0-b873-4b59-8661-008aff1142d1", "timestamp": "2026-07-03T15:39:42.390406Z", "level": "info"}
+INFO:     192.168.1.5:57119 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+INFO:     192.168.1.5:57119 - "OPTIONS /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 8.38, "event": "request_completed", "request_id": "48fa7167-b060-439e-844d-f5f0043096d4", "timestamp": "2026-07-03T15:39:42.403327Z", "level": "info"}
+INFO:     192.168.1.5:50466 - "GET /api/v1/patients HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis", "status_code": 404, "duration_ms": 31.16, "event": "request_completed", "request_id": "db8a9f66-4bb7-4448-a3b8-a2b7c0abfaa6", "timestamp": "2026-07-03T15:39:42.436618Z", "level": "info"}
+INFO:     192.168.1.5:57119 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis HTTP/1.1" 404 Not Found
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis", "status_code": 404, "duration_ms": 10.89, "event": "request_completed", "request_id": "df54bf91-1c1f-4293-b4d1-5aff31b7fb5d", "timestamp": "2026-07-03T15:39:42.481171Z", "level": "info"}
+INFO:     192.168.1.5:57119 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis HTTP/1.1" 404 Not Found
+INFO:     192.168.1.5:57119 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis", "status_code": 201, "duration_ms": 38.68, "event": "request_completed", "request_id": "5126662d-a7fb-4fa9-a84a-1b6c87dd85d2", "timestamp": "2026-07-03T15:39:42.560983Z", "level": "info"}
+INFO:     192.168.1.5:57119 - "POST /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis HTTP/1.1" 201 Created
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 5.88, "event": "request_completed", "request_id": "a105a603-1677-40bb-b2cf-6d2e62001ef2", "timestamp": "2026-07-03T15:39:54.638390Z", "level": "info"}
+INFO:     192.168.1.5:56759 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/me", "status_code": 200, "duration_ms": 3.54, "event": "request_completed", "request_id": "bc0c5309-d56e-4d01-9b18-a0526784573e", "timestamp": "2026-07-03T15:39:54.652314Z", "level": "info"}
+INFO:     192.168.1.5:56759 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+INFO:     192.168.1.5:56759 - "OPTIONS /api/v1/auth/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:52424 - "OPTIONS /api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:55789 - "OPTIONS /api/v1/doctors?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:50905 - "OPTIONS /api/v1/clinical-assistants?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:57282 - "OPTIONS /api/v1/receptionists?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:64178 - "OPTIONS /api/v1/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:56759 - "OPTIONS /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:52424 - "OPTIONS /api/v1/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:55789 - "OPTIONS /api/v1/staff-requests?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:50905 - "OPTIONS /api/v1/store-orders?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:57282 - "OPTIONS /api/v1/appointments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:64178 - "OPTIONS /api/v1/payments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:56759 - "OPTIONS /api/v1/inventory?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:52424 - "OPTIONS /api/v1/products HTTP/1.1" 200 OK
+INFO:     192.168.1.5:55789 - "OPTIONS /api/v1/auth/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:50905 - "OPTIONS /api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:57282 - "OPTIONS /api/v1/doctors?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:64178 - "OPTIONS /api/v1/clinical-assistants?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:56759 - "OPTIONS /api/v1/receptionists?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:52424 - "OPTIONS /api/v1/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:55789 - "OPTIONS /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:50905 - "OPTIONS /api/v1/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:57282 - "OPTIONS /api/v1/staff-requests?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:64178 - "OPTIONS /api/v1/store-orders?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:56759 - "OPTIONS /api/v1/appointments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:52424 - "OPTIONS /api/v1/payments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:55789 - "OPTIONS /api/v1/inventory?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:50905 - "OPTIONS /api/v1/products HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 72.42, "event": "request_completed", "request_id": "510ecd32-6687-4c36-bea3-646a6e86463c", "timestamp": "2026-07-03T15:39:55.174372Z", "level": "info"}
+INFO:     192.168.1.5:57282 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896", "status_code": 200, "duration_ms": 105.77, "event": "request_completed", "request_id": "4ef85391-6ac2-486f-9d2a-b836bd82909d", "timestamp": "2026-07-03T15:39:55.229621Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/doctors", "status_code": 200, "duration_ms": 103.24, "event": "request_completed", "request_id": "8cc53730-397f-4f45-9d42-3f401775e519", "timestamp": "2026-07-03T15:39:55.229621Z", "level": "info"}
+INFO:     192.168.1.5:64178 - "GET /api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:56759 - "GET /api/v1/doctors?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 82.08, "event": "request_completed", "request_id": "109f733b-30aa-47e8-aaed-66b834e26e0e", "timestamp": "2026-07-03T15:39:55.312058Z", "level": "info"}
+INFO:     192.168.1.5:57282 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinical-assistants", "status_code": 200, "duration_ms": 90.6, "event": "request_completed", "request_id": "e67a4ed8-15c3-40ed-9f2d-01b2562d681f", "timestamp": "2026-07-03T15:39:55.315865Z", "level": "info"}
+INFO:     192.168.1.5:52424 - "GET /api/v1/clinical-assistants?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 79.36, "event": "request_completed", "request_id": "887f1efb-5a79-4dc9-bf2f-74ee4a8d7384", "timestamp": "2026-07-03T15:39:55.316932Z", "level": "info"}
+INFO:     192.168.1.5:50905 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/receptionists", "status_code": 200, "duration_ms": 84.89, "event": "request_completed", "request_id": "4360f42f-727e-45ad-bd15-a45cd7176a71", "timestamp": "2026-07-03T15:39:55.319113Z", "level": "info"}
+INFO:     192.168.1.5:55789 - "GET /api/v1/receptionists?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/store-orders", "status_code": 200, "duration_ms": 81.31, "event": "request_completed", "request_id": "e2686164-04d7-4b1a-90e1-3a0898d6b8a1", "timestamp": "2026-07-03T15:39:55.329860Z", "level": "info"}
+INFO:     192.168.1.5:56759 - "GET /api/v1/store-orders?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/staff-requests", "status_code": 200, "duration_ms": 23.01, "event": "request_completed", "request_id": "de4d77c4-fd67-4d94-83dc-922b069feebf", "timestamp": "2026-07-03T15:39:55.332578Z", "level": "info"}
+INFO:     192.168.1.5:64178 - "GET /api/v1/staff-requests?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 11.19, "event": "request_completed", "request_id": "8e4b6932-e645-436d-a1a6-d85f1681f01f", "timestamp": "2026-07-03T15:39:55.354920Z", "level": "info"}
+INFO:     192.168.1.5:56759 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/appointments", "status_code": 200, "duration_ms": 33.15, "event": "request_completed", "request_id": "0756dc6f-069d-4a93-bacd-6f7c8247cc60", "timestamp": "2026-07-03T15:39:55.359756Z", "level": "info"}
+INFO:     192.168.1.5:57282 - "GET /api/v1/appointments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/inventory", "status_code": 200, "duration_ms": 29.53, "event": "request_completed", "request_id": "79b75a5e-f40f-4d6c-99dc-12133448524f", "timestamp": "2026-07-03T15:39:55.361941Z", "level": "info"}
+INFO:     192.168.1.5:50905 - "GET /api/v1/inventory?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/payments", "status_code": 200, "duration_ms": 32.72, "event": "request_completed", "request_id": "5f3fb0f9-86dc-4b91-933c-4c23cb4afb69", "timestamp": "2026-07-03T15:39:55.365175Z", "level": "info"}
+INFO:     192.168.1.5:52424 - "GET /api/v1/payments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/products", "status_code": 200, "duration_ms": 19.93, "event": "request_completed", "request_id": "7c0c4395-393e-4659-9558-729a9f26c556", "timestamp": "2026-07-03T15:39:55.366780Z", "level": "info"}
+INFO:     192.168.1.5:55789 - "GET /api/v1/products HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896", "status_code": 200, "duration_ms": 19.51, "event": "request_completed", "request_id": "1cf5f12e-6fdd-4a19-b380-d7cdcca43727", "timestamp": "2026-07-03T15:39:55.375995Z", "level": "info"}
+INFO:     192.168.1.5:64178 - "GET /api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/doctors", "status_code": 200, "duration_ms": 21.47, "event": "request_completed", "request_id": "287762ac-b7f5-4914-b436-8583528754f2", "timestamp": "2026-07-03T15:39:55.393836Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 17.63, "event": "request_completed", "request_id": "bdf7e98e-dfa7-41ac-9df9-d32997e8e5b5", "timestamp": "2026-07-03T15:39:55.394361Z", "level": "info"}
+INFO:     192.168.1.5:56759 - "GET /api/v1/doctors?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:57282 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinical-assistants", "status_code": 200, "duration_ms": 18.24, "event": "request_completed", "request_id": "7ed53742-c38a-432a-8c92-f3c1fa1880ab", "timestamp": "2026-07-03T15:39:55.399226Z", "level": "info"}
+INFO:     192.168.1.5:50905 - "GET /api/v1/clinical-assistants?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 17.53, "event": "request_completed", "request_id": "09e4859e-ef66-4e6a-83d3-09000a0716f4", "timestamp": "2026-07-03T15:39:55.401395Z", "level": "info"}
+INFO:     192.168.1.5:52424 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/receptionists", "status_code": 200, "duration_ms": 19.64, "event": "request_completed", "request_id": "4e8689bb-bb5b-4782-91d8-48c85cbd7f73", "timestamp": "2026-07-03T15:39:55.403564Z", "level": "info"}
+INFO:     192.168.1.5:55789 - "GET /api/v1/receptionists?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/store-orders", "status_code": 200, "duration_ms": 20.82, "event": "request_completed", "request_id": "ad17b9c9-015b-4573-87e3-d33f2b13ae29", "timestamp": "2026-07-03T15:39:55.412240Z", "level": "info"}
+INFO:     192.168.1.5:64178 - "GET /api/v1/store-orders?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/appointments", "status_code": 200, "duration_ms": 15.74, "event": "request_completed", "request_id": "1259bbb8-d096-4f04-8ad9-e2cc251e28cd", "timestamp": "2026-07-03T15:39:55.425596Z", "level": "info"}
+INFO:     192.168.1.5:57282 - "GET /api/v1/appointments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:57282 - "OPTIONS /api/v1/doctors/b6657275-1ffc-4973-91af-ef601d75d293/weekly-schedules HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/staff-requests", "status_code": 200, "duration_ms": 20.92, "event": "request_completed", "request_id": "1665de9c-7342-476e-9a51-a89604945814", "timestamp": "2026-07-03T15:39:55.430914Z", "level": "info"}
+INFO:     192.168.1.5:56759 - "GET /api/v1/staff-requests?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/inventory", "status_code": 200, "duration_ms": 18.19, "event": "request_completed", "request_id": "fc957208-4ddc-46eb-b145-7fbb7da47f94", "timestamp": "2026-07-03T15:39:55.432501Z", "level": "info"}
+INFO:     192.168.1.5:50905 - "GET /api/v1/inventory?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/payments", "status_code": 200, "duration_ms": 16.16, "event": "request_completed", "request_id": "0f26ffbe-1ee4-4d60-b381-73c6990b1f8f", "timestamp": "2026-07-03T15:39:55.434638Z", "level": "info"}
+INFO:     192.168.1.5:52424 - "GET /api/v1/payments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/products", "status_code": 200, "duration_ms": 17.3, "event": "request_completed", "request_id": "d2e94f82-1bbc-4770-9616-183c78c56956", "timestamp": "2026-07-03T15:39:55.437880Z", "level": "info"}
+INFO:     192.168.1.5:55789 - "GET /api/v1/products HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 16.98, "event": "request_completed", "request_id": "4eb67de4-ba94-4fa6-991e-923f6e4d4903", "timestamp": "2026-07-03T15:39:55.443799Z", "level": "info"}
+INFO:     192.168.1.5:64178 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/doctors/b6657275-1ffc-4973-91af-ef601d75d293/weekly-schedules", "status_code": 200, "duration_ms": 11.76, "event": "request_completed", "request_id": "65eac5ff-f292-4001-b5de-67cf0fa11c77", "timestamp": "2026-07-03T15:39:55.453409Z", "level": "info"}
+INFO:     192.168.1.5:57282 - "GET /api/v1/doctors/b6657275-1ffc-4973-91af-ef601d75d293/weekly-schedules HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 6.27, "event": "request_completed", "request_id": "a502a6ba-7796-4c32-a53f-d360b936818e", "timestamp": "2026-07-03T15:39:55.456619Z", "level": "info"}
+INFO:     192.168.1.5:55789 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/doctors/b6657275-1ffc-4973-91af-ef601d75d293/weekly-schedules", "status_code": 200, "duration_ms": 11.26, "event": "request_completed", "request_id": "5daa15b5-9b99-4dff-8985-3aa4847e6f64", "timestamp": "2026-07-03T15:39:55.481523Z", "level": "info"}
+INFO:     192.168.1.5:55789 - "GET /api/v1/doctors/b6657275-1ffc-4973-91af-ef601d75d293/weekly-schedules HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 9.02, "event": "request_completed", "request_id": "1fe9c613-3660-4803-b8ad-00803e425d1d", "timestamp": "2026-07-03T15:39:58.069669Z", "level": "info"}
+INFO:     192.168.1.5:57282 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 13.8, "event": "request_completed", "request_id": "b8229b20-4139-46f9-a6b9-cd631ab63c33", "timestamp": "2026-07-03T15:39:58.072394Z", "level": "info"}
+INFO:     192.168.1.5:55789 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 14.76, "event": "request_completed", "request_id": "b658ddd6-8720-4faf-9432-1d6030f6ef06", "timestamp": "2026-07-03T15:39:58.094861Z", "level": "info"}
+INFO:     192.168.1.5:64178 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 17.09, "event": "request_completed", "request_id": "2bee4632-8af7-47d5-9552-085ffeb7d8e6", "timestamp": "2026-07-03T15:39:58.099758Z", "level": "info"}
+INFO:     192.168.1.5:52424 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:52424 - "OPTIONS /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:64178 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+INFO:     192.168.1.5:55789 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+INFO:     192.168.1.5:55789 - "OPTIONS /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:64178 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+INFO:     192.168.1.5:52424 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 12.41, "event": "request_completed", "request_id": "110f2432-76d6-4464-a988-7e93a9e63494", "timestamp": "2026-07-03T15:40:01.149170Z", "level": "info"}
+INFO:     192.168.1.5:57282 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 13.83, "event": "request_completed", "request_id": "15855b76-cb74-40d2-972b-11754b4fa7a5", "timestamp": "2026-07-03T15:40:01.154510Z", "level": "info"}
+INFO:     192.168.1.5:64871 - "GET /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files", "status_code": 200, "duration_ms": 17.29, "event": "request_completed", "request_id": "632e8e69-e810-4047-bc65-7e1e2cb43509", "timestamp": "2026-07-03T15:40:01.155577Z", "level": "info"}
+INFO:     192.168.1.5:54790 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d", "status_code": 200, "duration_ms": 14.48, "event": "request_completed", "request_id": "769dc8e2-f141-41e6-82a0-9741b53549ab", "timestamp": "2026-07-03T15:40:01.157187Z", "level": "info"}
+INFO:     192.168.1.5:55789 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 12.7, "event": "request_completed", "request_id": "73d3778c-11c8-44a6-b26f-341c2b988cca", "timestamp": "2026-07-03T15:40:01.173941Z", "level": "info"}
+INFO:     192.168.1.5:52424 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 11.99, "event": "request_completed", "request_id": "6938ec07-8988-4797-adbe-b83b2a79b580", "timestamp": "2026-07-03T15:40:01.177711Z", "level": "info"}
+INFO:     192.168.1.5:57282 - "GET /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d", "status_code": 200, "duration_ms": 10.34, "event": "request_completed", "request_id": "b444141f-c86d-41bd-a30e-5e62b3d4122a", "timestamp": "2026-07-03T15:40:01.178801Z", "level": "info"}
+INFO:     192.168.1.5:54790 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files", "status_code": 200, "duration_ms": 15.02, "event": "request_completed", "request_id": "4ce75d35-ea76-4be6-ab52-f8bbd48950d0", "timestamp": "2026-07-03T15:40:01.182541Z", "level": "info"}
+INFO:     192.168.1.5:64871 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 10.81, "event": "request_completed", "request_id": "e8e7ed80-12c0-4f30-849a-c1bbfd857099", "timestamp": "2026-07-03T15:40:12.832945Z", "level": "info"}
+INFO:     192.168.1.5:56163 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 13.46, "event": "request_completed", "request_id": "c99a676d-cbb4-42e5-bbac-bb62e0b2019f", "timestamp": "2026-07-03T15:40:12.844812Z", "level": "info"}
+INFO:     192.168.1.5:61164 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 13.88, "event": "request_completed", "request_id": "4b902728-8260-43a7-b96c-210d2b92089e", "timestamp": "2026-07-03T15:40:12.846417Z", "level": "info"}
+INFO:     192.168.1.5:60334 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 14.81, "event": "request_completed", "request_id": "c762d388-67d5-48de-adad-b85cf0074768", "timestamp": "2026-07-03T15:40:12.851309Z", "level": "info"}
+INFO:     192.168.1.5:53972 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 11.44, "event": "request_completed", "request_id": "83c2688f-8785-47be-a09b-796a3a519d4c", "timestamp": "2026-07-03T15:40:12.868227Z", "level": "info"}
+INFO:     192.168.1.5:56163 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 15.62, "event": "request_completed", "request_id": "8b8b7bd9-b6ef-4ec6-b22f-091d02596be1", "timestamp": "2026-07-03T15:40:12.874397Z", "level": "info"}
+INFO:     192.168.1.5:61164 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d", "status_code": 200, "duration_ms": 9.4, "event": "request_completed", "request_id": "877c56ff-a2be-49bf-af4e-de2263dffb9a", "timestamp": "2026-07-03T15:40:14.641304Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 10.11, "event": "request_completed", "request_id": "2386dd35-ef5e-4b04-bfba-2789de5554c3", "timestamp": "2026-07-03T15:40:14.641839Z", "level": "info"}
+INFO:     192.168.1.5:53972 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+INFO:     192.168.1.5:60334 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files", "status_code": 200, "duration_ms": 12.64, "event": "request_completed", "request_id": "57fe4c5d-4b56-412c-a807-3ba312b59c35", "timestamp": "2026-07-03T15:40:14.643509Z", "level": "info"}
+INFO:     192.168.1.5:56163 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 14.79, "event": "request_completed", "request_id": "65e72ca7-7c77-4b79-8f65-f49f56c180d1", "timestamp": "2026-07-03T15:40:14.644594Z", "level": "info"}
+INFO:     192.168.1.5:61164 - "GET /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d", "status_code": 200, "duration_ms": 13.99, "event": "request_completed", "request_id": "3e784609-4c90-43b6-b83b-342969ccca31", "timestamp": "2026-07-03T15:40:14.669067Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 13.11, "event": "request_completed", "request_id": "5dc2b83f-808b-4db2-b50b-3658d4a06a33", "timestamp": "2026-07-03T15:40:14.669067Z", "level": "info"}
+INFO:     192.168.1.5:51097 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+INFO:     192.168.1.5:56604 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 14.96, "event": "request_completed", "request_id": "abf525aa-118e-4b69-9e02-9baf79f6ba04", "timestamp": "2026-07-03T15:40:14.673378Z", "level": "info"}
+INFO:     192.168.1.5:56163 - "GET /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files", "status_code": 200, "duration_ms": 21.74, "event": "request_completed", "request_id": "f8c4cc79-1d2f-4235-a627-d30884c053d2", "timestamp": "2026-07-03T15:40:14.678217Z", "level": "info"}
+INFO:     192.168.1.5:60334 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 7.92, "event": "request_completed", "request_id": "4fcfda54-fb45-4cfc-aa5e-4a1b5fb4478c", "timestamp": "2026-07-03T15:40:19.863900Z", "level": "info"}
+INFO:     192.168.1.5:65031 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 13.71, "event": "request_completed", "request_id": "3b673759-e0ab-433d-aa4d-faf412991ace", "timestamp": "2026-07-03T15:40:19.880945Z", "level": "info"}
+INFO:     192.168.1.5:60666 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 14.51, "event": "request_completed", "request_id": "0c7cbdd3-2b02-4fd2-8e2b-951bedaea700", "timestamp": "2026-07-03T15:40:19.884636Z", "level": "info"}
+INFO:     192.168.1.5:64084 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 7.69, "event": "request_completed", "request_id": "4cb08e95-0b25-4c37-a7bf-8bc877fa96b2", "timestamp": "2026-07-03T15:40:19.900973Z", "level": "info"}
+INFO:     192.168.1.5:50234 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 8.36, "event": "request_completed", "request_id": "f352c1d8-9b37-4d96-addf-aa3fbc08cc01", "timestamp": "2026-07-03T15:40:19.910163Z", "level": "info"}
+INFO:     192.168.1.5:56462 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 8.76, "event": "request_completed", "request_id": "cc9f6bc1-b977-4f1d-b7a3-4f60418968ad", "timestamp": "2026-07-03T15:40:19.911784Z", "level": "info"}
+INFO:     192.168.1.5:50093 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 10.22, "event": "request_completed", "request_id": "b53b1394-c83b-4a41-b02e-808f3fcaf8ca", "timestamp": "2026-07-03T15:40:21.364037Z", "level": "info"}
+INFO:     192.168.1.5:50093 - "GET /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 9.0, "event": "request_completed", "request_id": "e7786b62-b5d8-4ca1-8d6d-2af0f689f0d6", "timestamp": "2026-07-03T15:40:21.364576Z", "level": "info"}
+INFO:     192.168.1.5:64084 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d", "status_code": 200, "duration_ms": 12.14, "event": "request_completed", "request_id": "9c2b2470-1a49-44ca-a305-2cc1710f91f5", "timestamp": "2026-07-03T15:40:21.366696Z", "level": "info"}
+INFO:     192.168.1.5:50234 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files", "status_code": 200, "duration_ms": 14.85, "event": "request_completed", "request_id": "7f5fe160-b03d-4cd1-8d58-4d54f8ff5975", "timestamp": "2026-07-03T15:40:21.370481Z", "level": "info"}
+INFO:     192.168.1.5:56462 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 10.92, "event": "request_completed", "request_id": "baba7487-cea7-47fc-809b-630752361e5f", "timestamp": "2026-07-03T15:40:21.386647Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 10.33, "event": "request_completed", "request_id": "dabaf4f7-7c5d-4e6d-a052-d1f72a1f8209", "timestamp": "2026-07-03T15:40:21.387189Z", "level": "info"}
+INFO:     192.168.1.5:60666 - "GET /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:50093 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d", "status_code": 200, "duration_ms": 10.72, "event": "request_completed", "request_id": "c0c73568-7a48-48de-8807-336f4a6d5fe5", "timestamp": "2026-07-03T15:40:21.388256Z", "level": "info"}
+INFO:     192.168.1.5:64084 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files", "status_code": 200, "duration_ms": 14.86, "event": "request_completed", "request_id": "31433644-5d6c-49ee-a71b-f505f123c2fa", "timestamp": "2026-07-03T15:40:21.395203Z", "level": "info"}
+INFO:     192.168.1.5:65031 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+INFO:     192.168.1.5:55186 - "OPTIONS /api/v1/consent-records?patient_id=a0c2d0d3-d45e-448b-8c5b-63d8a85352dd HTTP/1.1" 200 OK
+INFO:     192.168.1.5:59131 - "OPTIONS /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/files?doc_type=medical_history HTTP/1.1" 200 OK
+INFO:     192.168.1.5:56990 - "OPTIONS /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:51202 - "OPTIONS /api/v1/consent-records?patient_id=a0c2d0d3-d45e-448b-8c5b-63d8a85352dd HTTP/1.1" 200 OK
+INFO:     192.168.1.5:54866 - "OPTIONS /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/files?doc_type=medical_history HTTP/1.1" 200 OK
+INFO:     192.168.1.5:57566 - "OPTIONS /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 11.25, "event": "request_completed", "request_id": "88de8f48-833b-4781-a438-53b8d7cc0f94", "timestamp": "2026-07-03T15:40:33.548184Z", "level": "info"}
+INFO:     192.168.1.5:55186 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1", "status_code": 200, "duration_ms": 9.86, "event": "request_completed", "request_id": "aedc7ef8-34d3-4812-958c-38a3fcf88468", "timestamp": "2026-07-03T15:40:33.549777Z", "level": "info"}
+INFO:     192.168.1.5:51202 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/files", "status_code": 200, "duration_ms": 11.75, "event": "request_completed", "request_id": "8e2ba9a6-d6f4-4174-881a-5a999cb8aa69", "timestamp": "2026-07-03T15:40:33.550837Z", "level": "info"}
+INFO:     192.168.1.5:54866 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/files?doc_type=medical_history HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 21.19, "event": "request_completed", "request_id": "89dc147d-dc60-4555-b89c-61bc2d25f83f", "timestamp": "2026-07-03T15:40:33.559295Z", "level": "info"}
+INFO:     192.168.1.5:57566 - "GET /api/v1/consent-records?patient_id=a0c2d0d3-d45e-448b-8c5b-63d8a85352dd HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 69.52, "event": "request_completed", "request_id": "e35d7732-aa58-4810-abeb-94648e884edc", "timestamp": "2026-07-03T15:40:33.630147Z", "level": "info"}
+INFO:     192.168.1.5:56990 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1", "status_code": 200, "duration_ms": 68.65, "event": "request_completed", "request_id": "3ee021bf-4789-458c-b843-02535555ae8b", "timestamp": "2026-07-03T15:40:33.630681Z", "level": "info"}
+INFO:     192.168.1.5:55186 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/files", "status_code": 200, "duration_ms": 70.47, "event": "request_completed", "request_id": "d27e5ee1-fba4-473c-b2a6-61945a43e9b5", "timestamp": "2026-07-03T15:40:33.632808Z", "level": "info"}
+INFO:     192.168.1.5:51202 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/files?doc_type=medical_history HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 11.31, "event": "request_completed", "request_id": "8899767b-1dd5-4afc-928c-c6c0d4508391", "timestamp": "2026-07-03T15:40:33.638702Z", "level": "info"}
+INFO:     192.168.1.5:54866 - "GET /api/v1/consent-records?patient_id=a0c2d0d3-d45e-448b-8c5b-63d8a85352dd HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 11.03, "event": "request_completed", "request_id": "055aae6b-8764-4717-88d3-fde7350864c3", "timestamp": "2026-07-03T15:40:37.496403Z", "level": "info"}
+INFO:     192.168.1.5:54866 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 13.85, "event": "request_completed", "request_id": "2de3c728-afec-432f-bd83-877701c86eeb", "timestamp": "2026-07-03T15:40:37.513946Z", "level": "info"}
+INFO:     192.168.1.5:51202 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 14.01, "event": "request_completed", "request_id": "d08e55af-dfd2-4846-a953-2447e7e6f113", "timestamp": "2026-07-03T15:40:37.515562Z", "level": "info"}
+INFO:     192.168.1.5:55186 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 12.1, "event": "request_completed", "request_id": "956d6012-be81-43fc-b914-e1f33c890f8a", "timestamp": "2026-07-03T15:40:37.534000Z", "level": "info"}
+INFO:     192.168.1.5:56990 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 10.23, "event": "request_completed", "request_id": "153a477c-2ad7-4313-bb1e-fafda37c47b2", "timestamp": "2026-07-03T15:40:37.541062Z", "level": "info"}
+INFO:     192.168.1.5:57566 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 10.57, "event": "request_completed", "request_id": "79e69e25-277f-450d-91e4-6066ddf48ded", "timestamp": "2026-07-03T15:40:37.543255Z", "level": "info"}
+INFO:     192.168.1.5:59131 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 8.83, "event": "request_completed", "request_id": "64c13620-fbab-479c-993d-9bfd129ab866", "timestamp": "2026-07-03T15:40:43.317594Z", "level": "info"}
+INFO:     192.168.1.5:63663 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 8.28, "event": "request_completed", "request_id": "828d6390-677b-4e90-8fdc-58c88dcdc958", "timestamp": "2026-07-03T15:40:43.318650Z", "level": "info"}
+INFO:     192.168.1.5:64363 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:63663 - "OPTIONS /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+INFO:     192.168.1.5:63431 - "OPTIONS /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/disease-selection HTTP/1.1" 200 OK
+INFO:     192.168.1.5:63431 - "OPTIONS /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+INFO:     192.168.1.5:63431 - "OPTIONS /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 15.74, "event": "request_completed", "request_id": "d16c33e9-371b-4889-ba25-45c2f1697558", "timestamp": "2026-07-03T15:40:44.729589Z", "level": "info"}
+INFO:     192.168.1.5:64363 - "GET /api/v1/consent-records?patient_id=a0c2d0d3-d45e-448b-8c5b-63d8a85352dd HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1", "status_code": 200, "duration_ms": 15.87, "event": "request_completed", "request_id": "62f79679-bab1-48b8-9d6a-0f680990b330", "timestamp": "2026-07-03T15:40:44.732214Z", "level": "info"}
+INFO:     192.168.1.5:61509 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 17.05, "event": "request_completed", "request_id": "a86a00a3-50c0-49e3-9a05-2c4944769ff5", "timestamp": "2026-07-03T15:40:44.734349Z", "level": "info"}
+INFO:     192.168.1.5:51739 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/files", "status_code": 200, "duration_ms": 21.11, "event": "request_completed", "request_id": "9f6e2cd3-7f0d-4ad4-b062-ecf34f8401a7", "timestamp": "2026-07-03T15:40:44.736387Z", "level": "info"}
+INFO:     192.168.1.5:64469 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/files?doc_type=medical_history HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 20.6, "event": "request_completed", "request_id": "56c0b3db-9c66-4575-b796-0e53a71dd90e", "timestamp": "2026-07-03T15:40:44.739632Z", "level": "info"}
+INFO:     192.168.1.5:63663 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/disease-selection", "status_code": 200, "duration_ms": 28.17, "event": "request_completed", "request_id": "db54e886-b74e-463a-99eb-c02b4f30a6c6", "timestamp": "2026-07-03T15:40:44.750930Z", "level": "info"}
+INFO:     192.168.1.5:63431 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 15.33, "event": "request_completed", "request_id": "bf339d14-a645-4d79-bf36-d5c9b6884c64", "timestamp": "2026-07-03T15:40:44.771137Z", "level": "info"}
+INFO:     192.168.1.5:61509 - "GET /api/v1/consent-records?patient_id=a0c2d0d3-d45e-448b-8c5b-63d8a85352dd HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/diseases", "status_code": 200, "duration_ms": 22.5, "event": "request_completed", "request_id": "6c6d063f-57ad-4b8b-84ab-9e0afc8855b6", "timestamp": "2026-07-03T15:40:44.773607Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1", "status_code": 200, "duration_ms": 15.2, "event": "request_completed", "request_id": "91306c27-f4b4-4fed-8b11-c00205b47606", "timestamp": "2026-07-03T15:40:44.773607Z", "level": "info"}
+INFO:     192.168.1.5:64363 - "GET /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+INFO:     192.168.1.5:51739 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 16.86, "event": "request_completed", "request_id": "65b50939-62a0-4b90-847d-1dd0e028eec9", "timestamp": "2026-07-03T15:40:44.777295Z", "level": "info"}
+INFO:     192.168.1.5:64469 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/files", "status_code": 200, "duration_ms": 20.02, "event": "request_completed", "request_id": "8ca47c8f-11a2-45e4-88f9-1b969c051608", "timestamp": "2026-07-03T15:40:44.781527Z", "level": "info"}
+INFO:     192.168.1.5:63663 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/files?doc_type=medical_history HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 19.65, "event": "request_completed", "request_id": "4002d990-71c5-4fb9-a1b0-2581fcbab0e8", "timestamp": "2026-07-03T15:40:44.787842Z", "level": "info"}
+INFO:     192.168.1.5:63431 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/diseases", "status_code": 200, "duration_ms": 10.38, "event": "request_completed", "request_id": "37208745-7ebb-4761-b750-32b69d45d814", "timestamp": "2026-07-03T15:40:44.799577Z", "level": "info"}
+INFO:     192.168.1.5:64363 - "GET /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/disease-selection", "status_code": 200, "duration_ms": 13.59, "event": "request_completed", "request_id": "b3b518ac-d211-427e-adcc-2b8fc7b1fda7", "timestamp": "2026-07-03T15:40:44.800633Z", "level": "info"}
+INFO:     192.168.1.5:61509 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis", "status_code": 404, "duration_ms": 11.94, "event": "request_completed", "request_id": "a7c8047c-daa2-45b8-ac14-39417b28e941", "timestamp": "2026-07-03T15:40:44.801688Z", "level": "info"}
+INFO:     192.168.1.5:51739 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis HTTP/1.1" 404 Not Found
+INFO:     192.168.1.5:61509 - "OPTIONS /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/prs-instances?assessment_stage=general_registration HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis", "status_code": 404, "duration_ms": 9.13, "event": "request_completed", "request_id": "c1f5daaa-3aa7-435a-8435-07573d8cd7e3", "timestamp": "2026-07-03T15:40:44.818247Z", "level": "info"}
+INFO:     192.168.1.5:51739 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis HTTP/1.1" 404 Not Found
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/prs-instances", "status_code": 200, "duration_ms": 9.49, "event": "request_completed", "request_id": "b1fce575-83a6-45f3-85d8-bef417085e90", "timestamp": "2026-07-03T15:40:44.822467Z", "level": "info"}
+INFO:     192.168.1.5:61509 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/prs-instances?assessment_stage=general_registration HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/prs-instances", "status_code": 200, "duration_ms": 24.4, "event": "request_completed", "request_id": "c7cf328a-9c37-4889-aae8-ba8ec4a605a6", "timestamp": "2026-07-03T15:40:44.852377Z", "level": "info"}
+INFO:     192.168.1.5:51739 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/prs-instances?assessment_stage=general_registration HTTP/1.1" 200 OK
+INFO:     192.168.1.5:50089 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 15.05, "event": "request_completed", "request_id": "52ec0e10-360b-4516-9005-c2dbed1be75f", "timestamp": "2026-07-03T15:40:50.288552Z", "level": "info"}
+INFO:     192.168.1.5:51298 - "GET /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files", "status_code": 200, "duration_ms": 16.95, "event": "request_completed", "request_id": "36d941ce-e944-4f76-a802-ff177abc32d6", "timestamp": "2026-07-03T15:40:50.291778Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d", "status_code": 200, "duration_ms": 15.53, "event": "request_completed", "request_id": "461bfb19-f615-41e7-8115-caf1e2284bc9", "timestamp": "2026-07-03T15:40:50.292314Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 14.71, "event": "request_completed", "request_id": "eb251a54-e961-4e5e-9d1e-aaef757fa0d5", "timestamp": "2026-07-03T15:40:50.292314Z", "level": "info"}
+INFO:     192.168.1.5:51298 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection HTTP/1.1" 200 OK
+INFO:     192.168.1.5:64585 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+INFO:     192.168.1.5:49188 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+INFO:     192.168.1.5:52330 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/diseases", "status_code": 200, "duration_ms": 18.67, "event": "request_completed", "request_id": "b54b4b80-fe42-4e24-bd73-da65b24d3446", "timestamp": "2026-07-03T15:40:50.297748Z", "level": "info"}
+INFO:     192.168.1.5:63736 - "GET /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 23.53, "event": "request_completed", "request_id": "5202bb76-d032-48b0-80a4-b6e081a26117", "timestamp": "2026-07-03T15:40:50.303682Z", "level": "info"}
+INFO:     192.168.1.5:50089 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 18.2, "event": "request_completed", "request_id": "3918353c-6012-459c-a050-c84bab67b873", "timestamp": "2026-07-03T15:40:50.327349Z", "level": "info"}
+INFO:     192.168.1.5:64585 - "GET /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files", "status_code": 200, "duration_ms": 19.83, "event": "request_completed", "request_id": "3de6ffb6-0773-488f-b7e1-90a157ebe05a", "timestamp": "2026-07-03T15:40:50.328961Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d", "status_code": 200, "duration_ms": 16.27, "event": "request_completed", "request_id": "635da83c-5e09-4395-87b7-6e5896f945d2", "timestamp": "2026-07-03T15:40:50.328961Z", "level": "info"}
+INFO:     192.168.1.5:49188 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+INFO:     192.168.1.5:52330 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection", "status_code": 200, "duration_ms": 23.27, "event": "request_completed", "request_id": "2f07066d-3806-4cbb-8543-473214923105", "timestamp": "2026-07-03T15:40:50.332258Z", "level": "info"}
+INFO:     192.168.1.5:51298 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 20.63, "event": "request_completed", "request_id": "1ba9d29f-f133-48b3-85ee-7ee97349e599", "timestamp": "2026-07-03T15:40:50.337096Z", "level": "info"}
+INFO:     192.168.1.5:63736 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/diseases", "status_code": 200, "duration_ms": 21.89, "event": "request_completed", "request_id": "01f7d819-11a4-4051-b7c2-fdfa8d03fd72", "timestamp": "2026-07-03T15:40:50.343050Z", "level": "info"}
+INFO:     192.168.1.5:50089 - "GET /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection", "status_code": 200, "duration_ms": 9.84, "event": "request_completed", "request_id": "8fefe702-60d4-42f4-a069-abc194f2595a", "timestamp": "2026-07-03T15:40:50.354906Z", "level": "info"}
+INFO:     192.168.1.5:52330 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 16.7, "event": "request_completed", "request_id": "cca56349-dd46-495e-8c7d-783f8f938e27", "timestamp": "2026-07-03T15:40:50.357563Z", "level": "info"}
+INFO:     192.168.1.5:64585 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis", "status_code": 200, "duration_ms": 30.85, "event": "request_completed", "request_id": "77b0c594-91f3-458a-9e2f-7e21334fa785", "timestamp": "2026-07-03T15:40:50.377740Z", "level": "info"}
+INFO:     192.168.1.5:51298 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis HTTP/1.1" 200 OK
+INFO:     192.168.1.5:51298 - "OPTIONS /api/v1/anamnesis/ANA-a3d6ceb7-001/responses HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis", "status_code": 200, "duration_ms": 17.97, "event": "request_completed", "request_id": "976eb8b9-1357-4699-8b3b-dea39fdeeb56", "timestamp": "2026-07-03T15:40:50.404209Z", "level": "info"}
+INFO:     192.168.1.5:64585 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis/ANA-a3d6ceb7-001/responses", "status_code": 200, "duration_ms": 13.67, "event": "request_completed", "request_id": "84bee3e8-5e2b-48ab-88c6-17dd88298e7c", "timestamp": "2026-07-03T15:40:50.411768Z", "level": "info"}
+INFO:     192.168.1.5:51298 - "GET /api/v1/anamnesis/ANA-a3d6ceb7-001/responses HTTP/1.1" 200 OK
+INFO:     192.168.1.5:64585 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances?assessment_stage=general_registration HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis/ANA-a3d6ceb7-001/responses", "status_code": 200, "duration_ms": 10.05, "event": "request_completed", "request_id": "97aae0a5-5df5-4d49-afee-de3f4a7a9099", "timestamp": "2026-07-03T15:40:50.430850Z", "level": "info"}
+INFO:     192.168.1.5:51298 - "GET /api/v1/anamnesis/ANA-a3d6ceb7-001/responses HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances", "status_code": 200, "duration_ms": 9.3, "event": "request_completed", "request_id": "2b11a7ae-7ae6-4121-9460-8b44c97ae583", "timestamp": "2026-07-03T15:40:50.433537Z", "level": "info"}
+INFO:     192.168.1.5:64585 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances?assessment_stage=general_registration HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances", "status_code": 200, "duration_ms": 9.12, "event": "request_completed", "request_id": "1a0c2234-ebcd-4b4f-ae84-10a2f4c181b0", "timestamp": "2026-07-03T15:40:50.448017Z", "level": "info"}
+INFO:     192.168.1.5:51298 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances?assessment_stage=general_registration HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 16.44, "event": "request_completed", "request_id": "368e3afc-ac45-4a99-ae82-aa6a7c711a59", "timestamp": "2026-07-03T15:40:56.783251Z", "level": "info"}
+INFO:     192.168.1.5:53061 - "GET /api/v1/consent-records?patient_id=a0c2d0d3-d45e-448b-8c5b-63d8a85352dd HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/files", "status_code": 200, "duration_ms": 17.64, "event": "request_completed", "request_id": "b94e9e09-ecde-4dff-bd4b-0e6b14cd18c6", "timestamp": "2026-07-03T15:40:56.786437Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1", "status_code": 200, "duration_ms": 16.8, "event": "request_completed", "request_id": "243e1aaf-e149-43e3-adc2-40315acd5908", "timestamp": "2026-07-03T15:40:56.787487Z", "level": "info"}
+INFO:     192.168.1.5:51398 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/files?doc_type=medical_history HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 17.47, "event": "request_completed", "request_id": "22b4c9f7-0453-4e5d-90ff-64a4de11a654", "timestamp": "2026-07-03T15:40:56.788013Z", "level": "info"}
+INFO:     192.168.1.5:57277 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:65320 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/diseases", "status_code": 200, "duration_ms": 19.4, "event": "request_completed", "request_id": "d1e8dfc5-5e9d-4a9f-9f46-b79f40fbc91f", "timestamp": "2026-07-03T15:40:56.792228Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/disease-selection", "status_code": 200, "duration_ms": 18.78, "event": "request_completed", "request_id": "9b786ae3-9b79-400c-ac87-cb3058bdd57a", "timestamp": "2026-07-03T15:40:56.792778Z", "level": "info"}
+INFO:     192.168.1.5:63912 - "GET /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+INFO:     192.168.1.5:54335 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 16.84, "event": "request_completed", "request_id": "5407add6-cb5d-44b2-b9a0-c284436feea1", "timestamp": "2026-07-03T15:40:56.818841Z", "level": "info"}
+INFO:     192.168.1.5:53061 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 17.06, "event": "request_completed", "request_id": "fdb30bc2-4fbe-4ab5-9226-ab45edec2acc", "timestamp": "2026-07-03T15:40:56.821932Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1", "status_code": 200, "duration_ms": 16.29, "event": "request_completed", "request_id": "2727308e-b05b-4ccd-b1aa-d4ffc5bf029e", "timestamp": "2026-07-03T15:40:56.822478Z", "level": "info"}
+INFO:     192.168.1.5:51398 - "GET /api/v1/consent-records?patient_id=a0c2d0d3-d45e-448b-8c5b-63d8a85352dd HTTP/1.1" 200 OK
+INFO:     192.168.1.5:65320 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/files", "status_code": 200, "duration_ms": 20.81, "event": "request_completed", "request_id": "8d40dec0-6969-4255-bf0b-d24a6d67ded1", "timestamp": "2026-07-03T15:40:56.825754Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 18.08, "event": "request_completed", "request_id": "1c5024ca-7841-4c9b-8364-47fa88e46f5f", "timestamp": "2026-07-03T15:40:56.826293Z", "level": "info"}
+INFO:     192.168.1.5:57277 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/files?doc_type=medical_history HTTP/1.1" 200 OK
+INFO:     192.168.1.5:63912 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/diseases", "status_code": 200, "duration_ms": 19.49, "event": "request_completed", "request_id": "612a9542-94fb-451d-84b0-66f3688aaec1", "timestamp": "2026-07-03T15:40:56.830043Z", "level": "info"}
+INFO:     192.168.1.5:54335 - "GET /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/disease-selection", "status_code": 200, "duration_ms": 9.58, "event": "request_completed", "request_id": "06a6fda2-e1ef-4a37-a444-240cbe902400", "timestamp": "2026-07-03T15:40:56.844342Z", "level": "info"}
+INFO:     192.168.1.5:53061 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis", "status_code": 404, "duration_ms": 10.45, "event": "request_completed", "request_id": "31fa89e9-8e23-4cd1-b4e4-84c1cdaef6c1", "timestamp": "2026-07-03T15:40:56.847453Z", "level": "info"}
+INFO:     192.168.1.5:65320 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis HTTP/1.1" 404 Not Found
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 13.75, "event": "request_completed", "request_id": "5eaa6fd7-3869-47d3-a258-c1aa9a2f191c", "timestamp": "2026-07-03T15:40:56.849597Z", "level": "info"}
+INFO:     192.168.1.5:51398 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/prs-instances", "status_code": 200, "duration_ms": 7.75, "event": "request_completed", "request_id": "09093404-b0cb-42f1-8d22-af304507a56f", "timestamp": "2026-07-03T15:40:56.862989Z", "level": "info"}
+INFO:     192.168.1.5:65320 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/prs-instances?assessment_stage=general_registration HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis", "status_code": 404, "duration_ms": 8.87, "event": "request_completed", "request_id": "30ac07e8-2b4c-4dca-bcfb-67b034ef81e6", "timestamp": "2026-07-03T15:40:56.866445Z", "level": "info"}
+INFO:     192.168.1.5:51398 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis HTTP/1.1" 404 Not Found
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/prs-instances", "status_code": 200, "duration_ms": 7.51, "event": "request_completed", "request_id": "8e2b8609-5042-4320-a66f-10af9b5f6ac3", "timestamp": "2026-07-03T15:40:56.880758Z", "level": "info"}
+INFO:     192.168.1.5:51398 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/prs-instances?assessment_stage=general_registration HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 13.9, "event": "request_completed", "request_id": "305e46b7-9d70-45a6-b54e-71e9fd45bc0b", "timestamp": "2026-07-03T15:41:11.480006Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896", "status_code": 200, "duration_ms": 17.93, "event": "request_completed", "request_id": "8f7dbaa1-92e2-4e24-9a5d-9cc78142d535", "timestamp": "2026-07-03T15:41:11.480006Z", "level": "info"}
+INFO:     192.168.1.5:62679 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:57996 - "GET /api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinical-assistants", "status_code": 200, "duration_ms": 18.97, "event": "request_completed", "request_id": "37039117-fcab-4807-a3a3-f846ee46fb2a", "timestamp": "2026-07-03T15:41:11.481093Z", "level": "info"}
+INFO:     192.168.1.5:57864 - "GET /api/v1/clinical-assistants?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 15.7, "event": "request_completed", "request_id": "e7560f1f-d380-4b68-b672-df4890b039da", "timestamp": "2026-07-03T15:41:11.482159Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/receptionists", "status_code": 200, "duration_ms": 17.97, "event": "request_completed", "request_id": "3d0ad03b-418e-4fd3-8342-2aff8fcd446c", "timestamp": "2026-07-03T15:41:11.482159Z", "level": "info"}
+INFO:     192.168.1.5:60169 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:61773 - "GET /api/v1/receptionists?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/doctors", "status_code": 200, "duration_ms": 19.16, "event": "request_completed", "request_id": "771ccf99-0ce7-4aaf-b7ee-7373c8124ff0", "timestamp": "2026-07-03T15:41:11.483730Z", "level": "info"}
+INFO:     192.168.1.5:58401 - "GET /api/v1/doctors?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/store-orders", "status_code": 200, "duration_ms": 19.74, "event": "request_completed", "request_id": "8e332cd1-6e97-4d89-a0bb-6831d1c096b9", "timestamp": "2026-07-03T15:41:11.517567Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/inventory", "status_code": 200, "duration_ms": 16.97, "event": "request_completed", "request_id": "69816b07-5811-4943-b1c2-77b634e7644b", "timestamp": "2026-07-03T15:41:11.518095Z", "level": "info"}
+INFO:     192.168.1.5:57996 - "GET /api/v1/store-orders?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/products", "status_code": 200, "duration_ms": 15.53, "event": "request_completed", "request_id": "fbab0f01-540e-4d04-a1d6-7cea6e781a7e", "timestamp": "2026-07-03T15:41:11.518619Z", "level": "info"}
+INFO:     192.168.1.5:61773 - "GET /api/v1/inventory?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:58401 - "GET /api/v1/products HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/staff-requests", "status_code": 200, "duration_ms": 24.49, "event": "request_completed", "request_id": "8dfad9d3-0b41-45c3-9636-b57beabe167e", "timestamp": "2026-07-03T15:41:11.520753Z", "level": "info"}
+INFO:     192.168.1.5:62679 - "GET /api/v1/staff-requests?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/appointments", "status_code": 200, "duration_ms": 23.94, "event": "request_completed", "request_id": "4eaf8732-d6a9-4012-b0e8-a9ebcc243902", "timestamp": "2026-07-03T15:41:11.523367Z", "level": "info"}
+INFO:     192.168.1.5:57864 - "GET /api/v1/appointments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/payments", "status_code": 200, "duration_ms": 23.0, "event": "request_completed", "request_id": "c9195982-2949-4935-b87b-27b6938f99e8", "timestamp": "2026-07-03T15:41:11.524977Z", "level": "info"}
+INFO:     192.168.1.5:60169 - "GET /api/v1/payments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 17.73, "event": "request_completed", "request_id": "84fcb15d-b7ed-462e-b570-51f83ad480be", "timestamp": "2026-07-03T15:41:11.551953Z", "level": "info"}
+INFO:     192.168.1.5:57996 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 19.51, "event": "request_completed", "request_id": "461e3df6-9617-4b51-8626-06a9745d2e03", "timestamp": "2026-07-03T15:41:11.556812Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/clinical-assistants", "status_code": 200, "duration_ms": 24.16, "event": "request_completed", "request_id": "939319c9-7fee-43ea-8ef3-fd529fa10d0f", "timestamp": "2026-07-03T15:41:11.558427Z", "level": "info"}
+INFO:     192.168.1.5:62679 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896", "status_code": 200, "duration_ms": 23.0, "event": "request_completed", "request_id": "f73496ab-4df9-4ba5-b2d0-58bb29df434b", "timestamp": "2026-07-03T15:41:11.559481Z", "level": "info"}
+INFO:     192.168.1.5:58401 - "GET /api/v1/clinical-assistants?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:61773 - "GET /api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/receptionists", "status_code": 200, "duration_ms": 21.98, "event": "request_completed", "request_id": "aa0a3dcf-dd7d-4c5a-a66f-ceef6d777eb1", "timestamp": "2026-07-03T15:41:11.561535Z", "level": "info"}
+INFO:     192.168.1.5:57864 - "GET /api/v1/receptionists?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/doctors", "status_code": 200, "duration_ms": 25.13, "event": "request_completed", "request_id": "9fb2e99b-00e8-4dcf-8541-b812c0323d7e", "timestamp": "2026-07-03T15:41:11.566394Z", "level": "info"}
+INFO:     192.168.1.5:60169 - "GET /api/v1/doctors?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/store-orders", "status_code": 200, "duration_ms": 16.86, "event": "request_completed", "request_id": "3b37c3e3-0391-4e7d-bcb1-e3aa24272b35", "timestamp": "2026-07-03T15:41:11.590054Z", "level": "info"}
+INFO:     192.168.1.5:57996 - "GET /api/v1/store-orders?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/products", "status_code": 200, "duration_ms": 16.18, "event": "request_completed", "request_id": "d81e28c1-a3b9-49bd-b9af-9a416acd1f73", "timestamp": "2026-07-03T15:41:11.592800Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/inventory", "status_code": 200, "duration_ms": 17.46, "event": "request_completed", "request_id": "388ee4bc-23b8-41dd-9af6-0a62dad7d2de", "timestamp": "2026-07-03T15:41:11.593338Z", "level": "info"}
+INFO:     192.168.1.5:58401 - "GET /api/v1/products HTTP/1.1" 200 OK
+INFO:     192.168.1.5:62679 - "GET /api/v1/inventory?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/appointments", "status_code": 200, "duration_ms": 16.71, "event": "request_completed", "request_id": "21529236-8929-4b36-a8d2-53f731e42ec9", "timestamp": "2026-07-03T15:41:11.596546Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/staff-requests", "status_code": 200, "duration_ms": 18.37, "event": "request_completed", "request_id": "b4c7a031-1142-444a-a6a0-e58561afc171", "timestamp": "2026-07-03T15:41:11.596546Z", "level": "info"}
+INFO:     192.168.1.5:57864 - "GET /api/v1/appointments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:61773 - "GET /api/v1/staff-requests?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/payments", "status_code": 200, "duration_ms": 18.45, "event": "request_completed", "request_id": "aeb544eb-2274-43d8-b6fd-b9c5543b072d", "timestamp": "2026-07-03T15:41:11.600871Z", "level": "info"}
+INFO:     192.168.1.5:60169 - "GET /api/v1/payments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 7.42, "event": "request_completed", "request_id": "0c90c6d9-7898-46e9-9eb0-40e7765cde00", "timestamp": "2026-07-03T15:41:11.611651Z", "level": "info"}
+INFO:     192.168.1.5:57996 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/doctors/b6657275-1ffc-4973-91af-ef601d75d293/weekly-schedules", "status_code": 200, "duration_ms": 8.61, "event": "request_completed", "request_id": "8fd0a459-b906-4472-9079-647411d9c88a", "timestamp": "2026-07-03T15:41:11.613788Z", "level": "info"}
+INFO:     192.168.1.5:58401 - "GET /api/v1/doctors/b6657275-1ffc-4973-91af-ef601d75d293/weekly-schedules HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 5.72, "event": "request_completed", "request_id": "35611f79-0d88-4dfd-b559-e45157228aa5", "timestamp": "2026-07-03T15:41:11.623892Z", "level": "info"}
+INFO:     192.168.1.5:60169 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/doctors/b6657275-1ffc-4973-91af-ef601d75d293/weekly-schedules", "status_code": 200, "duration_ms": 8.79, "event": "request_completed", "request_id": "a850d749-bede-4d32-8446-42f46214aa28", "timestamp": "2026-07-03T15:41:11.644554Z", "level": "info"}
+INFO:     192.168.1.5:60169 - "GET /api/v1/doctors/b6657275-1ffc-4973-91af-ef601d75d293/weekly-schedules HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 9.3, "event": "request_completed", "request_id": "5cae561b-4226-4a07-9baf-88ea847c62f8", "timestamp": "2026-07-03T15:41:14.582085Z", "level": "info"}
+INFO:     192.168.1.5:60169 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/me", "status_code": 200, "duration_ms": 3.99, "event": "request_completed", "request_id": "5a7b0907-9ec5-44ae-8981-f358910cb474", "timestamp": "2026-07-03T15:41:14.599466Z", "level": "info"}
+INFO:     192.168.1.5:60169 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 4.01, "event": "request_completed", "request_id": "77065d47-5f8e-4705-8b05-c67bd6ec81da", "timestamp": "2026-07-03T15:41:14.790862Z", "level": "info"}
+INFO:     192.168.1.5:60169 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 8.67, "event": "request_completed", "request_id": "b3238362-a54c-4ae1-bf1b-28a5db132e4b", "timestamp": "2026-07-03T15:41:14.804881Z", "level": "info"}
+INFO:     192.168.1.5:61773 - "GET /api/v1/clinical-assistants?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:58401 - "GET /api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:57864 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:57996 - "GET /api/v1/doctors?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:62679 - "GET /api/v1/receptionists?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:60169 - "GET /api/v1/clinics HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:58401 - "GET /api/v1/staff-requests?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:57864 - "GET /api/v1/store-orders?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:57996 - "GET /api/v1/appointments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:62679 - "GET /api/v1/payments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:60169 - "GET /api/v1/inventory?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:58401 - "GET /api/v1/products HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 24.08, "event": "request_completed", "request_id": "ed7c0df5-2163-4408-a732-3c864da0c42e", "timestamp": "2026-07-03T15:41:14.845602Z", "level": "info"}
+INFO:     192.168.1.5:61773 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:57864 - "GET /api/v1/clinical-assistants?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:57996 - "GET /api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:62679 - "GET /api/v1/doctors?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:60169 - "GET /api/v1/receptionists?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:58401 - "GET /api/v1/clinics HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:57864 - "GET /api/v1/staff-requests?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:61773 - "GET /api/v1/store-orders?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:62679 - "GET /api/v1/payments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:57996 - "GET /api/v1/appointments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:60169 - "GET /api/v1/inventory?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:58401 - "GET /api/v1/products HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:61773 - "GET /api/v1/clinics HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:58401 - "GET /api/v1/clinics HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 7.34, "event": "request_completed", "request_id": "a3f5da42-6057-4d99-ad99-3ab59bf23ad9", "timestamp": "2026-07-03T15:41:14.878009Z", "level": "info"}
+INFO:     192.168.1.5:57864 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 5.76, "event": "request_completed", "request_id": "34fe53b4-36fa-4cf0-b847-fa09a64db4ab", "timestamp": "2026-07-03T15:41:18.616413Z", "level": "info"}
+INFO:     192.168.1.5:57864 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/me", "status_code": 200, "duration_ms": 4.82, "event": "request_completed", "request_id": "bcdcfb8b-8b8d-41be-a5af-7c19eb4bc1bb", "timestamp": "2026-07-03T15:41:18.628272Z", "level": "info"}
+INFO:     192.168.1.5:57864 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 6.12, "event": "request_completed", "request_id": "140f7952-2e6d-4fb8-9d38-27ef7b6c755e", "timestamp": "2026-07-03T15:41:19.200390Z", "level": "info"}
+INFO:     192.168.1.5:58401 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 8.4, "event": "request_completed", "request_id": "ca5cdf35-9d82-4245-b197-ac3490e0636d", "timestamp": "2026-07-03T15:41:19.201452Z", "level": "info"}
+INFO:     192.168.1.5:57864 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 6.02, "event": "request_completed", "request_id": "7749c36f-3224-44d7-8ac0-46e6e14a1ce3", "timestamp": "2026-07-03T15:41:19.212453Z", "level": "info"}
+INFO:     192.168.1.5:61773 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 10.53, "event": "request_completed", "request_id": "5e491d74-3940-498b-98e1-e102bd18634b", "timestamp": "2026-07-03T15:41:19.217242Z", "level": "info"}
+INFO:     192.168.1.5:58401 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 5.13, "event": "request_completed", "request_id": "54a3b3d8-6a5b-4b72-bbc5-614ad257de9b", "timestamp": "2026-07-03T15:43:42.969474Z", "level": "info"}
+INFO:     192.168.1.5:58641 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/me", "status_code": 200, "duration_ms": 4.71, "event": "request_completed", "request_id": "72c3149f-d12f-4fec-9ba0-8ce69198d67d", "timestamp": "2026-07-03T15:43:42.985662Z", "level": "info"}
+INFO:     192.168.1.5:58641 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 13.54, "event": "request_completed", "request_id": "1a9c7ae6-0aed-4b32-ad30-0f3a2920e5bf", "timestamp": "2026-07-03T15:43:43.169587Z", "level": "info"}
+INFO:     192.168.1.5:58641 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 12.08, "event": "request_completed", "request_id": "0b51513b-0b0b-45d4-b48a-e5af066a7403", "timestamp": "2026-07-03T15:43:43.174510Z", "level": "info"}
+INFO:     192.168.1.5:51969 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 10.16, "event": "request_completed", "request_id": "ae5b9959-42b6-4dfd-b52b-32378a92fd06", "timestamp": "2026-07-03T15:43:43.193948Z", "level": "info"}
+INFO:     192.168.1.5:63532 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 15.09, "event": "request_completed", "request_id": "59ae8008-32f3-4e96-9694-795c5938bdfe", "timestamp": "2026-07-03T15:43:43.196581Z", "level": "info"}
+INFO:     192.168.1.5:53526 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 7.03, "event": "request_completed", "request_id": "957ad149-f779-440f-b213-72b67b964c85", "timestamp": "2026-07-03T15:43:52.372428Z", "level": "info"}
+INFO:     192.168.1.5:57294 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/me", "status_code": 200, "duration_ms": 6.42, "event": "request_completed", "request_id": "aa2bb42e-2a4e-47a4-8be3-2c1fd0b18d83", "timestamp": "2026-07-03T15:43:52.395515Z", "level": "info"}
+INFO:     192.168.1.5:57294 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 21.99, "event": "request_completed", "request_id": "5064e56e-3e4c-40cb-8a30-a49461685857", "timestamp": "2026-07-03T15:43:52.469538Z", "level": "info"}
+INFO:     192.168.1.5:57294 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 25.42, "event": "request_completed", "request_id": "26e9a626-6441-4907-baf9-e2477e2062f8", "timestamp": "2026-07-03T15:43:52.479526Z", "level": "info"}
+INFO:     192.168.1.5:54888 - "GET /api/v1/patients HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 38.77, "event": "request_completed", "request_id": "d3d921d3-c66c-4d78-8392-a03120306a18", "timestamp": "2026-07-03T15:43:52.532407Z", "level": "info"}
+INFO:     192.168.1.5:61994 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 36.68, "event": "request_completed", "request_id": "6b738aff-9d4b-44a5-88f4-711c9371c642", "timestamp": "2026-07-03T15:43:52.538647Z", "level": "info"}
+INFO:     192.168.1.5:63789 - "GET /api/v1/patients HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis", "status_code": 404, "duration_ms": 29.77, "event": "request_completed", "request_id": "56abaa3a-7621-4aa7-9f8b-f95da999dead", "timestamp": "2026-07-03T15:43:52.552194Z", "level": "info"}
+INFO:     192.168.1.5:54888 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis HTTP/1.1" 404 Not Found
+{"method": "GET", "path": "/api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis", "status_code": 404, "duration_ms": 14.48, "event": "request_completed", "request_id": "e0bc3810-a1f6-460e-8867-9d8a72da508a", "timestamp": "2026-07-03T15:43:52.579270Z", "level": "info"}
+INFO:     192.168.1.5:63789 - "GET /api/v1/patients/f83ae693-1d77-495a-a94a-29bbbdb625a1/anamnesis HTTP/1.1" 404 Not Found
+{"method": "POST", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis", "status_code": 201, "duration_ms": 26.93, "event": "request_completed", "request_id": "1c2976bc-7f2a-4dd5-98f7-ca959b62daca", "timestamp": "2026-07-03T15:43:52.724605Z", "level": "info"}
+INFO:     192.168.1.5:63789 - "POST /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis HTTP/1.1" 201 Created
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 6.59, "event": "request_completed", "request_id": "a989b625-2f1d-4456-9caa-cea7c034cc84", "timestamp": "2026-07-03T15:44:01.537185Z", "level": "info"}
+INFO:     192.168.1.5:58864 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/me", "status_code": 200, "duration_ms": 3.92, "event": "request_completed", "request_id": "4d4e658b-157c-402f-853f-b17ce0447223", "timestamp": "2026-07-03T15:44:01.548982Z", "level": "info"}
+INFO:     192.168.1.5:58864 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 10.66, "event": "request_completed", "request_id": "45303349-f431-4cae-a8c7-df0db6377043", "timestamp": "2026-07-03T15:44:01.761764Z", "level": "info"}
+INFO:     192.168.1.5:58864 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:55180 - "GET /api/v1/receptionists?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:61365 - "GET /api/v1/clinical-assistants?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:51100 - "GET /api/v1/doctors?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:60361 - "GET /api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:56765 - "GET /api/v1/clinics HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:55180 - "GET /api/v1/staff-requests?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:51100 - "GET /api/v1/appointments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:61365 - "GET /api/v1/store-orders?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:60361 - "GET /api/v1/payments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:56765 - "GET /api/v1/inventory?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 11.87, "event": "request_completed", "request_id": "5bbeb6f0-f97f-432d-8e84-28597bf8e2b2", "timestamp": "2026-07-03T15:44:01.800555Z", "level": "info"}
+INFO:     192.168.1.5:55180 - "GET /api/v1/products HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:51100 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:61365 - "GET /api/v1/receptionists?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:56765 - "GET /api/v1/doctors?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:60361 - "GET /api/v1/clinical-assistants?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 20.56, "event": "request_completed", "request_id": "7fa2bf40-a5d5-48df-bfdb-884da901ea00", "timestamp": "2026-07-03T15:44:01.806496Z", "level": "info"}
+INFO:     192.168.1.5:58864 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:55180 - "GET /api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:61365 - "GET /api/v1/staff-requests?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:51100 - "GET /api/v1/clinics HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:56765 - "GET /api/v1/appointments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:60361 - "GET /api/v1/store-orders?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:58864 - "GET /api/v1/payments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:61365 - "GET /api/v1/products HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:55180 - "GET /api/v1/inventory?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:56765 - "GET /api/v1/clinics HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:55180 - "GET /api/v1/clinics HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 7.03, "event": "request_completed", "request_id": "a1ff84d9-9c6e-4490-8c9c-cba8d59908cd", "timestamp": "2026-07-03T15:44:01.834071Z", "level": "info"}
+INFO:     192.168.1.5:51100 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:55180 - "GET /api/v1/clinics HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:56765 - "GET /api/v1/clinics HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 12.14, "event": "request_completed", "request_id": "3b611b05-f13d-40c9-97c6-4aa81a4aee53", "timestamp": "2026-07-03T15:44:04.796186Z", "level": "info"}
+INFO:     192.168.1.5:51100 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 8.33, "event": "request_completed", "request_id": "825a785a-c31f-44ba-9f2e-98d51ed75657", "timestamp": "2026-07-03T15:44:04.812985Z", "level": "info"}
+INFO:     192.168.1.5:61365 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 8.34, "event": "request_completed", "request_id": "5a44f8d9-b9e7-45d5-b45e-ead1951a95a4", "timestamp": "2026-07-03T15:44:11.669677Z", "level": "info"}
+INFO:     192.168.1.5:57241 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:55002 - "GET /api/v1/clinics HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 10.26, "event": "request_completed", "request_id": "ef73425c-dbf3-4193-90f6-84b395459725", "timestamp": "2026-07-03T15:44:11.690286Z", "level": "info"}
+INFO:     192.168.1.5:54926 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 19.91, "event": "request_completed", "request_id": "d8f798e6-c211-4461-a899-1b076502ee17", "timestamp": "2026-07-03T15:44:11.692437Z", "level": "info"}
+INFO:     192.168.1.5:62174 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:60968 - "GET /api/v1/clinics HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 11.58, "event": "request_completed", "request_id": "78bf69fe-6ec3-4d79-ad3d-89f87b2a78b4", "timestamp": "2026-07-03T15:44:11.714801Z", "level": "info"}
+INFO:     192.168.1.5:54926 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/health", "status_code": 200, "duration_ms": 1.46, "event": "request_completed", "request_id": "ee95cb5f-66ff-4ea9-b200-95d558b76c9f", "timestamp": "2026-07-03T15:44:21.646796Z", "level": "info"}
+INFO:     192.168.1.5:60077 - "GET /health HTTP/1.1" 200 OK
+{"method": "GET", "path": "/health", "status_code": 200, "duration_ms": 0.25, "event": "request_completed", "request_id": "3568bc20-110d-4da1-b9d1-ef4c159cdd29", "timestamp": "2026-07-03T15:44:21.685445Z", "level": "info"}
+INFO:     192.168.1.5:60078 - "GET /health HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 6.49, "event": "request_completed", "request_id": "9d021451-e45d-4b99-8477-2b38a29b9457", "timestamp": "2026-07-03T15:44:35.754529Z", "level": "info"}
+INFO:     192.168.1.5:53686 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/auth/register", "status_code": 422, "duration_ms": 4.93, "event": "request_completed", "request_id": "4ad88524-fe18-4994-aa3e-fac4b9d5b6c9", "timestamp": "2026-07-03T15:44:35.869247Z", "level": "info"}
+INFO:     192.168.1.5:53687 - "POST /api/v1/auth/register HTTP/1.1" 422 Unprocessable Entity
+{"method": "POST", "path": "/api/v1/auth/register", "status_code": 201, "duration_ms": 48.27, "event": "request_completed", "request_id": "97bc600e-5d8b-4112-8147-ec01c2165c70", "timestamp": "2026-07-03T15:44:50.086231Z", "level": "info"}
+INFO:     192.168.1.5:63677 - "POST /api/v1/auth/register HTTP/1.1" 201 Created
+{"method": "GET", "path": "/api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/disease-selection", "status_code": 200, "duration_ms": 13.14, "event": "request_completed", "request_id": "8df5192b-3acb-4bcd-a036-a6b251f9b56b", "timestamp": "2026-07-03T15:44:59.119985Z", "level": "info"}
+INFO:     192.168.1.5:65395 - "GET /api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/diseases", "status_code": 200, "duration_ms": 17.3, "event": "request_completed", "request_id": "b0eb02e6-8cae-4397-a58d-2d1ea61f4fc4", "timestamp": "2026-07-03T15:44:59.242004Z", "level": "info"}
+INFO:     192.168.1.5:62062 - "GET /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/disease-selection", "status_code": 201, "duration_ms": 56.67, "event": "request_completed", "request_id": "7f7de995-23ea-4278-a15c-d5fd6d341853", "timestamp": "2026-07-03T15:44:59.428255Z", "level": "info"}
+INFO:     192.168.1.5:62063 - "POST /api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/disease-selection HTTP/1.1" 201 Created
+{"method": "GET", "path": "/api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/disease-selection", "status_code": 200, "duration_ms": 13.09, "event": "request_completed", "request_id": "c6dd2419-02dd-43e2-a398-f4d5e8b6f4a8", "timestamp": "2026-07-03T15:44:59.513514Z", "level": "info"}
+INFO:     192.168.1.5:62064 - "GET /api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/anamnesis", "status_code": 404, "duration_ms": 9.78, "event": "request_completed", "request_id": "14d648d0-7528-4296-a52a-094f4e5bb20f", "timestamp": "2026-07-03T15:45:12.244170Z", "level": "info"}
+INFO:     192.168.1.5:55792 - "GET /api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/anamnesis HTTP/1.1" 404 Not Found
+{"method": "POST", "path": "/api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/anamnesis", "status_code": 201, "duration_ms": 20.93, "event": "request_completed", "request_id": "031afeac-43b5-4eed-a5b9-585c01c3b663", "timestamp": "2026-07-03T15:45:12.328619Z", "level": "info"}
+INFO:     192.168.1.5:55793 - "POST /api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/anamnesis HTTP/1.1" 201 Created
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 13.26, "event": "request_completed", "request_id": "6e48ed17-2b7b-4701-af7d-af826776404c", "timestamp": "2026-07-03T15:45:12.418028Z", "level": "info"}
+INFO:     192.168.1.5:55794 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/prs-instances", "status_code": 200, "duration_ms": 11.73, "event": "request_completed", "request_id": "902f7ccc-283e-4f81-9efb-b4cb79a00426", "timestamp": "2026-07-03T15:45:12.538437Z", "level": "info"}
+INFO:     192.168.1.5:55795 - "GET /api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/prs-instances?assessment_stage=general_registration HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 9.16, "event": "request_completed", "request_id": "8afce8fd-1433-4717-a1cc-dc5f6b07cdf4", "timestamp": "2026-07-03T15:45:24.185283Z", "level": "info"}
+INFO:     192.168.1.5:55326 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 35.9, "event": "request_completed", "request_id": "1c78a95d-b7bd-4500-b383-f8a0b54de0e5", "timestamp": "2026-07-03T15:45:24.313439Z", "level": "info"}
+INFO:     192.168.1.5:55327 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001/responses", "status_code": 200, "duration_ms": 7.19, "event": "request_completed", "request_id": "87b7ed4a-8ac5-4dc9-9c95-5355500efea2", "timestamp": "2026-07-03T15:45:24.373461Z", "level": "info"}
+INFO:     192.168.1.5:55328 - "GET /api/v1/anamnesis/ANA-2bbb3ee5-001/responses HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 8.13, "event": "request_completed", "request_id": "3d690975-2919-4953-a6eb-e3298559d007", "timestamp": "2026-07-03T15:47:04.810225Z", "level": "info"}
+INFO:     192.168.1.5:51581 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:58140 - "GET /api/v1/clinics HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 9.63, "event": "request_completed", "request_id": "de492a83-0aee-48d4-81a8-bd7fe9034df0", "timestamp": "2026-07-03T15:47:04.827331Z", "level": "info"}
+INFO:     192.168.1.5:59622 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 16.47, "event": "request_completed", "request_id": "c18b059c-5ca0-4c89-a3f1-1f0b6ad851a0", "timestamp": "2026-07-03T15:47:04.830041Z", "level": "info"}
+INFO:     192.168.1.5:53279 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:51581 - "GET /api/v1/clinics HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 11.45, "event": "request_completed", "request_id": "89e3df04-2210-4ea0-b38e-123396c0a55e", "timestamp": "2026-07-03T15:47:04.852776Z", "level": "info"}
+INFO:     192.168.1.5:59622 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 403 Forbidden
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 5.82, "event": "request_completed", "request_id": "8e17536d-b694-482d-bc75-9239c0c39744", "timestamp": "2026-07-03T15:47:08.467480Z", "level": "info"}
+INFO:     192.168.1.5:59622 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/me", "status_code": 200, "duration_ms": 7.73, "event": "request_completed", "request_id": "8f3fdff3-89fe-438b-8ba1-656bb83027a0", "timestamp": "2026-07-03T15:47:08.484097Z", "level": "info"}
+INFO:     192.168.1.5:59622 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 6.65, "event": "request_completed", "request_id": "1a597528-5628-4201-9ff8-f7a29e57e791", "timestamp": "2026-07-03T15:47:09.096068Z", "level": "info"}
+INFO:     192.168.1.5:51581 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 9.08, "event": "request_completed", "request_id": "6c6d3e52-fc89-47c2-99fd-d96a1d74afb9", "timestamp": "2026-07-03T15:47:09.097136Z", "level": "info"}
+INFO:     192.168.1.5:59622 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 5.88, "event": "request_completed", "request_id": "750f1dcf-4a09-4b81-bd6f-68cc7aab9a40", "timestamp": "2026-07-03T15:47:09.108000Z", "level": "info"}
+INFO:     192.168.1.5:53279 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 7.03, "event": "request_completed", "request_id": "becb2f97-15ce-4991-9705-d752e6938644", "timestamp": "2026-07-03T15:47:09.110160Z", "level": "info"}
+INFO:     192.168.1.5:51581 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 5.96, "event": "request_completed", "request_id": "d69a1d8e-8734-4228-a592-78269dce3efc", "timestamp": "2026-07-03T15:47:18.095433Z", "level": "info"}
+INFO:     192.168.1.5:60912 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/me", "status_code": 200, "duration_ms": 7.08, "event": "request_completed", "request_id": "564b3d75-0222-4175-a064-3f5c9309d4e6", "timestamp": "2026-07-03T15:47:18.114286Z", "level": "info"}
+INFO:     192.168.1.5:60912 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 16.79, "event": "request_completed", "request_id": "8161020f-c838-4195-9722-542898b8b4aa", "timestamp": "2026-07-03T15:47:18.179559Z", "level": "info"}
+INFO:     192.168.1.5:60912 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 13.67, "event": "request_completed", "request_id": "2d3b80be-2729-41bc-808d-a9861a9fde16", "timestamp": "2026-07-03T15:47:18.184526Z", "level": "info"}
+INFO:     192.168.1.5:54231 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 15.27, "event": "request_completed", "request_id": "648edc11-3069-4c8e-aab9-ad77510588c1", "timestamp": "2026-07-03T15:47:18.205772Z", "level": "info"}
+INFO:     192.168.1.5:53935 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 13.08, "event": "request_completed", "request_id": "7a783683-373a-445d-97c0-b18a80e11b6a", "timestamp": "2026-07-03T15:47:18.208458Z", "level": "info"}
+INFO:     192.168.1.5:52191 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 6.24, "event": "request_completed", "request_id": "4ed661b6-402b-479f-b616-d52b1ef8cba4", "timestamp": "2026-07-03T15:47:25.897545Z", "level": "info"}
+INFO:     192.168.1.5:61200 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/me", "status_code": 200, "duration_ms": 8.79, "event": "request_completed", "request_id": "b67ccbdc-3617-47fc-a5af-963fd08c6c73", "timestamp": "2026-07-03T15:47:25.915697Z", "level": "info"}
+INFO:     192.168.1.5:61200 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 13.87, "event": "request_completed", "request_id": "c6020caf-a0b7-406a-a2cb-0deee2423719", "timestamp": "2026-07-03T15:47:25.973585Z", "level": "info"}
+INFO:     192.168.1.5:61200 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 12.89, "event": "request_completed", "request_id": "e83bd350-4b06-444b-ab7a-dbb6a5044ee4", "timestamp": "2026-07-03T15:47:25.990503Z", "level": "info"}
+INFO:     192.168.1.5:52076 - "GET /api/v1/patients HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 14.31, "event": "request_completed", "request_id": "026e2419-d88a-4e7f-8b3c-69207c8fb56f", "timestamp": "2026-07-03T15:47:26.000271Z", "level": "info"}
+INFO:     192.168.1.5:51138 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+INFO:     192.168.1.5:52076 - "OPTIONS /api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/anamnesis HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 12.92, "event": "request_completed", "request_id": "3c3ab324-4fdd-48f5-abd1-382fb678a205", "timestamp": "2026-07-03T15:47:26.016601Z", "level": "info"}
+INFO:     192.168.1.5:61200 - "GET /api/v1/patients HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/anamnesis", "status_code": 200, "duration_ms": 9.56, "event": "request_completed", "request_id": "09df7b97-d395-430f-8329-517be1d6253b", "timestamp": "2026-07-03T15:47:26.021540Z", "level": "info"}
+INFO:     192.168.1.5:51138 - "GET /api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/anamnesis HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/anamnesis", "status_code": 200, "duration_ms": 8.1, "event": "request_completed", "request_id": "7ff4b036-c5b4-4953-9696-7284cd225962", "timestamp": "2026-07-03T15:47:26.107626Z", "level": "info"}
+INFO:     192.168.1.5:51138 - "GET /api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/anamnesis HTTP/1.1" 200 OK
+INFO:     192.168.1.5:59789 - "OPTIONS /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 9.21, "event": "request_completed", "request_id": "21daf4d2-a4d9-49a4-b6df-7f3ff205a71b", "timestamp": "2026-07-03T15:47:36.693914Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 10.26, "event": "request_completed", "request_id": "7ca1f70f-c365-46be-bb26-b66a97d63faf", "timestamp": "2026-07-03T15:47:39.082914Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 12.18, "event": "request_completed", "request_id": "e9c7b7d0-cd0e-43b6-8e6b-64f5a01f1952", "timestamp": "2026-07-03T15:47:41.122489Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 8.86, "event": "request_completed", "request_id": "5dae4c49-c010-4342-8bd5-bba9f95189c5", "timestamp": "2026-07-03T15:47:43.051104Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 6.46, "event": "request_completed", "request_id": "ef61c428-67b2-43f7-8780-8cfbec70c7e1", "timestamp": "2026-07-03T15:47:44.871098Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 15.0, "event": "request_completed", "request_id": "3155caac-42d3-4031-8864-9be5a7f180d8", "timestamp": "2026-07-03T15:47:46.879656Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 7.58, "event": "request_completed", "request_id": "9dfd2267-10c6-4bb7-aa0f-1867c67aed19", "timestamp": "2026-07-03T15:47:49.058910Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 8.73, "event": "request_completed", "request_id": "5e58356e-864e-4c3e-8a61-b5148c69547d", "timestamp": "2026-07-03T15:47:51.078100Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 7.61, "event": "request_completed", "request_id": "4d7be7c8-f5b0-4317-8ee3-25070134f651", "timestamp": "2026-07-03T15:47:52.754272Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 7.4, "event": "request_completed", "request_id": "c2f8694d-ed07-4993-ae5b-088beb1f5299", "timestamp": "2026-07-03T15:47:54.475661Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 9.17, "event": "request_completed", "request_id": "5e196c81-a261-43cb-ac42-30e3cab83629", "timestamp": "2026-07-03T15:47:56.099568Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 9.03, "event": "request_completed", "request_id": "1e50d0f0-a465-421f-ad8c-89aac59cb184", "timestamp": "2026-07-03T15:47:56.810601Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 7.64, "event": "request_completed", "request_id": "97e4c1b6-84a6-4507-bfbc-9b5146c68a51", "timestamp": "2026-07-03T15:47:57.454641Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 9.26, "event": "request_completed", "request_id": "e202ea46-2dc9-453a-9d7f-8bd93775c0d2", "timestamp": "2026-07-03T15:48:00.019702Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 7.53, "event": "request_completed", "request_id": "c4408c6e-ba79-4f0b-953a-93167af13a42", "timestamp": "2026-07-03T15:48:01.526258Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 8.75, "event": "request_completed", "request_id": "84278af4-c6b7-4696-9e3d-bd75252ec4c6", "timestamp": "2026-07-03T15:48:03.131258Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 8.25, "event": "request_completed", "request_id": "9b346db8-0847-4504-84ef-7051769c9895", "timestamp": "2026-07-03T15:48:05.006362Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 7.7, "event": "request_completed", "request_id": "b672ad80-36ba-4214-9764-9bfeeab2b219", "timestamp": "2026-07-03T15:48:07.128522Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 7.28, "event": "request_completed", "request_id": "7b4db166-5849-42f5-9600-b60ee2f5dcb0", "timestamp": "2026-07-03T15:48:09.259359Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 7.83, "event": "request_completed", "request_id": "10230040-9515-4842-8c72-a635f19cdbeb", "timestamp": "2026-07-03T15:48:11.110998Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 8.14, "event": "request_completed", "request_id": "bfa9be9e-eac4-484e-923a-f0376e971639", "timestamp": "2026-07-03T15:48:13.213523Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+{"method": "PATCH", "path": "/api/v1/anamnesis/ANA-2bbb3ee5-001", "status_code": 200, "duration_ms": 17.65, "event": "request_completed", "request_id": "fb26c321-4c6f-4986-aff2-95992394c7c9", "timestamp": "2026-07-03T15:48:13.674763Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "PATCH /api/v1/anamnesis/ANA-2bbb3ee5-001 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:59789 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/scale-assignments?assessment_stage=general_registration HTTP/1.1" 200 OK
+INFO:     192.168.1.5:64995 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/scale-assignments?assessment_stage=general_registration HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/scale-assignments", "status_code": 200, "duration_ms": 16.99, "event": "request_completed", "request_id": "5a9135e2-7ae4-4fd6-9e2d-35d405fb18ce", "timestamp": "2026-07-03T15:48:14.594205Z", "level": "info"}
+INFO:     192.168.1.5:64995 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/scale-assignments?assessment_stage=general_registration HTTP/1.1" 200 OK
+INFO:     192.168.1.5:64995 - "OPTIONS /api/v1/prs-assessment-instances HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/scale-assignments", "status_code": 200, "duration_ms": 14.6, "event": "request_completed", "request_id": "966c2ec2-2070-46be-a936-2283b87d976b", "timestamp": "2026-07-03T15:48:14.618734Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/scale-assignments?assessment_stage=general_registration HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/prs-assessment-instances", "status_code": 201, "duration_ms": 21.44, "event": "request_completed", "request_id": "07df49af-921e-4be1-b112-a48d7a131bb5", "timestamp": "2026-07-03T15:48:14.633375Z", "level": "info"}
+INFO:     192.168.1.5:64995 - "POST /api/v1/prs-assessment-instances HTTP/1.1" 201 Created
+{"method": "POST", "path": "/api/v1/prs-assessment-instances", "status_code": 201, "duration_ms": 16.06, "event": "request_completed", "request_id": "7f0f989b-7575-4384-bec9-83fe0e556ee6", "timestamp": "2026-07-03T15:48:14.645155Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "POST /api/v1/prs-assessment-instances HTTP/1.1" 201 Created
+INFO:     192.168.1.5:59789 - "OPTIONS /api/v1/prs-catalog/scale-questions?scale_id=COMPASS-31%2F2026 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/scale-questions", "status_code": 200, "duration_ms": 14.26, "event": "request_completed", "request_id": "c5222e1a-a882-4ceb-a796-e1baf4c6e5bf", "timestamp": "2026-07-03T15:48:14.716713Z", "level": "info"}
+INFO:     192.168.1.5:59789 - "GET /api/v1/prs-catalog/scale-questions?scale_id=COMPASS-31%2F2026 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/scale-questions", "status_code": 200, "duration_ms": 11.5, "event": "request_completed", "request_id": "d6dffbd3-d442-420e-972f-b681de708578", "timestamp": "2026-07-03T15:48:14.734494Z", "level": "info"}
+INFO:     192.168.1.5:64995 - "GET /api/v1/prs-catalog/scale-questions?scale_id=COMPASS-31%2F2026 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:57582 - "OPTIONS /api/v1/prs-assessment-instances/a3d6ceb7-2c220749/responses HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/prs-assessment-instances/a3d6ceb7-2c220749/responses", "status_code": 200, "duration_ms": 91.45, "event": "request_completed", "request_id": "5c857cff-8fc5-46c4-8602-15ab7458ae1b", "timestamp": "2026-07-03T15:49:07.881349Z", "level": "info"}
+INFO:     192.168.1.5:57582 - "POST /api/v1/prs-assessment-instances/a3d6ceb7-2c220749/responses HTTP/1.1" 200 OK
+INFO:     192.168.1.5:57582 - "OPTIONS /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 5.41, "event": "request_completed", "request_id": "fc2210c7-1647-451d-8e1f-6fff71318875", "timestamp": "2026-07-03T15:49:12.129734Z", "level": "info"}
+INFO:     192.168.1.5:57582 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+INFO:     192.168.1.5:57582 - "OPTIONS /api/v1/auth/me HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/me", "status_code": 200, "duration_ms": 4.4, "event": "request_completed", "request_id": "53c9f5fa-cd20-44c2-9615-25e2c69875a9", "timestamp": "2026-07-03T15:49:12.143701Z", "level": "info"}
+INFO:     192.168.1.5:57582 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+INFO:     192.168.1.5:57582 - "OPTIONS /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+INFO:     192.168.1.5:54772 - "OPTIONS /api/v1/patients HTTP/1.1" 200 OK
+INFO:     192.168.1.5:57582 - "OPTIONS /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+INFO:     192.168.1.5:57990 - "OPTIONS /api/v1/patients HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 12.54, "event": "request_completed", "request_id": "a594221b-bf62-445f-8507-9f46b8dffe6f", "timestamp": "2026-07-03T15:49:12.337228Z", "level": "info"}
+INFO:     192.168.1.5:57990 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 11.0, "event": "request_completed", "request_id": "52d70a39-c25b-4840-92a3-a0efc4a004c4", "timestamp": "2026-07-03T15:49:12.339511Z", "level": "info"}
+INFO:     192.168.1.5:57582 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 8.38, "event": "request_completed", "request_id": "37761c25-ef27-4597-bf14-f99ec53cb1ef", "timestamp": "2026-07-03T15:49:12.352306Z", "level": "info"}
+INFO:     192.168.1.5:54772 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 7.21, "event": "request_completed", "request_id": "cf9765d3-21c6-49f7-8a12-e9842be1dd46", "timestamp": "2026-07-03T15:49:12.353912Z", "level": "info"}
+INFO:     192.168.1.5:57990 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+INFO:     192.168.1.5:58444 - "OPTIONS /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 5.92, "event": "request_completed", "request_id": "09d2c83e-cb65-48ce-a3ad-5948bfc5fd4d", "timestamp": "2026-07-03T15:49:26.268100Z", "level": "info"}
+INFO:     192.168.1.5:58444 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/me", "status_code": 200, "duration_ms": 4.68, "event": "request_completed", "request_id": "87c7eb10-9048-4522-9f9c-3b31d52e9b66", "timestamp": "2026-07-03T15:49:26.281841Z", "level": "info"}
+INFO:     192.168.1.5:58444 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 12.86, "event": "request_completed", "request_id": "a2786ad9-d6e7-4676-8b40-71fe2787df94", "timestamp": "2026-07-03T15:49:26.339456Z", "level": "info"}
+INFO:     192.168.1.5:58444 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 11.97, "event": "request_completed", "request_id": "a9adca0e-225f-4f9f-9e11-62f3733f9afa", "timestamp": "2026-07-03T15:49:26.343715Z", "level": "info"}
+INFO:     192.168.1.5:62258 - "GET /api/v1/patients HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 12.78, "event": "request_completed", "request_id": "0ca35cff-8692-4913-9a96-ad2f6623f39a", "timestamp": "2026-07-03T15:49:26.364281Z", "level": "info"}
+INFO:     192.168.1.5:59612 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 12.05, "event": "request_completed", "request_id": "1c089126-be28-4ec1-b331-98fc9710ea87", "timestamp": "2026-07-03T15:49:26.366454Z", "level": "info"}
+INFO:     192.168.1.5:58190 - "GET /api/v1/patients HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/anamnesis", "status_code": 200, "duration_ms": 6.77, "event": "request_completed", "request_id": "e004a115-247e-436b-af7f-afcf042c1500", "timestamp": "2026-07-03T15:49:26.375032Z", "level": "info"}
+INFO:     192.168.1.5:62258 - "GET /api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/anamnesis HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/anamnesis", "status_code": 200, "duration_ms": 7.69, "event": "request_completed", "request_id": "60c70961-c8a3-4736-a3b0-62788ece5b27", "timestamp": "2026-07-03T15:49:26.439164Z", "level": "info"}
+INFO:     192.168.1.5:62258 - "GET /api/v1/patients/557d805f-ca9a-4429-918c-56b141e21ab6/anamnesis HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 4.93, "event": "request_completed", "request_id": "52246b52-6f59-4a0f-9b10-3bbc3dd328d3", "timestamp": "2026-07-03T15:49:37.326362Z", "level": "info"}
+INFO:     192.168.1.5:54789 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/me", "status_code": 200, "duration_ms": 3.72, "event": "request_completed", "request_id": "8c85826a-e30b-421e-95f1-ebbb39c7f3aa", "timestamp": "2026-07-03T15:49:37.341761Z", "level": "info"}
+INFO:     192.168.1.5:54789 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 12.48, "event": "request_completed", "request_id": "1848fc64-6c92-4c1d-a75b-1a8a0c093470", "timestamp": "2026-07-03T15:49:37.746096Z", "level": "info"}
+INFO:     192.168.1.5:54789 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/doctors", "status_code": 200, "duration_ms": 22.09, "event": "request_completed", "request_id": "d6f21921-a64c-4a17-9a3b-dfc7013007bb", "timestamp": "2026-07-03T15:49:37.774051Z", "level": "info"}
+INFO:     192.168.1.5:59492 - "GET /api/v1/doctors?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/receptionists", "status_code": 200, "duration_ms": 27.95, "event": "request_completed", "request_id": "cd22977e-305a-4f2d-b626-5bc7ab3f985d", "timestamp": "2026-07-03T15:49:37.777223Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 24.13, "event": "request_completed", "request_id": "2e155342-f1ee-4de5-967f-0ce22e8e5bb8", "timestamp": "2026-07-03T15:49:37.777223Z", "level": "info"}
+INFO:     192.168.1.5:54548 - "GET /api/v1/receptionists?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:62558 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinical-assistants", "status_code": 200, "duration_ms": 32.79, "event": "request_completed", "request_id": "9444004d-3a06-4a7d-9333-bc8230c3972f", "timestamp": "2026-07-03T15:49:37.783301Z", "level": "info"}
+INFO:     192.168.1.5:65086 - "GET /api/v1/clinical-assistants?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896", "status_code": 200, "duration_ms": 32.34, "event": "request_completed", "request_id": "2f363d82-1402-48e8-a72c-ba388619c393", "timestamp": "2026-07-03T15:49:37.791519Z", "level": "info"}
+INFO:     192.168.1.5:59354 - "GET /api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 17.41, "event": "request_completed", "request_id": "79118847-7b82-4599-83e0-de30301a306d", "timestamp": "2026-07-03T15:49:37.803449Z", "level": "info"}
+INFO:     192.168.1.5:54789 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/staff-requests", "status_code": 200, "duration_ms": 12.13, "event": "request_completed", "request_id": "9f240152-066b-4f56-8e7c-6fd2e6073066", "timestamp": "2026-07-03T15:49:37.809370Z", "level": "info"}
+INFO:     192.168.1.5:59492 - "GET /api/v1/staff-requests?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/store-orders", "status_code": 200, "duration_ms": 13.4, "event": "request_completed", "request_id": "6858a0c1-fdcc-4cd7-bdfe-e6d2f8bde918", "timestamp": "2026-07-03T15:49:37.812036Z", "level": "info"}
+INFO:     192.168.1.5:62558 - "GET /api/v1/store-orders?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/appointments", "status_code": 200, "duration_ms": 15.76, "event": "request_completed", "request_id": "02844290-cc3b-445c-8db1-99a70e64212a", "timestamp": "2026-07-03T15:49:37.814180Z", "level": "info"}
+INFO:     192.168.1.5:54548 - "GET /api/v1/appointments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 17.54, "event": "request_completed", "request_id": "6031942c-3060-4f28-9118-06978c99a505", "timestamp": "2026-07-03T15:49:37.868071Z", "level": "info"}
+INFO:     192.168.1.5:59492 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/inventory", "status_code": 200, "duration_ms": 18.54, "event": "request_completed", "request_id": "97c8c723-ceee-46bc-ad5f-6fcd642e84d4", "timestamp": "2026-07-03T15:49:37.880424Z", "level": "info"}
+INFO:     192.168.1.5:59354 - "GET /api/v1/inventory?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/payments", "status_code": 200, "duration_ms": 23.01, "event": "request_completed", "request_id": "64d18400-9a53-4934-b5ed-367bf29844a7", "timestamp": "2026-07-03T15:49:37.883673Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/doctors", "status_code": 200, "duration_ms": 21.56, "event": "request_completed", "request_id": "93e627c1-5cd4-43ff-ab9a-af6062bb7929", "timestamp": "2026-07-03T15:49:37.883673Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/receptionists", "status_code": 200, "duration_ms": 17.13, "event": "request_completed", "request_id": "d423fc7b-7f33-4d85-bdd5-275b224f615e", "timestamp": "2026-07-03T15:49:37.883673Z", "level": "info"}
+INFO:     192.168.1.5:65086 - "GET /api/v1/payments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:62558 - "GET /api/v1/doctors?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:54548 - "GET /api/v1/receptionists?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/products", "status_code": 200, "duration_ms": 20.57, "event": "request_completed", "request_id": "4b927f0b-53d4-4311-b7b1-3dead71e1934", "timestamp": "2026-07-03T15:49:37.886339Z", "level": "info"}
+INFO:     192.168.1.5:54789 - "GET /api/v1/products HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 18.31, "event": "request_completed", "request_id": "e7406947-663a-4db3-b1c6-aec22f831f7e", "timestamp": "2026-07-03T15:49:37.901225Z", "level": "info"}
+INFO:     192.168.1.5:59492 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 14.38, "event": "request_completed", "request_id": "bdffe37e-99c4-43c5-b745-052f6b55237d", "timestamp": "2026-07-03T15:49:37.914077Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/staff-requests", "status_code": 200, "duration_ms": 15.55, "event": "request_completed", "request_id": "b717c987-1e27-4e47-b506-f2adbe91ab5a", "timestamp": "2026-07-03T15:49:37.915160Z", "level": "info"}
+INFO:     192.168.1.5:62558 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896", "status_code": 200, "duration_ms": 17.14, "event": "request_completed", "request_id": "df02ed74-fa5b-4b3f-bcb5-636f67178674", "timestamp": "2026-07-03T15:49:37.915692Z", "level": "info"}
+INFO:     192.168.1.5:54548 - "GET /api/v1/staff-requests?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinical-assistants", "status_code": 200, "duration_ms": 19.91, "event": "request_completed", "request_id": "37f50245-6cf1-4c1d-ac2b-ded24bfb4683", "timestamp": "2026-07-03T15:49:37.916226Z", "level": "info"}
+INFO:     192.168.1.5:65086 - "GET /api/v1/clinics/c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:59354 - "GET /api/v1/clinical-assistants?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/store-orders", "status_code": 200, "duration_ms": 20.0, "event": "request_completed", "request_id": "eeab1d62-857c-4151-9f99-f6c6286f1fa2", "timestamp": "2026-07-03T15:49:37.921650Z", "level": "info"}
+INFO:     192.168.1.5:54789 - "GET /api/v1/store-orders?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/appointments", "status_code": 200, "duration_ms": 19.37, "event": "request_completed", "request_id": "a6185f37-aadf-422a-8f87-7cc8269edb59", "timestamp": "2026-07-03T15:49:37.933425Z", "level": "info"}
+INFO:     192.168.1.5:59492 - "GET /api/v1/appointments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 11.18, "event": "request_completed", "request_id": "fa5464e1-5ea3-4144-afb1-3d6f968125f7", "timestamp": "2026-07-03T15:49:37.944621Z", "level": "info"}
+INFO:     192.168.1.5:59354 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/inventory", "status_code": 200, "duration_ms": 16.71, "event": "request_completed", "request_id": "eca57b66-f304-4415-93ee-8ff223895537", "timestamp": "2026-07-03T15:49:37.945690Z", "level": "info"}
+INFO:     192.168.1.5:62558 - "GET /api/v1/inventory?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/products", "status_code": 200, "duration_ms": 14.9, "event": "request_completed", "request_id": "26b73157-2de7-4cd3-9dc3-fe34615e328a", "timestamp": "2026-07-03T15:49:37.946760Z", "level": "info"}
+INFO:     192.168.1.5:65086 - "GET /api/v1/products HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/doctors/b6657275-1ffc-4973-91af-ef601d75d293/weekly-schedules", "status_code": 200, "duration_ms": 13.61, "event": "request_completed", "request_id": "a4f48c7b-d584-41be-b230-10e9e54d04c4", "timestamp": "2026-07-03T15:49:37.948950Z", "level": "info"}
+INFO:     192.168.1.5:54789 - "GET /api/v1/doctors/b6657275-1ffc-4973-91af-ef601d75d293/weekly-schedules HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/payments", "status_code": 200, "duration_ms": 19.84, "event": "request_completed", "request_id": "8cec7be4-93ae-48db-8462-7c9f58f7ffdd", "timestamp": "2026-07-03T15:49:37.950585Z", "level": "info"}
+INFO:     192.168.1.5:54548 - "GET /api/v1/payments?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 5.28, "event": "request_completed", "request_id": "9915c374-9cea-42db-b586-8d6f73849c73", "timestamp": "2026-07-03T15:49:37.959633Z", "level": "info"}
+INFO:     192.168.1.5:59492 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/doctors/b6657275-1ffc-4973-91af-ef601d75d293/weekly-schedules", "status_code": 200, "duration_ms": 9.53, "event": "request_completed", "request_id": "414a6c75-b2cc-40c8-bd0a-c57d7bc9b2cf", "timestamp": "2026-07-03T15:49:37.977688Z", "level": "info"}
+INFO:     192.168.1.5:59492 - "GET /api/v1/doctors/b6657275-1ffc-4973-91af-ef601d75d293/weekly-schedules HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/doctors", "status_code": 200, "duration_ms": 15.11, "event": "request_completed", "request_id": "eeb4981f-db59-40bb-808c-9faffc952f1a", "timestamp": "2026-07-03T15:49:40.882567Z", "level": "info"}
+INFO:     192.168.1.5:59492 - "GET /api/v1/doctors?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinical-assistants", "status_code": 200, "duration_ms": 15.18, "event": "request_completed", "request_id": "96226ad7-6a7f-429f-a2ec-ec137acc2815", "timestamp": "2026-07-03T15:49:40.883666Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 13.98, "event": "request_completed", "request_id": "52c92718-462a-47ee-94b3-60d839479e98", "timestamp": "2026-07-03T15:49:40.884189Z", "level": "info"}
+INFO:     192.168.1.5:54548 - "GET /api/v1/clinical-assistants?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:65086 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/receptionists", "status_code": 200, "duration_ms": 14.87, "event": "request_completed", "request_id": "fbe4ca67-e897-47dc-b3b5-f5b9c1b31c4c", "timestamp": "2026-07-03T15:49:40.885282Z", "level": "info"}
+INFO:     192.168.1.5:54789 - "GET /api/v1/receptionists?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/doctors", "status_code": 200, "duration_ms": 16.3, "event": "request_completed", "request_id": "11243d40-950c-45f7-8432-e6729b11dd2c", "timestamp": "2026-07-03T15:49:40.914628Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/clinical-assistants", "status_code": 200, "duration_ms": 14.28, "event": "request_completed", "request_id": "930daaff-8b11-45e6-85ec-f3c3b689bd57", "timestamp": "2026-07-03T15:49:40.914628Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/receptionists", "status_code": 200, "duration_ms": 13.33, "event": "request_completed", "request_id": "34a34eb0-916c-4d81-8846-ea2ed4c45106", "timestamp": "2026-07-03T15:49:40.914628Z", "level": "info"}
+INFO:     192.168.1.5:62558 - "GET /api/v1/doctors?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:59354 - "GET /api/v1/clinical-assistants?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:65086 - "GET /api/v1/receptionists?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 16.74, "event": "request_completed", "request_id": "f85249f6-a0af-4900-aff3-2a8072f58881", "timestamp": "2026-07-03T15:49:40.916228Z", "level": "info"}
+INFO:     192.168.1.5:59492 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 11.38, "event": "request_completed", "request_id": "6a1d3b2d-0a68-4039-bdbc-65bf0a131d65", "timestamp": "2026-07-03T15:49:41.546215Z", "level": "info"}
+INFO:     192.168.1.5:59492 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 12.19, "event": "request_completed", "request_id": "38a37e41-2453-4d55-9de1-56e8a4cefd6c", "timestamp": "2026-07-03T15:49:41.551579Z", "level": "info"}
+INFO:     192.168.1.5:65086 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 10.81, "event": "request_completed", "request_id": "c3e3f5f4-daf7-4c7b-b8d4-e103441a2ccc", "timestamp": "2026-07-03T15:49:41.567150Z", "level": "info"}
+INFO:     192.168.1.5:59354 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 11.46, "event": "request_completed", "request_id": "1c9643b4-2315-4d0a-9eba-90259ba12c82", "timestamp": "2026-07-03T15:49:41.571482Z", "level": "info"}
+INFO:     192.168.1.5:59492 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 17.32, "event": "request_completed", "request_id": "ee011805-f918-4e21-9fec-46c3285651db", "timestamp": "2026-07-03T15:49:43.096172Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d", "status_code": 200, "duration_ms": 15.93, "event": "request_completed", "request_id": "b97df8be-3dc8-4e9b-8ba1-52b3a4b74ed7", "timestamp": "2026-07-03T15:49:43.096712Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 16.1, "event": "request_completed", "request_id": "9d840d11-b65c-4d5b-93c4-556fba279e4a", "timestamp": "2026-07-03T15:49:43.097249Z", "level": "info"}
+INFO:     192.168.1.5:59492 - "GET /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:65086 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files", "status_code": 200, "duration_ms": 19.79, "event": "request_completed", "request_id": "9fae29ec-2e62-46a7-8a1d-2f1fee28e506", "timestamp": "2026-07-03T15:49:43.098878Z", "level": "info"}
+INFO:     192.168.1.5:62558 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/diseases", "status_code": 200, "duration_ms": 16.29, "event": "request_completed", "request_id": "f588cc59-766d-4c0d-8957-ec899170972b", "timestamp": "2026-07-03T15:49:43.099415Z", "level": "info"}
+INFO:     192.168.1.5:59354 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+INFO:     192.168.1.5:54548 - "GET /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 19.99, "event": "request_completed", "request_id": "72329c4f-d7bd-4864-838b-7006a9d78ac5", "timestamp": "2026-07-03T15:49:43.102117Z", "level": "info"}
+INFO:     192.168.1.5:54789 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 14.62, "event": "request_completed", "request_id": "292aa17e-0144-4e77-83f9-ff8e93311cbb", "timestamp": "2026-07-03T15:49:43.126809Z", "level": "info"}
+INFO:     192.168.1.5:65086 - "GET /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d", "status_code": 200, "duration_ms": 15.39, "event": "request_completed", "request_id": "ee2feb6a-c43a-4fed-ab7b-0df61c4a8200", "timestamp": "2026-07-03T15:49:43.127886Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 13.52, "event": "request_completed", "request_id": "e0d6ee45-d82e-4cfb-9b81-00b30a9e9532", "timestamp": "2026-07-03T15:49:43.128418Z", "level": "info"}
+INFO:     192.168.1.5:62558 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+INFO:     192.168.1.5:59354 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection", "status_code": 200, "duration_ms": 17.44, "event": "request_completed", "request_id": "91426c9d-9791-4cef-8415-6171316b1e61", "timestamp": "2026-07-03T15:49:43.130018Z", "level": "info"}
+INFO:     192.168.1.5:59492 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files", "status_code": 200, "duration_ms": 18.9, "event": "request_completed", "request_id": "6d7b85d2-460e-4871-b8b7-bd2464565de1", "timestamp": "2026-07-03T15:49:43.135015Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/prs-catalog/diseases", "status_code": 200, "duration_ms": 18.43, "event": "request_completed", "request_id": "200b3d18-f68a-4c5e-aa5e-ff8f5d5b7655", "timestamp": "2026-07-03T15:49:43.136110Z", "level": "info"}
+INFO:     192.168.1.5:54548 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+INFO:     192.168.1.5:54789 - "GET /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+INFO:     192.168.1.5:59492 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 12.88, "event": "request_completed", "request_id": "0759f0b0-7e15-444a-b964-5e136f8939bb", "timestamp": "2026-07-03T15:49:43.158764Z", "level": "info"}
+INFO:     192.168.1.5:65086 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection", "status_code": 200, "duration_ms": 13.59, "event": "request_completed", "request_id": "4543f9bf-0a87-4016-9450-9e4b062e8450", "timestamp": "2026-07-03T15:49:43.161942Z", "level": "info"}
+INFO:     192.168.1.5:59354 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis", "status_code": 200, "duration_ms": 11.87, "event": "request_completed", "request_id": "97d83ac1-28f9-4a77-9320-0348b729380d", "timestamp": "2026-07-03T15:49:43.163010Z", "level": "info"}
+INFO:     192.168.1.5:59492 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis HTTP/1.1" 200 OK
+INFO:     192.168.1.5:59354 - "OPTIONS /api/v1/anamnesis/ANA-a3d6ceb7-002/responses HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis", "status_code": 200, "duration_ms": 6.78, "event": "request_completed", "request_id": "cc1e570a-8f7a-4a77-aa40-189055c4ffac", "timestamp": "2026-07-03T15:49:43.177224Z", "level": "info"}
+INFO:     192.168.1.5:59492 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis/ANA-a3d6ceb7-002/responses", "status_code": 200, "duration_ms": 6.19, "event": "request_completed", "request_id": "591eca7e-cf97-4bfa-9b89-81dd42589767", "timestamp": "2026-07-03T15:49:43.177754Z", "level": "info"}
+INFO:     192.168.1.5:59354 - "GET /api/v1/anamnesis/ANA-a3d6ceb7-002/responses HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis/ANA-a3d6ceb7-002/responses", "status_code": 200, "duration_ms": 7.47, "event": "request_completed", "request_id": "7b63aaf5-e8b3-44e1-9d69-929cd4058442", "timestamp": "2026-07-03T15:49:43.193207Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances", "status_code": 200, "duration_ms": 6.8, "event": "request_completed", "request_id": "97513142-6ac5-44a7-a41c-f0577ae2cf43", "timestamp": "2026-07-03T15:49:43.193207Z", "level": "info"}
+INFO:     192.168.1.5:59354 - "GET /api/v1/anamnesis/ANA-a3d6ceb7-002/responses HTTP/1.1" 200 OK
+INFO:     192.168.1.5:59492 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances?assessment_stage=general_registration HTTP/1.1" 200 OK
+INFO:     192.168.1.5:59492 - "OPTIONS /api/v1/prs-assessment-instances/a3d6ceb7-2c220749/results HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances", "status_code": 200, "duration_ms": 7.17, "event": "request_completed", "request_id": "ed98b4db-d64d-45b2-baef-fe02f685adb4", "timestamp": "2026-07-03T15:49:43.208996Z", "level": "info"}
+INFO:     192.168.1.5:59354 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances?assessment_stage=general_registration HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-assessment-instances/a3d6ceb7-2c220749/results", "status_code": 200, "duration_ms": 13.44, "event": "request_completed", "request_id": "e3705870-4131-47b1-937f-7641aa3d70f6", "timestamp": "2026-07-03T15:49:43.215902Z", "level": "info"}
+INFO:     192.168.1.5:59492 - "GET /api/v1/prs-assessment-instances/a3d6ceb7-2c220749/results HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-assessment-instances/a3d6ceb7-2c220749/results", "status_code": 200, "duration_ms": 10.18, "event": "request_completed", "request_id": "81f568c0-9321-42cf-8a41-2d06b82a2dc9", "timestamp": "2026-07-03T15:49:43.231404Z", "level": "info"}
+INFO:     192.168.1.5:59354 - "GET /api/v1/prs-assessment-instances/a3d6ceb7-2c220749/results HTTP/1.1" 200 OK
+INFO:     192.168.1.5:61855 - "OPTIONS /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:63459 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+INFO:     192.168.1.5:52070 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+INFO:     192.168.1.5:62739 - "OPTIONS /api/v1/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:63459 - "OPTIONS /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:52070 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+INFO:     192.168.1.5:62739 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+INFO:     192.168.1.5:63459 - "OPTIONS /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection", "status_code": 200, "duration_ms": 20.65, "event": "request_completed", "request_id": "164dcfed-10f0-4b40-bd1d-0e16f428de49", "timestamp": "2026-07-03T15:50:01.383516Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/prs-catalog/diseases", "status_code": 200, "duration_ms": 16.76, "event": "request_completed", "request_id": "b963f1a9-162b-47e5-9008-e72790bc51ff", "timestamp": "2026-07-03T15:50:01.384050Z", "level": "info"}
+INFO:     192.168.1.5:64363 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 20.41, "event": "request_completed", "request_id": "fab5c09e-fc80-4adf-8e90-c43ead1da93c", "timestamp": "2026-07-03T15:50:01.385141Z", "level": "info"}
+INFO:     192.168.1.5:49673 - "GET /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+INFO:     192.168.1.5:61855 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d", "status_code": 200, "duration_ms": 19.75, "event": "request_completed", "request_id": "0e4beb06-856f-4654-93d2-474594e45bb0", "timestamp": "2026-07-03T15:50:01.392636Z", "level": "info"}
+INFO:     192.168.1.5:63459 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 19.15, "event": "request_completed", "request_id": "6e0b70eb-94f9-4ad3-8b6a-0597345f1243", "timestamp": "2026-07-03T15:50:01.394245Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files", "status_code": 200, "duration_ms": 21.71, "event": "request_completed", "request_id": "510e9b80-cb70-44fd-897d-45dd7c1b3f22", "timestamp": "2026-07-03T15:50:01.394781Z", "level": "info"}
+INFO:     192.168.1.5:52070 - "GET /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:62739 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 18.25, "event": "request_completed", "request_id": "7fa34387-0dd4-422b-84eb-f32aad2b0110", "timestamp": "2026-07-03T15:50:01.421071Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/prs-catalog/diseases", "status_code": 200, "duration_ms": 18.1, "event": "request_completed", "request_id": "cfe30a87-34df-4af4-9f60-b8ad6f305b0f", "timestamp": "2026-07-03T15:50:01.422131Z", "level": "info"}
+INFO:     192.168.1.5:64363 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:61855 - "GET /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection", "status_code": 200, "duration_ms": 21.93, "event": "request_completed", "request_id": "a9fa3f8a-769d-4a11-879f-7b655be8b911", "timestamp": "2026-07-03T15:50:01.425873Z", "level": "info"}
+INFO:     192.168.1.5:49673 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d", "status_code": 200, "duration_ms": 23.52, "event": "request_completed", "request_id": "631f43b9-0c91-41a8-bf05-c0fd252135a1", "timestamp": "2026-07-03T15:50:01.436101Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 22.62, "event": "request_completed", "request_id": "1ba67d8e-0cad-4a85-ba71-b66c0f2e27cc", "timestamp": "2026-07-03T15:50:01.437154Z", "level": "info"}
+INFO:     192.168.1.5:52070 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 26.21, "event": "request_completed", "request_id": "8e0e82d8-69a7-4adf-adfa-6d900aa8dc2d", "timestamp": "2026-07-03T15:50:01.437689Z", "level": "info"}
+INFO:     192.168.1.5:62739 - "GET /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:63459 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 10.14, "event": "request_completed", "request_id": "ba8b85cc-0319-4558-8ad4-bf9bce4228a0", "timestamp": "2026-07-03T15:50:01.454393Z", "level": "info"}
+INFO:     192.168.1.5:61855 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files", "status_code": 200, "duration_ms": 12.26, "event": "request_completed", "request_id": "2a115c11-4343-4ba5-8df3-c7e6452cbb1a", "timestamp": "2026-07-03T15:50:01.455449Z", "level": "info"}
+INFO:     192.168.1.5:64363 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis", "status_code": 200, "duration_ms": 10.5, "event": "request_completed", "request_id": "e2af644e-4dbc-4bb0-849a-94bb4c69cc08", "timestamp": "2026-07-03T15:50:01.455976Z", "level": "info"}
+INFO:     192.168.1.5:49673 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis", "status_code": 200, "duration_ms": 8.92, "event": "request_completed", "request_id": "66f4102b-1c8a-4675-98ad-bd1288341f63", "timestamp": "2026-07-03T15:50:01.472015Z", "level": "info"}
+INFO:     192.168.1.5:49673 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis/ANA-a3d6ceb7-002/responses", "status_code": 200, "duration_ms": 7.73, "event": "request_completed", "request_id": "fbb98879-8a2f-4624-8ccb-9eaddebaa257", "timestamp": "2026-07-03T15:50:01.473083Z", "level": "info"}
+INFO:     192.168.1.5:64363 - "GET /api/v1/anamnesis/ANA-a3d6ceb7-002/responses HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis/ANA-a3d6ceb7-002/responses", "status_code": 200, "duration_ms": 7.85, "event": "request_completed", "request_id": "70f7591e-1cba-4de6-b508-5ee7b2c2b99d", "timestamp": "2026-07-03T15:50:01.487619Z", "level": "info"}
+INFO:     192.168.1.5:64363 - "GET /api/v1/anamnesis/ANA-a3d6ceb7-002/responses HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances", "status_code": 200, "duration_ms": 8.5, "event": "request_completed", "request_id": "c6498f10-2bd8-4312-91dc-316a6d1ca00a", "timestamp": "2026-07-03T15:50:01.489768Z", "level": "info"}
+INFO:     192.168.1.5:49673 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances?assessment_stage=general_registration HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances", "status_code": 200, "duration_ms": 10.15, "event": "request_completed", "request_id": "b61b31d1-942c-45af-a4d3-5eb471b7a501", "timestamp": "2026-07-03T15:50:01.506308Z", "level": "info"}
+INFO:     192.168.1.5:64363 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances?assessment_stage=general_registration HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-assessment-instances/a3d6ceb7-2c220749/results", "status_code": 200, "duration_ms": 9.49, "event": "request_completed", "request_id": "2a1a2918-c5cd-424c-a43f-8270fc287e05", "timestamp": "2026-07-03T15:50:01.509014Z", "level": "info"}
+INFO:     192.168.1.5:49673 - "GET /api/v1/prs-assessment-instances/a3d6ceb7-2c220749/results HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-assessment-instances/a3d6ceb7-2c220749/results", "status_code": 200, "duration_ms": 11.78, "event": "request_completed", "request_id": "8e27cfc1-179e-4a0d-aa46-fda2d2c7e5f5", "timestamp": "2026-07-03T15:50:01.526689Z", "level": "info"}
+INFO:     192.168.1.5:64363 - "GET /api/v1/prs-assessment-instances/a3d6ceb7-2c220749/results HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/prs-assessment-instances", "status_code": 201, "duration_ms": 19.53, "event": "request_completed", "request_id": "e4830072-b238-4ecb-b40e-8c6c5b0b7246", "timestamp": "2026-07-03T16:06:26.189397Z", "level": "info"}
+INFO:     192.168.1.5:65213 - "POST /api/v1/prs-assessment-instances HTTP/1.1" 201 Created
+{"method": "GET", "path": "/api/v1/prs-catalog/scale-questions", "status_code": 200, "duration_ms": 11.04, "event": "request_completed", "request_id": "c40064a8-a5ed-4568-9e63-8fa3438b9d71", "timestamp": "2026-07-03T16:06:26.276964Z", "level": "info"}
+INFO:     192.168.1.5:65214 - "GET /api/v1/prs-catalog/scale-questions?scale_id=ADHD/ASRS-v1.1 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/scale-questions", "status_code": 200, "duration_ms": 12.25, "event": "request_completed", "request_id": "9ff3a98a-de97-4c21-8ac0-98f372f1cdab", "timestamp": "2026-07-03T16:06:56.851094Z", "level": "info"}
+INFO:     192.168.1.5:55578 - "GET /api/v1/prs-catalog/scale-questions?scale_id=COMPASS-31/2026 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/scale-questions", "status_code": 200, "duration_ms": 9.59, "event": "request_completed", "request_id": "810c833c-48ce-4ade-b7af-d9699217c3f2", "timestamp": "2026-07-03T16:06:56.994279Z", "level": "info"}
+INFO:     192.168.1.5:55579 - "GET /api/v1/prs-catalog/scale-questions?scale_id=DASS-21/2026 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/scale-questions", "status_code": 200, "duration_ms": 6.6, "event": "request_completed", "request_id": "391bee02-ffcb-4f02-823b-1ea63ef226a7", "timestamp": "2026-07-03T16:06:57.154595Z", "level": "info"}
+INFO:     192.168.1.5:55580 - "GET /api/v1/prs-catalog/scale-questions?scale_id=EQ-5D-5L/2026 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/scale-questions", "status_code": 200, "duration_ms": 7.37, "event": "request_completed", "request_id": "1e9d5b64-07b1-4f20-a020-b7dcd9789b73", "timestamp": "2026-07-03T16:07:14.261776Z", "level": "info"}
+INFO:     192.168.1.5:60742 - "GET /api/v1/prs-catalog/scale-questions?scale_id=COMPASS-31%2F2026 HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/prs-assessment-instances/2bbb3ee5-252bef5d/responses", "status_code": 200, "duration_ms": 85.3, "event": "request_completed", "request_id": "943e5215-f64a-4519-9fc9-8c9f6b78680f", "timestamp": "2026-07-03T16:07:14.585787Z", "level": "info"}
+INFO:     192.168.1.5:60743 - "POST /api/v1/prs-assessment-instances/2bbb3ee5-252bef5d/responses HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/scale-questions", "status_code": 200, "duration_ms": 6.21, "event": "request_completed", "request_id": "8cbed086-1107-4d12-9357-177488820a4f", "timestamp": "2026-07-03T16:07:14.809210Z", "level": "info"}
+INFO:     192.168.1.5:60744 - "GET /api/v1/prs-catalog/scale-questions?scale_id=DASS-21%2F2026 HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/prs-assessment-instances/2bbb3ee5-252bef5d/responses", "status_code": 200, "duration_ms": 74.82, "event": "request_completed", "request_id": "0485e199-c011-45c9-8d02-fc216fcc58fc", "timestamp": "2026-07-03T16:07:15.110682Z", "level": "info"}
+INFO:     192.168.1.5:60745 - "POST /api/v1/prs-assessment-instances/2bbb3ee5-252bef5d/responses HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-catalog/scale-questions", "status_code": 200, "duration_ms": 5.93, "event": "request_completed", "request_id": "8a56212c-9601-4c67-81a2-b9bcd86f8a52", "timestamp": "2026-07-03T16:07:15.338546Z", "level": "info"}
+INFO:     192.168.1.5:60746 - "GET /api/v1/prs-catalog/scale-questions?scale_id=EQ-5D-5L%2F2026 HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/prs-assessment-instances/2bbb3ee5-252bef5d/responses", "status_code": 200, "duration_ms": 37.74, "event": "request_completed", "request_id": "883466bb-12fb-4446-a589-0176567f3be7", "timestamp": "2026-07-03T16:07:15.594811Z", "level": "info"}
+INFO:     192.168.1.5:60747 - "POST /api/v1/prs-assessment-instances/2bbb3ee5-252bef5d/responses HTTP/1.1" 200 OK
+INFO:     192.168.1.5:51354 - "OPTIONS /api/v1/auth/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:56026 - "OPTIONS /api/v1/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:64522 - "OPTIONS /api/v1/auth/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:63014 - "OPTIONS /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:62165 - "OPTIONS /api/v1/clinics HTTP/1.1" 200 OK
+INFO:     192.168.1.5:49674 - "OPTIONS /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 11.34, "event": "request_completed", "request_id": "9494efc8-e3fb-4080-9047-9905cf65bdfd", "timestamp": "2026-07-03T16:11:19.892451Z", "level": "info"}
+INFO:     192.168.1.5:49674 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/clinics", "status_code": 200, "duration_ms": 11.26, "event": "request_completed", "request_id": "6c895856-6e03-41ee-b527-c244672d8b89", "timestamp": "2026-07-03T16:11:19.908494Z", "level": "info"}
+INFO:     192.168.1.5:64522 - "GET /api/v1/auth/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 20.38, "event": "request_completed", "request_id": "59672041-3c7d-4958-87fa-da2ebb9a5e7b", "timestamp": "2026-07-03T16:11:19.918771Z", "level": "info"}
+INFO:     192.168.1.5:62165 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 24.23, "event": "request_completed", "request_id": "344f7a0d-6c54-4f84-a0f6-8c4e147c90a8", "timestamp": "2026-07-03T16:11:19.922650Z", "level": "info"}
+INFO:     192.168.1.5:63014 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 18.67, "event": "request_completed", "request_id": "b7e575c4-8b2b-4f5e-8fae-3802e29c63a1", "timestamp": "2026-07-03T16:11:19.961214Z", "level": "info"}
+INFO:     192.168.1.5:64522 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 200, "duration_ms": 15.48, "event": "request_completed", "request_id": "c0167fd8-2735-4613-992f-0fdda8413360", "timestamp": "2026-07-03T16:11:19.963925Z", "level": "info"}
+INFO:     192.168.1.5:62165 - "GET /api/v1/patients?clinic_id=c30757f2-4e54-4db1-9ee1-1af7cd1e8896 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:62165 - "OPTIONS /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:64522 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+INFO:     192.168.1.5:63014 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+INFO:     192.168.1.5:63014 - "OPTIONS /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+INFO:     192.168.1.5:62165 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection HTTP/1.1" 200 OK
+INFO:     192.168.1.5:49674 - "OPTIONS /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+INFO:     192.168.1.5:56026 - "OPTIONS /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:51354 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+INFO:     192.168.1.5:63014 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+INFO:     192.168.1.5:62165 - "OPTIONS /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+INFO:     192.168.1.5:49674 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection HTTP/1.1" 200 OK
+INFO:     192.168.1.5:56026 - "OPTIONS /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 13.94, "event": "request_completed", "request_id": "1a7b3e8c-bbed-4496-b35e-16a6546daa36", "timestamp": "2026-07-03T16:11:21.156225Z", "level": "info"}
+INFO:     192.168.1.5:64522 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 20.07, "event": "request_completed", "request_id": "94ad7c24-5327-4108-adf2-a23e5d461e7b", "timestamp": "2026-07-03T16:11:21.167413Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/prs-catalog/diseases", "status_code": 200, "duration_ms": 16.84, "event": "request_completed", "request_id": "b5ef6c96-9ece-473a-b20f-c5153cef494d", "timestamp": "2026-07-03T16:11:21.167942Z", "level": "info"}
+INFO:     192.168.1.5:51354 - "GET /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:49674 - "GET /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d", "status_code": 200, "duration_ms": 20.18, "event": "request_completed", "request_id": "86850811-ec51-49e6-9d0c-56a8f136ae65", "timestamp": "2026-07-03T16:11:21.169001Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files", "status_code": 200, "duration_ms": 20.52, "event": "request_completed", "request_id": "b690805a-fe44-4b56-a95c-a0a1f72042ee", "timestamp": "2026-07-03T16:11:21.169001Z", "level": "info"}
+INFO:     192.168.1.5:62165 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+INFO:     192.168.1.5:63014 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection", "status_code": 200, "duration_ms": 19.48, "event": "request_completed", "request_id": "4e3b9518-d316-4b1f-99b7-107016a3d0b9", "timestamp": "2026-07-03T16:11:21.171125Z", "level": "info"}
+INFO:     192.168.1.5:56026 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 16.53, "event": "request_completed", "request_id": "d68db140-c292-49a7-bbe8-a15a1fe85b17", "timestamp": "2026-07-03T16:11:21.193911Z", "level": "info"}
+INFO:     192.168.1.5:64522 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/clinics", "status_code": 200, "duration_ms": 18.29, "event": "request_completed", "request_id": "b363b18a-d3e4-4b1f-aa6a-9de76648d23f", "timestamp": "2026-07-03T16:11:21.201032Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d", "status_code": 200, "duration_ms": 16.96, "event": "request_completed", "request_id": "22f25447-6f4a-46c9-80ec-d1248dd497f0", "timestamp": "2026-07-03T16:11:21.201557Z", "level": "info"}
+{"method": "GET", "path": "/api/v1/prs-catalog/diseases", "status_code": 200, "duration_ms": 16.36, "event": "request_completed", "request_id": "2958bab0-2684-4bd9-84b6-f21b7f0e582f", "timestamp": "2026-07-03T16:11:21.201557Z", "level": "info"}
+INFO:     192.168.1.5:51354 - "GET /api/v1/clinics HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/consent-records", "status_code": 200, "duration_ms": 18.3, "event": "request_completed", "request_id": "9708ea7f-bfcb-431d-9b63-9ce87a523742", "timestamp": "2026-07-03T16:11:21.201557Z", "level": "info"}
+INFO:     192.168.1.5:63014 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d HTTP/1.1" 200 OK
+INFO:     192.168.1.5:62165 - "GET /api/v1/prs-catalog/diseases HTTP/1.1" 200 OK
+INFO:     192.168.1.5:49674 - "GET /api/v1/consent-records?patient_id=a3d6ceb7-0896-4687-90d2-e62c8bd595c3 HTTP/1.1" 200 OK
+INFO:     192.168.1.5:63014 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files", "status_code": 200, "duration_ms": 20.91, "event": "request_completed", "request_id": "723c0525-06d8-4e2c-98eb-e7c5f94d6700", "timestamp": "2026-07-03T16:11:21.207968Z", "level": "info"}
+INFO:     192.168.1.5:56026 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/files?doc_type=medical_history HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection", "status_code": 200, "duration_ms": 10.66, "event": "request_completed", "request_id": "258af561-77f1-49e9-b8ce-2d5fdff917c7", "timestamp": "2026-07-03T16:11:21.221312Z", "level": "info"}
+INFO:     192.168.1.5:64522 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/disease-selection HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 10.83, "event": "request_completed", "request_id": "c940c18c-25b9-48bf-bd40-ae07642dc94b", "timestamp": "2026-07-03T16:11:21.224562Z", "level": "info"}
+INFO:     192.168.1.5:51354 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis", "status_code": 200, "duration_ms": 10.44, "event": "request_completed", "request_id": "af84e69c-3309-4ee2-9aee-cd20aa7c066b", "timestamp": "2026-07-03T16:11:21.226176Z", "level": "info"}
+INFO:     192.168.1.5:63014 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis HTTP/1.1" 200 OK
+INFO:     192.168.1.5:51354 - "OPTIONS /api/v1/anamnesis/ANA-a3d6ceb7-002/responses HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis", "status_code": 200, "duration_ms": 7.39, "event": "request_completed", "request_id": "4ada8180-4982-4707-aee9-a38e9ec647b7", "timestamp": "2026-07-03T16:11:21.240914Z", "level": "info"}
+INFO:     192.168.1.5:63014 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/anamnesis HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis/ANA-a3d6ceb7-002/responses", "status_code": 200, "duration_ms": 7.3, "event": "request_completed", "request_id": "0f9d08b3-462d-415a-942d-283390d52543", "timestamp": "2026-07-03T16:11:21.243042Z", "level": "info"}
+INFO:     192.168.1.5:51354 - "GET /api/v1/anamnesis/ANA-a3d6ceb7-002/responses HTTP/1.1" 200 OK
+INFO:     192.168.1.5:51354 - "OPTIONS /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances?assessment_stage=general_registration HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/anamnesis/ANA-a3d6ceb7-002/responses", "status_code": 200, "duration_ms": 7.73, "event": "request_completed", "request_id": "99605aa7-c987-46a6-aa51-3e1c3d5aa8e6", "timestamp": "2026-07-03T16:11:21.257153Z", "level": "info"}
+INFO:     192.168.1.5:63014 - "GET /api/v1/anamnesis/ANA-a3d6ceb7-002/responses HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances", "status_code": 200, "duration_ms": 7.87, "event": "request_completed", "request_id": "8c81ba8e-a84c-4d88-8b67-acefbd0ba91d", "timestamp": "2026-07-03T16:11:21.260355Z", "level": "info"}
+INFO:     192.168.1.5:51354 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances?assessment_stage=general_registration HTTP/1.1" 200 OK
+INFO:     192.168.1.5:51354 - "OPTIONS /api/v1/prs-assessment-instances/a3d6ceb7-2c220749/results HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances", "status_code": 200, "duration_ms": 8.04, "event": "request_completed", "request_id": "310431e0-648e-468e-987e-2d3a39f8c38c", "timestamp": "2026-07-03T16:11:21.274800Z", "level": "info"}
+INFO:     192.168.1.5:63014 - "GET /api/v1/patients/d304ebd5-c9b3-466b-9443-0789f952271d/prs-instances?assessment_stage=general_registration HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-assessment-instances/a3d6ceb7-2c220749/results", "status_code": 200, "duration_ms": 10.84, "event": "request_completed", "request_id": "09ab74a0-6bba-42f9-b329-e097da8c8a24", "timestamp": "2026-07-03T16:11:21.281178Z", "level": "info"}
+INFO:     192.168.1.5:51354 - "GET /api/v1/prs-assessment-instances/a3d6ceb7-2c220749/results HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/prs-assessment-instances/a3d6ceb7-2c220749/results", "status_code": 200, "duration_ms": 7.08, "event": "request_completed", "request_id": "c8f7f826-40ad-4a4a-b43b-0252777ac9e2", "timestamp": "2026-07-03T16:11:21.293201Z", "level": "info"}
+INFO:     192.168.1.5:63014 - "GET /api/v1/prs-assessment-instances/a3d6ceb7-2c220749/results HTTP/1.1" 200 OK
+INFO:     192.168.1.5:53410 - "OPTIONS /api/v1/auth/local-login HTTP/1.1" 200 OK
+{"method": "POST", "path": "/api/v1/auth/local-login", "status_code": 200, "duration_ms": 4.92, "event": "request_completed", "request_id": "c3b07ecc-d5a4-43bb-94f8-d1007b6b5a5d", "timestamp": "2026-07-03T16:11:28.499460Z", "level": "info"}
+INFO:     192.168.1.5:53410 - "POST /api/v1/auth/local-login HTTP/1.1" 200 OK
+INFO:     192.168.1.5:53410 - "OPTIONS /api/v1/auth/me HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/auth/me", "status_code": 200, "duration_ms": 5.88, "event": "request_completed", "request_id": "3c5f7d17-cc2b-4236-a13f-a030c3bdddd8", "timestamp": "2026-07-03T16:11:28.513758Z", "level": "info"}
+INFO:     192.168.1.5:53410 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+INFO:     192.168.1.5:53410 - "OPTIONS /api/v1/patients HTTP/1.1" 200 OK
+INFO:     192.168.1.5:52899 - "OPTIONS /api/v1/patients HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 6.01, "event": "request_completed", "request_id": "e07f8da5-0732-4c2e-8b34-649c9c0129d9", "timestamp": "2026-07-03T16:11:29.109100Z", "level": "info"}
+INFO:     192.168.1.5:52899 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 10.09, "event": "request_completed", "request_id": "8f0580bf-61e1-43a0-b2c7-be3a719216de", "timestamp": "2026-07-03T16:11:29.111767Z", "level": "info"}
+INFO:     192.168.1.5:62967 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 6.12, "event": "request_completed", "request_id": "1a3a4881-9e0d-41eb-9f08-61333c2b2ec5", "timestamp": "2026-07-03T16:11:29.122384Z", "level": "info"}
+INFO:     192.168.1.5:53410 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/anamnesis-catalog", "status_code": 200, "duration_ms": 6.95, "event": "request_completed", "request_id": "d120a983-c972-44e4-b99e-2e8b891ebdb0", "timestamp": "2026-07-03T16:11:29.125582Z", "level": "info"}
+INFO:     192.168.1.5:52899 - "GET /api/v1/anamnesis-catalog HTTP/1.1" 200 OK
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 5.57, "event": "request_completed", "request_id": "6292eb83-9758-49b5-bc87-5b169ecde165", "timestamp": "2026-07-03T16:14:05.451407Z", "level": "info"}
+INFO:     192.168.1.5:51796 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden
+{"method": "GET", "path": "/api/v1/patients", "status_code": 403, "duration_ms": 5.24, "event": "request_completed", "request_id": "323a0a39-253f-4dcd-a1db-6d546a1ae89b", "timestamp": "2026-07-03T16:14:05.498759Z", "level": "info"}
+INFO:     192.168.1.5:51797 - "GET /api/v1/patients HTTP/1.1" 403 Forbidden

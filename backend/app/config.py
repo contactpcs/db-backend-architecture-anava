@@ -8,10 +8,23 @@ class Settings(BaseSettings):
 
     environment: str = "local"
 
-    # Database
+    # Database — database_url is what the running app connects as (the
+    # scoped anava_app role in real environments, not the master user, so
+    # RLS policies actually apply). migration_database_url is what alembic
+    # connects as instead — needs DDL privileges (CREATE/ALTER/DROP), so it's
+    # the RDS master user in real environments. Defaults to database_url
+    # (unset locally — Docker dev has one role for everything, no split).
     database_url: str = "postgresql+asyncpg://anava:anava_dev_password@localhost:5433/anava_dev"
+    migration_database_url: str | None = None
     db_pool_size: int = 10
     db_max_overflow: int = 5
+    # RDS requires/expects SSL; local Docker Postgres doesn't have it configured.
+    db_require_ssl: bool = False
+    # AWS's RDS certs chain up to Amazon's own root CAs, which aren't always
+    # in the OS/Python default trust store (verification fails as "self-
+    # signed certificate in certificate chain" otherwise) — this file is
+    # AWS's official public bundle: https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+    db_ssl_ca_bundle: str | None = "certs/rds-global-bundle.pem"
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
@@ -53,3 +66,26 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def build_ssl_context():
+    """Shared by core/db.py and alembic/env.py — both need the exact same SSL
+    setup since they connect to the same kind of endpoint (RDS). Verifies
+    against AWS's own CA bundle when configured, since RDS's cert chain
+    isn't in the plain OS/Python default trust store (fails as "self-signed
+    certificate in certificate chain" otherwise, not because the cert is
+    actually invalid). Falls back to create_default_context() with no cafile
+    if the bundle isn't present, which still encrypts the connection even
+    though hostname/CA verification may then fail against those roots."""
+    settings = get_settings()
+    if not settings.db_require_ssl:
+        return None
+    import ssl
+    from pathlib import Path
+
+    cafile = None
+    if settings.db_ssl_ca_bundle:
+        candidate = Path(__file__).resolve().parent.parent / settings.db_ssl_ca_bundle
+        if candidate.is_file():
+            cafile = str(candidate)
+    return ssl.create_default_context(cafile=cafile)

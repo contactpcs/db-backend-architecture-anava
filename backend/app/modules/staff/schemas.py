@@ -41,10 +41,12 @@ class DoctorCreate(StaffPersonCreate):
 class StaffProfileUpdate(BaseModel):
     """Shared profile-level fields every staff *Update schema accepts
     alongside its own role-specific ones — admin edits go through one PATCH,
-    not a separate profile-edit endpoint."""
+    not a separate profile-edit endpoint. email is re-validated against the
+    org-domain rule on change (see staff/service.py::_apply_profile_update)."""
 
     first_name: str | None = None
     last_name: str | None = None
+    email: EmailStr | None = None
     phone: str | None = None
     gender: str | None = Field(default=None, pattern="^(male|female|other)$")
     dob: date | None = None
@@ -98,7 +100,7 @@ class ClinicalAssistantRead(BaseModel):
     profile_id: UUID
     clinic_id: UUID
     qualification: str | None
-    is_active: bool  # this role slot's own on/off flag — NOT the consent-gate signal, see profile_is_active
+    is_active: bool  # this role slot's own on/off flag — kept in sync with profile_is_active on every update, see staff/service.py::_split_profile_fields
     created_at: datetime
     first_name: str
     last_name: str
@@ -119,7 +121,7 @@ class ReceptionistRead(BaseModel):
     receptionist_id: UUID
     profile_id: UUID
     clinic_id: UUID
-    is_active: bool  # this role slot's own on/off flag — NOT the consent-gate signal, see profile_is_active
+    is_active: bool  # this role slot's own on/off flag — kept in sync with profile_is_active on every update, see staff/service.py::_split_profile_fields
     created_at: datetime
     first_name: str
     last_name: str
@@ -148,7 +150,7 @@ class CaDoctorAssignmentRead(BaseModel):
 class StaffRequestCreate(BaseModel):
     clinic_id: UUID
     request_type: str = Field(pattern="^(open_position|candidate_referral|staff_removal)$")
-    position_role: str = Field(pattern="^(doctor|clinical_assistant|receptionist|clinic_admin)$")
+    position_role: str = Field(pattern="^(doctor|clinical_assistant|receptionist)$")
     candidate_name: str | None = None
     candidate_email: EmailStr | None = None
     candidate_phone: str | None = None

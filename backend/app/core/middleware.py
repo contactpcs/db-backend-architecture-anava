@@ -86,9 +86,14 @@ async def _load_profile_and_scope(cognito_sub: str) -> RequestContext:
     patients) haven't been built yet. Extend this once those modules exist
     if a richer scope lookup is needed; don't duplicate the query there."""
     async with engine.connect() as conn:
+        # Must run before the SELECT below, in the same transaction — this is
+        # what rls_profiles_select's self-lookup clause matches against, since
+        # app.current_user_id/role can't be set yet (this query is what
+        # determines them). See SQL/31_fix_profile_bootstrap_lookup_rls.sql.
+        await conn.execute(text("SELECT set_config('app.current_cognito_sub', :sub, true)"), {"sub": cognito_sub})
         row = (
             await conn.execute(
-                text("SELECT id, role, is_active FROM profiles WHERE cognito_sub = :sub"),
+                text("SELECT id, role, is_active, consent_signed FROM profiles WHERE cognito_sub = :sub"),
                 {"sub": cognito_sub},
             )
         ).first()
@@ -96,7 +101,55 @@ async def _load_profile_and_scope(cognito_sub: str) -> RequestContext:
             raise PermissionError_("Profile not found", code="PROFILE_NOT_FOUND")
 
         profile_id, role = str(row.id), row.role
-        is_active = row.is_active
+        is_active, consent_signed = row.is_active, row.consent_signed
+
+        # Now genuinely known (resolved above) — set them immediately so
+        # every query below this point on this same connection (self-heal's
+        # consent_records check, the admins/clinic_staff_assignments/patients
+        # scope lookups) can satisfy their own RLS self-lookup clauses
+        # (profile_id/staff_id = rls_user_id()) instead of hitting the same
+        # bootstrap chicken-and-egg problem the cognito_sub fix above solves
+        # for the first query. See SQL/31_fix_profile_bootstrap_lookup_rls.sql.
+        await conn.execute(text("SELECT set_config('app.current_user_id', :uid, true)"), {"uid": profile_id})
+        await conn.execute(text("SELECT set_config('app.current_user_role', :role, true)"), {"role": role})
+
+        # Self-heal: for staff roles, is_active is meant to mirror a signed
+        # staff_onboarding consent record exactly (see
+        # SQL/28_consent_redesign.sql / consent/service.py::sign). If it's
+        # somehow FALSE despite a signed record already existing — a gap in
+        # some future creation/signing path, the same class of bug that once
+        # bricked a regional_admin here — re-derive from the real source of
+        # truth (consent_records) instead of leaving the account stuck.
+        # Scoped to staff only: patients have their own richer activation
+        # gate (registration-complete/approval) that must NOT be
+        # short-circuited by this check.
+        #
+        # Also requires consent_signed to STILL be FALSE — once an account
+        # has ever been properly activated (consent_signed=TRUE), is_active
+        # going FALSE afterward is a deliberate admin deactivation (staff
+        # deactivate button, staff/service.py::_split_profile_fields), not a
+        # bricked account — self-healing that back to TRUE would make
+        # deactivation impossible. Real bricked accounts have BOTH flags
+        # stuck FALSE despite a signed record existing; a deactivated one has
+        # only is_active FALSE with consent_signed still TRUE.
+        if role != "patient" and not is_active and not consent_signed:
+            healed = (
+                await conn.execute(
+                    text(
+                        "SELECT 1 FROM consent_records WHERE staff_id = :pid "
+                        "AND consent_type = 'staff_onboarding' AND status = 'signed' LIMIT 1"
+                    ),
+                    {"pid": profile_id},
+                )
+            ).first()
+            if healed:
+                async with engine.begin() as heal_conn:
+                    await heal_conn.execute(
+                        text("UPDATE profiles SET is_active = TRUE, consent_signed = TRUE WHERE id = :pid"),
+                        {"pid": profile_id},
+                    )
+                is_active, consent_signed = True, True
+
         clinic_id: str | None = None
         region_id: str | None = None
 
@@ -132,7 +185,10 @@ async def _load_profile_and_scope(cognito_sub: str) -> RequestContext:
             if scope and scope.primary_clinic_id:
                 clinic_id = str(scope.primary_clinic_id)
 
-    return RequestContext(user_id=profile_id, role=role, clinic_id=clinic_id, region_id=region_id, is_active=is_active)
+    return RequestContext(
+        user_id=profile_id, role=role, clinic_id=clinic_id, region_id=region_id,
+        is_active=is_active, consent_signed=consent_signed,
+    )
 
 
 class AuthContextMiddleware(BaseHTTPMiddleware):

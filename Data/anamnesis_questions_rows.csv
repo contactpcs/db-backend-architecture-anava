@@ -1,0 +1,22 @@
+question_id,section_number,section_title,question_code,question_text,answer_type,is_required,display_order,depends_on_question_id,depends_on_value,helper_text,status
+ANA/S01/Q001,1,Chief Complaint & Diagnosis,chief_complaint,Why are you here today? / Primary Diagnosis,textarea,true,1,,,Describe the main reason for this visit and any existing diagnosis,true
+ANA/S02/Q001,2,Main Symptoms,main_symptoms,What are your main symptoms?,textarea,true,2,,,Describe the primary symptoms you are experiencing,true
+ANA/S02/Q002,2,Main Symptoms,initial_symptoms,What were the initial symptoms?,textarea,true,3,,,Describe how your symptoms first appeared,true
+ANA/S02/Q003,2,Main Symptoms,diagnosis_related,Is there a diagnosis related to the symptoms?,radio,true,4,,,,true
+ANA/S02/Q004,2,Main Symptoms,diagnosis_details,"If yes, please specify the diagnosis",conditional_text,false,5,ANA/S02/Q003,yes,Please specify the confirmed or suspected diagnosis,true
+ANA/S02/Q005,2,Main Symptoms,symptoms_start,When did the symptoms start?,text,true,6,,,"e.g. 3 months ago, January 2024",true
+ANA/S02/Q006,2,Main Symptoms,symptoms_duration,For how long have you had these symptoms?,text,true,7,,,"e.g. 2 weeks, 6 months, 2 years",true
+ANA/S02/Q007,2,Main Symptoms,symptoms_frequency,How often do you have these symptoms?,select,true,8,,,,true
+ANA/S02/Q008,2,Main Symptoms,symptoms_intensity,How intense or severe are these symptoms?,select,true,9,,,,true
+ANA/S02/Q009,2,Main Symptoms,symptoms_progression,"Are the symptoms getting better, worse, or staying about the same?",select,true,10,,,,true
+ANA/S03/Q001,3,Secondary Symptoms,secondary_symptoms,What are your secondary symptoms? (select all that apply),checkbox,false,11,,,Check all that apply,true
+ANA/S03/Q002,3,Secondary Symptoms,secondary_symptoms_details,Additional details about secondary symptoms,textarea,false,12,,,Please provide more details about the checked symptoms,true
+ANA/S04/Q001,4,Operations / Surgeries,has_operations,Have you had any operations or surgeries?,radio,true,13,,,,true
+ANA/S04/Q002,4,Operations / Surgeries,operations_details,"If yes, please provide details",conditional_text,false,14,ANA/S04/Q001,yes,"Include: which operations, how many, when performed, post-surgery condition / effects",true
+ANA/S05/Q001,5,Previous or Ongoing Treatments,previous_treatments,"Previous or ongoing treatments (physiotherapy, speech therapy, psychotherapy, etc.)",textarea,false,15,,,"Include: type of treatment, how long, how often, outcomes / improvements",true
+ANA/S06/Q001,6,Medications & Supplements,current_medications,Current medications and supplements,textarea,false,16,,,List all current medications and supplements with dosages,true
+ANA/S07/Q001,7,Brain MRI & Other Scans,has_brain_mri,Have you had a Brain MRI?,radio,true,17,,,,true
+ANA/S07/Q002,7,Brain MRI & Other Scans,mri_details,"If yes, when was it performed and what were the results?",conditional_text,false,18,ANA/S07/Q001,yes,"Include: date of MRI, results, any other relevant findings",true
+ANA/S07/Q003,7,Brain MRI & Other Scans,other_scans,"Other scans (CT, EEG, EMG, etc.)",textarea,false,19,,,List any other diagnostic scans or tests performed,true
+ANA/S08/Q001,8,Neuromodulation Experience,has_neuromodulation,Have you used any neuromodulation techniques before?,radio,true,20,,,,true
+ANA/S08/Q002,8,Neuromodulation Experience,neuromodulation_details,"If yes, please specify devices used and experience",conditional_text,false,21,ANA/S08/Q001,yes,"Include: type of device, duration of use, effectiveness, any side effects",true

@@ -20,13 +20,16 @@ class PatientRepository:
         # is_active = FALSE — gated until the patient signs the
         # patient_onboarding consent (see consent/service.py ConsentRecordService.sign),
         # or (self-registered) until a receptionist approves (patients.approval_status).
+        # consent_signed = FALSE alongside it — separate column, see
+        # SQL/28_consent_redesign.sql; sign() flips this one directly but
+        # is_active for patients stays gated behind the rest of registration.
         profile = await fetch_one(
             self.session,
             text(
                 "INSERT INTO profiles (cognito_sub, email, first_name, last_name, phone, role, gender, dob, address, "
-                "city, state, country, pincode, is_active) "
+                "city, state, country, pincode, is_active, consent_signed) "
                 "VALUES ('pending-' || gen_random_uuid()::TEXT, :email, :first_name, :last_name, :phone, "
-                "'patient', :gender, :dob, :address, :city, :state, :country, :pincode, FALSE) RETURNING *"
+                "'patient', :gender, :dob, :address, :city, :state, :country, :pincode, FALSE, FALSE) RETURNING *"
             ),
             {"email": email, "first_name": first_name, "last_name": last_name, "phone": phone,
              "gender": gender, "dob": dob, "address": address,
@@ -71,7 +74,7 @@ class PatientRepository:
         )
 
     async def list(self, *, registration_status: str | None = None, approval_status: str | None = None,
-                    clinic_id: UUID | None = None) -> list[dict]:
+                    clinic_id: UUID | None = None, profile_id: UUID | None = None) -> list[dict]:
         # pt.deleted_at IS NULL — soft-deleted patients (see delete() below)
         # never show up in the active list, but the row is never removed.
         clauses, params = ["pt.deleted_at IS NULL"], {}
@@ -84,6 +87,9 @@ class PatientRepository:
         if clinic_id:
             clauses.append("pt.primary_clinic_id = :clinic_id")
             params["clinic_id"] = str(clinic_id)
+        if profile_id:
+            clauses.append("pt.profile_id = :profile_id")
+            params["profile_id"] = str(profile_id)
         where = f"WHERE {' AND '.join(clauses)}"
         rows = (
             await self.session.execute(text(f"{self._SELECT_WITH_PROFILE} {where} ORDER BY pt.created_at DESC"), params)

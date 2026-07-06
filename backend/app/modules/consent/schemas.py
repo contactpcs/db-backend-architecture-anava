@@ -12,6 +12,7 @@ _CONSENT_TYPES = (
 class ConsentTemplateRead(BaseModel):
     template_id: UUID
     consent_type: str
+    role: str | None = None
     version: int
     title: str
     content: str
@@ -23,7 +24,9 @@ class ConsentRecordCreate(BaseModel):
     consent_type: str = Field(pattern=f"^({_CONSENT_TYPES})$")
     patient_id: UUID | None = None
     staff_id: UUID | None = None
-    clinic_id: UUID
+    clinic_id: UUID | None = None
+    region_id: UUID | None = None
+    role: str | None = None
 
 
 class ConsentSignRequest(BaseModel):
@@ -44,7 +47,8 @@ class ConsentRecordRead(BaseModel):
     template_id: UUID
     patient_id: UUID | None
     staff_id: UUID | None
-    clinic_id: UUID
+    clinic_id: UUID | None
+    region_id: UUID | None
     status: str
     signed_at: datetime | None
     signed_by: UUID | None

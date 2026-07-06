@@ -70,6 +70,13 @@ async def local_login(body: LocalLoginRequest) -> TokenResponse:
     cognito_sub = body.cognito_sub
     if not cognito_sub:
         async with engine.connect() as conn:
+            # Must run before the SELECT, same transaction — this is what
+            # rls_profiles_select's self-lookup-by-email clause matches
+            # against, since no RLS context can exist yet (this query is
+            # what determines it). Same chicken-and-egg shape as the
+            # cognito_sub lookup in core/middleware.py — see
+            # SQL/33_fix_local_login_email_lookup_rls.sql.
+            await conn.execute(text("SELECT set_config('app.current_email', :email, true)"), {"email": body.email})
             row = (
                 await conn.execute(text("SELECT cognito_sub FROM profiles WHERE email = :email"), {"email": body.email})
             ).mappings().first()
@@ -82,23 +89,46 @@ async def local_login(body: LocalLoginRequest) -> TokenResponse:
 
 
 @router.get("/me", response_model=CurrentUserRead)
-async def get_current_user(ctx: RequestContext = Depends(get_current_context)) -> CurrentUserRead:
+async def get_current_user(ctx: RequestContext = Depends(get_current_context), db=Depends(get_db)) -> CurrentUserRead:
     """The 'who am I' every authenticated role can call — unlike /_internal/whoami
     (debug-only, super_admin-gated), this is the real profile-fetch endpoint
-    a frontend calls right after login to know who's signed in."""
-    async with engine.connect() as conn:
-        row = (
-            await conn.execute(
-                text("SELECT id, email, first_name, last_name, role FROM profiles WHERE id = :id"),
-                {"id": ctx.user_id},
-            )
-        ).mappings().first()
+    a frontend calls right after login to know who's signed in.
+
+    Uses Depends(get_db) (the request-scoped, RLS-context-applied session),
+    not a raw engine.connect() — the middleware already resolved ctx.user_id
+    from a real row, but a *second*, separately-unscoped connection here
+    would fail rls_profiles_select all over again once RLS is actually
+    enforced (RDS cutover surfaced this — see
+    SQL/31_fix_profile_bootstrap_lookup_rls.sql for the related middleware-
+    side fix; this one didn't need a new policy, just the right session)."""
+    row = (
+        await db.execute(
+            text("SELECT id, email, first_name, last_name, role FROM profiles WHERE id = :id"),
+            {"id": ctx.user_id},
+        )
+    ).mappings().first()
     if not row:
         raise NotFoundError("Profile not found", code="PROFILE_NOT_FOUND")
+
+    patient_row = None
+    if row["role"] == "patient":
+        patient_row = (
+            await db.execute(
+                text(
+                    "SELECT patient_id, self_registered, registration_status FROM patients WHERE profile_id = :pid"
+                ),
+                {"pid": row["id"]},
+            )
+        ).mappings().first()
+
     return CurrentUserRead(
         id=row["id"], email=row["email"], first_name=row["first_name"], last_name=row["last_name"],
         role=row["role"], clinic_id=UUID(ctx.clinic_id) if ctx.clinic_id else None,
         region_id=UUID(ctx.region_id) if ctx.region_id else None,
         is_active=ctx.is_active,
+        consent_signed=ctx.consent_signed,
         consent_type_required=None if ctx.is_active else ("patient_onboarding" if row["role"] == "patient" else "staff_onboarding"),
+        self_registered=bool(patient_row["self_registered"]) if patient_row else False,
+        patient_id=patient_row["patient_id"] if patient_row else None,
+        registration_status=patient_row["registration_status"] if patient_row else None,
     )

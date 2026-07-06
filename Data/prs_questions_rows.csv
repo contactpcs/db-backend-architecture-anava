@@ -1,0 +1,633 @@
+question_id,question_code,disease_id,scale_id,ds_map_id,question_text,answer_type,min_value,max_value,is_required,skip_logic,display_order,is_common_scale,created_at
+AIS/001,AIS/001,INSOMNIA/2026,AIS/2026,Insomnia/AIS,Sleep induction (time it takes you to fall asleep after turning-off the lights),radio,,,true,,1,false,2026-09-04 00:00:00+00
+AIS/002,AIS/002,INSOMNIA/2026,AIS/2026,Insomnia/AIS,Awakenings during the night,radio,,,true,,2,false,2026-09-04 00:00:00+00
+AIS/003,AIS/003,INSOMNIA/2026,AIS/2026,Insomnia/AIS,Final awakening earlier than desired,radio,,,true,,3,false,2026-09-04 00:00:00+00
+AIS/004,AIS/004,INSOMNIA/2026,AIS/2026,Insomnia/AIS,Total sleep duration,radio,,,true,,4,false,2026-09-04 00:00:00+00
+AIS/005,AIS/005,INSOMNIA/2026,AIS/2026,Insomnia/AIS,Overall quality of sleep (no matter how long you slept),radio,,,true,,5,false,2026-09-04 00:00:00+00
+AIS/006,AIS/006,INSOMNIA/2026,AIS/2026,Insomnia/AIS,Sense of well-being during the day,radio,,,true,,6,false,2026-09-04 00:00:00+00
+AIS/007,AIS/007,INSOMNIA/2026,AIS/2026,Insomnia/AIS,Functioning (physical and mental) during the day,radio,,,true,,7,false,2026-09-04 00:00:00+00
+AIS/008,AIS/008,INSOMNIA/2026,AIS/2026,Insomnia/AIS,Sleepiness during the day,radio,,,true,,8,false,2026-09-04 00:00:00+00
+ALSFRS-R/001,ALSFRS-R/001,ALS/2026,ALSFRS-R/2026,ALS/ALSFRS-R,Speech,radio,,,true,,1,false,2026-09-04 00:00:00+00
+ALSFRS-R/002,ALSFRS-R/002,ALS/2026,ALSFRS-R/2026,ALS/ALSFRS-R,Salivation,radio,,,true,,2,false,2026-09-04 00:00:00+00
+ALSFRS-R/003,ALSFRS-R/003,ALS/2026,ALSFRS-R/2026,ALS/ALSFRS-R,Swallowing,radio,,,true,,3,false,2026-09-04 00:00:00+00
+ALSFRS-R/004,ALSFRS-R/004,ALS/2026,ALSFRS-R/2026,ALS/ALSFRS-R,Handwriting,radio,,,true,,4,false,2026-09-04 00:00:00+00
+ALSFRS-R/005,ALSFRS-R/005,ALS/2026,ALSFRS-R/2026,ALS/ALSFRS-R,Cutting food and handling utensils,radio,,,true,,5,false,2026-09-04 00:00:00+00
+ALSFRS-R/006,ALSFRS-R/006,ALS/2026,ALSFRS-R/2026,ALS/ALSFRS-R,Dressing and hygiene,radio,,,true,,6,false,2026-09-04 00:00:00+00
+ALSFRS-R/007,ALSFRS-R/007,ALS/2026,ALSFRS-R/2026,ALS/ALSFRS-R,Turning in bed and adjusting bed clothes,radio,,,true,,7,false,2026-09-04 00:00:00+00
+ALSFRS-R/008,ALSFRS-R/008,ALS/2026,ALSFRS-R/2026,ALS/ALSFRS-R,Walking,radio,,,true,,8,false,2026-09-04 00:00:00+00
+ALSFRS-R/009,ALSFRS-R/009,ALS/2026,ALSFRS-R/2026,ALS/ALSFRS-R,Climbing stairs,radio,,,true,,9,false,2026-09-04 00:00:00+00
+ALSFRS-R/010,ALSFRS-R/010,ALS/2026,ALSFRS-R/2026,ALS/ALSFRS-R,Breathing,radio,,,true,,10,false,2026-09-04 00:00:00+00
+AMTS/001,AMTS/001,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,How old are you?,radio,,,true,,1,false,2026-09-04 00:00:00+00
+AMTS/002,AMTS/002,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,What time is it (to nearest hour)?,radio,,,true,,2,false,2026-09-04 00:00:00+00
+AMTS/003,AMTS/003,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,Recall address: 42 West Street This should be repeated by the patient to ensure it has been heard correctly.,radio,,,true,,3,false,2026-09-04 00:00:00+00
+AMTS/004,AMTS/004,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,What year is it?,radio,,,true,,4,false,2026-09-04 00:00:00+00
+AMTS/005,AMTS/005,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,What is your address?,radio,,,true,,5,false,2026-09-04 00:00:00+00
+AMTS/006,AMTS/006,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,"What jobs do these people do? (Show the patient two pictures: a postman and a cook) or 
+Who are these two people? (Show pictures of Pope and Queen.)",radio,,,true,,6,false,2026-09-04 00:00:00+00
+AMTS/007,AMTS/007,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,What is your date of birth?,radio,,,true,,7,false,2026-09-04 00:00:00+00
+AMTS/008,AMTS/008,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,What year did the First World War start?,radio,,,true,,8,false,2026-09-04 00:00:00+00
+AMTS/009,AMTS/009,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,What is the name of the present monarch?,radio,,,true,,9,false,2026-09-04 00:00:00+00
+AMTS/010,AMTS/010,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,Count backwards 20 to 1,radio,,,true,,10,false,2026-09-04 00:00:00+00
+ASRS-V1.1/001,ASRS-V1.1/001,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,"How often do you have trouble wrapping up the final details of a project, once the challenging parts have been done?",radio,,,true,,1,false,2026-09-04 00:00:00+00
+ASRS-V1.1/002,ASRS-V1.1/002,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,How often do you have difficulty getting things in order when you have to do a task that requires organization?,radio,,,true,,2,false,2026-09-04 00:00:00+00
+ASRS-V1.1/003,ASRS-V1.1/003,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,How often do you have problems remembering appointments or obligations?,radio,,,true,,3,false,2026-09-04 00:00:00+00
+ASRS-V1.1/004,ASRS-V1.1/004,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,"When you have a task that requires a lot of thought, how often do you avoid or delay getting started?",radio,,,true,,4,false,2026-09-04 00:00:00+00
+ASRS-V1.1/005,ASRS-V1.1/005,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,How often do you fidget or squirm with your hands or feet when you have to sit down for a long time?,radio,,,true,,5,false,2026-09-04 00:00:00+00
+ASRS-V1.1/006,ASRS-V1.1/006,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,"How often do you feel overly active and compelled to do things, like you were driven by a motor?",radio,,,true,,6,false,2026-09-04 00:00:00+00
+ASRS-V1.1/007,ASRS-V1.1/007,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,How often do you make careless mistakes when you have to work on a boring or difficult project?,radio,,,true,,7,false,2026-09-04 00:00:00+00
+ASRS-V1.1/008,ASRS-V1.1/008,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,How often do you have difficulty keeping your attention when you are doing boring or repetitive work?,radio,,,true,,8,false,2026-09-04 00:00:00+00
+ASRS-V1.1/009,ASRS-V1.1/009,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,"How often do you have difficulty concentrating on what people say to you, even when they are speaking to you directly?",radio,,,true,,9,false,2026-09-04 00:00:00+00
+ASRS-V1.1/010,ASRS-V1.1/010,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,How often do you misplace or have difficulty finding things at home or at work?,radio,,,true,,10,false,2026-09-04 00:00:00+00
+ASRS-V1.1/011,ASRS-V1.1/011,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,How often are you distracted by activity or noise around you?,radio,,,true,,11,false,2026-09-04 00:00:00+00
+ASRS-V1.1/012,ASRS-V1.1/012,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,How often do you leave your seat in meetings or other situations in which you are expected to remain seated?,radio,,,true,,12,false,2026-09-04 00:00:00+00
+ASRS-V1.1/013,ASRS-V1.1/013,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,How often do you feel restless or fidgety?,radio,,,true,,13,false,2026-09-04 00:00:00+00
+ASRS-V1.1/014,ASRS-V1.1/014,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,How often do you have difficulty unwinding and relaxing when you have time to yourself?,radio,,,true,,14,false,2026-09-04 00:00:00+00
+ASRS-V1.1/015,ASRS-V1.1/015,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,How often do you find yourself talking too much when you are in social situations?,radio,,,true,,15,false,2026-09-04 00:00:00+00
+ASRS-V1.1/016,ASRS-V1.1/016,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,"When you’re in a conversation, how often do you find yourself finishing the sentences of the people you are talking to, before they can finish them themselves?",radio,,,true,,16,false,2026-09-04 00:00:00+00
+ASRS-V1.1/017,ASRS-V1.1/017,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,How often do you have difficulty waiting your turn in situations when turn taking is required?,radio,,,true,,17,false,2026-09-04 00:00:00+00
+ASRS-V1.1/018,ASRS-V1.1/018,ADHD/2026,ASRS-v1.1/2026,ADHD/ASRS-v1.1,How often do you interrupt others when they are busy?,radio,,,true,,18,false,2026-09-04 00:00:00+00
+BarthelIndex/001,BarthelIndex/001,,BARTHEL/2026,,FEEDING,radio,,,true,,1,true,2026-09-04 00:00:00+00
+BarthelIndex/002,BarthelIndex/002,,BARTHEL/2026,,BATHING,radio,,,true,,2,true,2026-09-04 00:00:00+00
+BarthelIndex/003,BarthelIndex/003,,BARTHEL/2026,,GROOMING,radio,,,true,,3,true,2026-09-04 00:00:00+00
+BarthelIndex/004,BarthelIndex/004,,BARTHEL/2026,,DRESSING,radio,,,true,,4,true,2026-09-04 00:00:00+00
+BarthelIndex/005,BarthelIndex/005,,BARTHEL/2026,,BOWELS,radio,,,true,,5,true,2026-09-04 00:00:00+00
+BarthelIndex/006,BarthelIndex/006,,BARTHEL/2026,,BLADDER,radio,,,true,,6,true,2026-09-04 00:00:00+00
+BarthelIndex/007,BarthelIndex/007,,BARTHEL/2026,,TOILET USE,radio,,,true,,7,true,2026-09-04 00:00:00+00
+BarthelIndex/008,BarthelIndex/008,,BARTHEL/2026,,TRANSFERS (BED TO CHAIR AND BACK),radio,,,true,,8,true,2026-09-04 00:00:00+00
+BarthelIndex/009,BarthelIndex/009,,BARTHEL/2026,,MOBILITY (ON LEVEL SURFACES),radio,,,true,,9,true,2026-09-04 00:00:00+00
+BarthelIndex/010,BarthelIndex/010,,BARTHEL/2026,,STAIRS,radio,,,true,,10,true,2026-09-04 00:00:00+00
+BDI-II/001,BDI-II/001,,BDI-II/2026,,Sadness,radio,,,true,,1,true,2026-09-04 00:00:00+00
+BDI-II/002,BDI-II/002,,BDI-II/2026,,Pessimism,radio,,,true,,2,true,2026-09-04 00:00:00+00
+BDI-II/003,BDI-II/003,,BDI-II/2026,,Past Failure,radio,,,true,,3,true,2026-09-04 00:00:00+00
+BDI-II/004,BDI-II/004,,BDI-II/2026,,Loss of Pleasure,radio,,,true,,4,true,2026-09-04 00:00:00+00
+BDI-II/005,BDI-II/005,,BDI-II/2026,,Guilty Feelings,radio,,,true,,5,true,2026-09-04 00:00:00+00
+BDI-II/006,BDI-II/006,,BDI-II/2026,,Punishment Feelings,radio,,,true,,6,true,2026-09-04 00:00:00+00
+BDI-II/007,BDI-II/007,,BDI-II/2026,,Self-Dislike,radio,,,true,,7,true,2026-09-04 00:00:00+00
+BDI-II/008,BDI-II/008,,BDI-II/2026,,Self-Criticalness,radio,,,true,,8,true,2026-09-04 00:00:00+00
+BDI-II/009,BDI-II/009,,BDI-II/2026,,Suicidal Thoughts or Wishes,radio,,,true,,9,true,2026-09-04 00:00:00+00
+BDI-II/010,BDI-II/010,,BDI-II/2026,,Crying,radio,,,true,,10,true,2026-09-04 00:00:00+00
+BDI-II/011,BDI-II/011,,BDI-II/2026,,Agitation,radio,,,true,,11,true,2026-09-04 00:00:00+00
+BDI-II/012,BDI-II/012,,BDI-II/2026,,Loss of Interest,radio,,,true,,12,true,2026-09-04 00:00:00+00
+BDI-II/013,BDI-II/013,,BDI-II/2026,,Indecisiveness,radio,,,true,,13,true,2026-09-04 00:00:00+00
+BDI-II/014,BDI-II/014,,BDI-II/2026,,Worthlessness,radio,,,true,,14,true,2026-09-04 00:00:00+00
+BDI-II/015,BDI-II/015,,BDI-II/2026,,Loss of Energy,radio,,,true,,15,true,2026-09-04 00:00:00+00
+BDI-II/016,BDI-II/016,,BDI-II/2026,,Changes in Sleeping Pattern,radio,,,true,,16,true,2026-09-04 00:00:00+00
+BDI-II/017,BDI-II/017,,BDI-II/2026,,Irritability,radio,,,true,,17,true,2026-09-04 00:00:00+00
+BDI-II/018,BDI-II/018,,BDI-II/2026,,Changes in Appetite,radio,,,true,,18,true,2026-09-04 00:00:00+00
+BDI-II/019,BDI-II/019,,BDI-II/2026,,Concentration Difficulty,radio,,,true,,19,true,2026-09-04 00:00:00+00
+BDI-II/020,BDI-II/020,,BDI-II/2026,,Tiredness or Fatigue,radio,,,true,,20,true,2026-09-04 00:00:00+00
+BDI-II/021,BDI-II/021,,BDI-II/2026,,Loss of Interest in Sex,radio,,,true,,21,true,2026-09-04 00:00:00+00
+COMPASS-31/001,COMPASS-31/001,,COMPASS-31/2026,,"In the past year, have you ever felt faint, dizzy, “goofy”, or had difficulty thinking soon after standing up from a sitting or lying position?",radio,,,true,If No ? skip to Q5,1,true,2026-09-04 00:00:00+00
+COMPASS-31/002,COMPASS-31/002,,COMPASS-31/2026,,"When standing up, how frequently do you get these feelings or symptoms?",radio,,,true,,2,true,2026-09-04 00:00:00+00
+COMPASS-31/003,COMPASS-31/003,,COMPASS-31/2026,,How would you rate the severity of these feelings or symptoms?,radio,,,true,,3,true,2026-09-04 00:00:00+00
+COMPASS-31/004,COMPASS-31/004,,COMPASS-31/2026,,"In the past year, have these feelings or symptoms that you have experienced:",radio,,,true,,4,true,2026-09-04 00:00:00+00
+COMPASS-31/005,COMPASS-31/005,,COMPASS-31/2026,,"In the past year, have you ever noticed color changes in your skin, such as red, white, or purple?",radio,,,true,If No ? skip to Q8,5,true,2026-09-04 00:00:00+00
+COMPASS-31/006,COMPASS-31/006,,COMPASS-31/2026,,What parts of your body are affected by these color changes? (Check all that apply),radio,,,true,,6,true,2026-09-04 00:00:00+00
+COMPASS-31/007,COMPASS-31/007,,COMPASS-31/2026,,Are these changes in your skin color:,radio,,,true,,7,true,2026-09-04 00:00:00+00
+COMPASS-31/008,COMPASS-31/008,,COMPASS-31/2026,,"In the past 5 years, what changes, if any, have occurred in your general body sweating?",radio,,,true,,8,true,2026-09-04 00:00:00+00
+COMPASS-31/009,COMPASS-31/009,,COMPASS-31/2026,,Do your eyes feel excessively dry?,radio,,,true,,9,true,2026-09-04 00:00:00+00
+COMPASS-31/010,COMPASS-31/010,,COMPASS-31/2026,,Does your mouth feel excessively dry?,radio,,,true,,10,true,2026-09-04 00:00:00+00
+COMPASS-31/011,COMPASS-31/011,,COMPASS-31/2026,,"For the symptom of dry eyes or dry mouth that you have had for the longest period of time, is this symptom:",radio,,,true,,11,true,2026-09-04 00:00:00+00
+COMPASS-31/012,COMPASS-31/012,,COMPASS-31/2026,,"In the past year, have you noticed any changes in how quickly you get full when eating a meal?",radio,,,true,,12,true,2026-09-04 00:00:00+00
+COMPASS-31/013,COMPASS-31/013,,COMPASS-31/2026,,"In the past year, have you felt excessively full or persistently full (bloated feeling) after a meal?",radio,,,true,,13,true,2026-09-04 00:00:00+00
+COMPASS-31/014,COMPASS-31/014,,COMPASS-31/2026,,"In the past year, have you vomited after a meal?",radio,,,true,,14,true,2026-09-04 00:00:00+00
+COMPASS-31/015,COMPASS-31/015,,COMPASS-31/2026,,"In the past year, have you had a cramping or colicky abdominal pain?",radio,,,true,,15,true,2026-09-04 00:00:00+00
+COMPASS-31/016,COMPASS-31/016,,COMPASS-31/2026,,"In the past year, have you had any bouts of diarrhea?",radio,,,true,If No ? skip to Q20,16,true,2026-09-04 00:00:00+00
+COMPASS-31/017,COMPASS-31/017,,COMPASS-31/2026,,How frequently does this occur?,radio,,,true,,17,true,2026-09-04 00:00:00+00
+COMPASS-31/018,COMPASS-31/018,,COMPASS-31/2026,,How severe are these bouts of diarrhea?,radio,,,true,,18,true,2026-09-04 00:00:00+00
+COMPASS-31/019,COMPASS-31/019,,COMPASS-31/2026,,Are your bouts of diarrhea getting:,radio,,,true,,19,true,2026-09-04 00:00:00+00
+COMPASS-31/020,COMPASS-31/020,,COMPASS-31/2026,,"In the past year, have you been constipated?",radio,,,true,If No ? skip to Q24,20,true,2026-09-04 00:00:00+00
+COMPASS-31/021,COMPASS-31/021,,COMPASS-31/2026,,How frequently are you constipated?,radio,,,true,,21,true,2026-09-04 00:00:00+00
+COMPASS-31/022,COMPASS-31/022,,COMPASS-31/2026,,How severe are these episodes of constipation?,radio,,,true,,22,true,2026-09-04 00:00:00+00
+COMPASS-31/023,COMPASS-31/023,,COMPASS-31/2026,,Is your constipation getting:,radio,,,true,,23,true,2026-09-04 00:00:00+00
+COMPASS-31/024,COMPASS-31/024,,COMPASS-31/2026,,"In the past year, have you ever lost control of your bladder function?",radio,,,true,,24,true,2026-09-04 00:00:00+00
+COMPASS-31/025,COMPASS-31/025,,COMPASS-31/2026,,"In the past year, have you had difficulty passing urine?",radio,,,true,,25,true,2026-09-04 00:00:00+00
+COMPASS-31/026,COMPASS-31/026,,COMPASS-31/2026,,"In the past year, have you had trouble completely emptying your bladder?",radio,,,true,,26,true,2026-09-04 00:00:00+00
+COMPASS-31/027,COMPASS-31/027,,COMPASS-31/2026,,"In the past year, without sunglasses or tinted glasses, has bright light bothered your eyes?",radio,,,true,If Never ? skip to Q29,27,true,2026-09-04 00:00:00+00
+COMPASS-31/028,COMPASS-31/028,,COMPASS-31/2026,,How severe is this sensitivity to bright light?,radio,,,true,,28,true,2026-09-04 00:00:00+00
+COMPASS-31/029,COMPASS-31/029,,COMPASS-31/2026,,"In the past year, have you had trouble focusing your eyes?",radio,,,true,If Never ? skip to Q31,29,true,2026-09-04 00:00:00+00
+COMPASS-31/030,COMPASS-31/030,,COMPASS-31/2026,,How severe is this focusing problem?,radio,,,true,,30,true,2026-09-04 00:00:00+00
+COMPASS-31/031,COMPASS-31/031,,COMPASS-31/2026,,Is the most troublesome symptom with your eyes (i.e. sensitivity to bright light or trouble focusing) getting:,radio,,,true,,31,true,2026-09-04 00:00:00+00
+DASS-21/001,DASS-21/001,,DASS-21/2026,,I found it hard to wind down,radio,,,true,,1,true,2026-09-04 00:00:00+00
+DASS-21/002,DASS-21/002,,DASS-21/2026,,I was aware of dryness of my mouth,radio,,,true,,2,true,2026-09-04 00:00:00+00
+DASS-21/003,DASS-21/003,,DASS-21/2026,,I couldn’t seem to experience any positive feeling at all,radio,,,true,,3,true,2026-09-04 00:00:00+00
+DASS-21/004,DASS-21/004,,DASS-21/2026,,"I experienced breathing difficulty (e.g. excessively rapid breathing, breathlessness in the absence of physical exertion)",radio,,,true,,4,true,2026-09-04 00:00:00+00
+DASS-21/005,DASS-21/005,,DASS-21/2026,,I found it difficult to work up the initiative to do things,radio,,,true,,5,true,2026-09-04 00:00:00+00
+DASS-21/006,DASS-21/006,,DASS-21/2026,,I tended to over-react to situations,radio,,,true,,6,true,2026-09-04 00:00:00+00
+DASS-21/007,DASS-21/007,,DASS-21/2026,,I experienced trembling (e.g. in the hands),radio,,,true,,7,true,2026-09-04 00:00:00+00
+DASS-21/008,DASS-21/008,,DASS-21/2026,,I felt that I was using a lot of nervous energy,radio,,,true,,8,true,2026-09-04 00:00:00+00
+DASS-21/009,DASS-21/009,,DASS-21/2026,,I was worried about situations in which I might panic and make a fool of myself,radio,,,true,,9,true,2026-09-04 00:00:00+00
+DASS-21/010,DASS-21/010,,DASS-21/2026,,I felt that I had nothing to look forward to,radio,,,true,,10,true,2026-09-04 00:00:00+00
+DASS-21/011,DASS-21/011,,DASS-21/2026,,I found myself getting agitated,radio,,,true,,11,true,2026-09-04 00:00:00+00
+DASS-21/012,DASS-21/012,,DASS-21/2026,,I found it difficult to relax,radio,,,true,,12,true,2026-09-04 00:00:00+00
+DASS-21/013,DASS-21/013,,DASS-21/2026,,I felt down-hearted and blue,radio,,,true,,13,true,2026-09-04 00:00:00+00
+DASS-21/014,DASS-21/014,,DASS-21/2026,,I was intolerant of anything that kept me from getting on with what I was doing,radio,,,true,,14,true,2026-09-04 00:00:00+00
+DASS-21/015,DASS-21/015,,DASS-21/2026,,I felt I was close to panic,radio,,,true,,15,true,2026-09-04 00:00:00+00
+DASS-21/016,DASS-21/016,,DASS-21/2026,,I was unable to become enthusiastic about anything,radio,,,true,,16,true,2026-09-04 00:00:00+00
+DASS-21/017,DASS-21/017,,DASS-21/2026,,I felt I wasn’t worth much as a person,radio,,,true,,17,true,2026-09-04 00:00:00+00
+DASS-21/018,DASS-21/018,,DASS-21/2026,,I felt that I was rather touchy,radio,,,true,,18,true,2026-09-04 00:00:00+00
+DASS-21/019,DASS-21/019,,DASS-21/2026,,"I was aware of the action of my heart in the absence of physical exertion (e.g. sense of heart rate increase, heart missing a beat)",radio,,,true,,19,true,2026-09-04 00:00:00+00
+DASS-21/020,DASS-21/020,,DASS-21/2026,,I felt scared without any good reason,radio,,,true,,20,true,2026-09-04 00:00:00+00
+DASS-21/021,DASS-21/021,,DASS-21/2026,,I felt that life was meaningless,radio,,,true,,21,true,2026-09-04 00:00:00+00
+DHI/001,DHI/001,,DHI/2026,,Does looking up increase your problem?,radio,,,true,,1,true,2026-09-04 00:00:00+00
+DHI/002,DHI/002,,DHI/2026,,"Because of your problem, do you feel frustrated?",radio,,,true,,2,true,2026-09-04 00:00:00+00
+DHI/003,DHI/003,,DHI/2026,,"Because of your problem, do you restrict your travel for business or recreation?",radio,,,true,,3,true,2026-09-04 00:00:00+00
+DHI/004,DHI/004,,DHI/2026,,Does walking down the aisle of a supermarket increase your problems?,radio,,,true,,4,true,2026-09-04 00:00:00+00
+DHI/005,DHI/005,,DHI/2026,,"Because of your problem, do you have difficulty getting into or out of bed?",radio,,,true,,5,true,2026-09-04 00:00:00+00
+DHI/006,DHI/006,,DHI/2026,,"Does your problem significantly restrict your participation in social activities, such as going out to dinner, going to the movies, dancing, or going to parties?",radio,,,true,,6,true,2026-09-04 00:00:00+00
+DHI/007,DHI/007,,DHI/2026,,"Because of your problem, do you have difficulty reading?",radio,,,true,,7,true,2026-09-04 00:00:00+00
+DHI/008,DHI/008,,DHI/2026,,"Does performing more ambitious activities such as sports, dancing, household chores (sweeping or putting dishes away) increase your problems?",radio,,,true,,8,true,2026-09-04 00:00:00+00
+DHI/009,DHI/009,,DHI/2026,,"Because of your problem, are you afraid to leave your home without having someone accompany you?",radio,,,true,,9,true,2026-09-04 00:00:00+00
+DHI/010,DHI/010,,DHI/2026,,Because of your problem have you been embarrassed in front of others?,radio,,,true,,10,true,2026-09-04 00:00:00+00
+DHI/011,DHI/011,,DHI/2026,,Do quick movements of your head increase your problem?,radio,,,true,,11,true,2026-09-04 00:00:00+00
+DHI/012,DHI/012,,DHI/2026,,"Because of your problem, do you avoid heights?",radio,,,true,,12,true,2026-09-04 00:00:00+00
+DHI/013,DHI/013,,DHI/2026,,Does turning over in bed increase your problem?,radio,,,true,,13,true,2026-09-04 00:00:00+00
+DHI/014,DHI/014,,DHI/2026,,"Because of your problem, is it difficult for you to do strenuous homework or yard work?",radio,,,true,,14,true,2026-09-04 00:00:00+00
+DHI/015,DHI/015,,DHI/2026,,"Because of your problem, are you afraid people may think you are intoxicated?",radio,,,true,,15,true,2026-09-04 00:00:00+00
+DHI/016,DHI/016,,DHI/2026,,"Because of your problem, is it difficult for you to go for a walk by yourself?",radio,,,true,,16,true,2026-09-04 00:00:00+00
+DHI/017,DHI/017,,DHI/2026,,Does walking down a sidewalk increase your problem?,radio,,,true,,17,true,2026-09-04 00:00:00+00
+DHI/018,DHI/018,,DHI/2026,,"Because of your problem, is it difficult for you to concentrate",radio,,,true,,18,true,2026-09-04 00:00:00+00
+DHI/019,DHI/019,,DHI/2026,,"Because of your problem, is it difficult for you to walk around your house in the dark?",radio,,,true,,19,true,2026-09-04 00:00:00+00
+DHI/020,DHI/020,,DHI/2026,,"Because of your problem, are you afraid to stay home alone?",radio,,,true,,20,true,2026-09-04 00:00:00+00
+DHI/021,DHI/021,,DHI/2026,,"Because of your problem, do you feel handicapped?",radio,,,true,,21,true,2026-09-04 00:00:00+00
+DHI/022,DHI/022,,DHI/2026,,Has the problem placed stress on your relationships with members of your family or friends?,radio,,,true,,22,true,2026-09-04 00:00:00+00
+DHI/023,DHI/023,,DHI/2026,,"Because of your problem, are you depressed?",radio,,,true,,23,true,2026-09-04 00:00:00+00
+DHI/024,DHI/024,,DHI/2026,,Does your problem interfere with your job or household responsibilities?,radio,,,true,,24,true,2026-09-04 00:00:00+00
+DHI/025,DHI/025,,DHI/2026,,Does bending over increase your problem?,radio,,,true,,25,true,2026-09-04 00:00:00+00
+DN-4/001,DN-4/001,CHRONICPAIN/2026,DN-4/2026,Chronic Pain/DN-4,Does your pain feel like burning?,radio,,,true,,1,false,2026-09-04 00:00:00+00
+DN-4/002,DN-4/002,CHRONICPAIN/2026,DN-4/2026,Chronic Pain/DN-4,Does your pain feel like painful cold?,radio,,,true,,2,false,2026-09-04 00:00:00+00
+DN-4/003,DN-4/003,CHRONICPAIN/2026,DN-4/2026,Chronic Pain/DN-4,Does your pain feel like electric shocks?,radio,,,true,,3,false,2026-09-04 00:00:00+00
+DN-4/004,DN-4/004,CHRONICPAIN/2026,DN-4/2026,Chronic Pain/DN-4,Is the pain associated with tingling in the same area?,radio,,,true,,4,false,2026-09-04 00:00:00+00
+DN-4/005,DN-4/005,CHRONICPAIN/2026,DN-4/2026,Chronic Pain/DN-4,Is the pain associated with pins and needles in the same area?,radio,,,true,,5,false,2026-09-04 00:00:00+00
+DN-4/006,DN-4/006,CHRONICPAIN/2026,DN-4/2026,Chronic Pain/DN-4,Is the pain associated with numbness in the same area?,radio,,,true,,6,false,2026-09-04 00:00:00+00
+DN-4/007,DN-4/007,CHRONICPAIN/2026,DN-4/2026,Chronic Pain/DN-4,Is the pain associated with itching in the same area?,radio,,,true,,7,false,2026-09-04 00:00:00+00
+DN-4/008,DN-4/008,CHRONICPAIN/2026,DN-4/2026,Chronic Pain/DN-4,Is the pain located in an area with hypoesthesia to touch?,radio,,,true,,8,false,2026-09-04 00:00:00+00
+DN-4/009,DN-4/009,CHRONICPAIN/2026,DN-4/2026,Chronic Pain/DN-4,Is the pain located in an area with hypoesthesia to pinprick?,radio,,,true,,9,false,2026-09-04 00:00:00+00
+DN-4/010,DN-4/010,CHRONICPAIN/2026,DN-4/2026,Chronic Pain/DN-4,Is the pain caused or increased by brushing?,radio,,,true,,10,false,2026-09-04 00:00:00+00
+DSRS/001,DSRS/001,DEMENTIA/2026,DSRS/2026,Dementia/DSRS,MEMORY,radio,,,true,,1,false,2026-09-04 00:00:00+00
+DSRS/002,DSRS/002,DEMENTIA/2026,DSRS/2026,Dementia/DSRS,SPEECH AND LANGUAGE,radio,,,true,,2,false,2026-09-04 00:00:00+00
+DSRS/003,DSRS/003,DEMENTIA/2026,DSRS/2026,Dementia/DSRS,RECOGNITION OF FAMILY MEMBERS,radio,,,true,,3,false,2026-09-04 00:00:00+00
+DSRS/004,DSRS/004,DEMENTIA/2026,DSRS/2026,Dementia/DSRS,ORIENTATION TO TIME,radio,,,true,,4,false,2026-09-04 00:00:00+00
+DSRS/005,DSRS/005,DEMENTIA/2026,DSRS/2026,Dementia/DSRS,ORIENTATION TO PLACE,radio,,,true,,5,false,2026-09-04 00:00:00+00
+DSRS/006,DSRS/006,DEMENTIA/2026,DSRS/2026,Dementia/DSRS,ABILITY TO MAKE DECISIONS,radio,,,true,,6,false,2026-09-04 00:00:00+00
+DSRS/007,DSRS/007,DEMENTIA/2026,DSRS/2026,Dementia/DSRS,SOCIAL AND COMMUNITY ACTIVITY,radio,,,true,,7,false,2026-09-04 00:00:00+00
+DSRS/008,DSRS/008,DEMENTIA/2026,DSRS/2026,Dementia/DSRS,HOME ACTIVITIES AND RESPONSIBILITIES,radio,,,true,,8,false,2026-09-04 00:00:00+00
+DSRS/009,DSRS/009,DEMENTIA/2026,DSRS/2026,Dementia/DSRS,PERSONAL CARE - CLEANLINESS,radio,,,true,,9,false,2026-09-04 00:00:00+00
+DSRS/010,DSRS/010,DEMENTIA/2026,DSRS/2026,Dementia/DSRS,EATING,radio,,,true,,10,false,2026-09-04 00:00:00+00
+DSRS/011,DSRS/011,DEMENTIA/2026,DSRS/2026,Dementia/DSRS,CONTROL OF URINATION AND BOWELS,radio,,,true,,11,false,2026-09-04 00:00:00+00
+DSRS/012,DSRS/012,DEMENTIA/2026,DSRS/2026,Dementia/DSRS,ABILITY TO GET FROM PLACE TO PLACE,radio,,,true,,12,false,2026-09-04 00:00:00+00
+EQ-5D-5L/001,EQ-5D-5L/001,,EQ-5D-5L/2026,,MOBILITY,radio,,,true,,1,true,2026-09-04 00:00:00+00
+EQ-5D-5L/002,EQ-5D-5L/002,,EQ-5D-5L/2026,,SELF-CARE,radio,,,true,,2,true,2026-09-04 00:00:00+00
+EQ-5D-5L/003,EQ-5D-5L/003,,EQ-5D-5L/2026,,"USUAL ACTIVITIES (e.g. work, study, housework, family or leisure activities)",radio,,,true,,3,true,2026-09-04 00:00:00+00
+EQ-5D-5L/004,EQ-5D-5L/004,,EQ-5D-5L/2026,,PAIN / DISCOMFORT,radio,,,true,,4,true,2026-09-04 00:00:00+00
+EQ-5D-5L/005,EQ-5D-5L/005,,EQ-5D-5L/2026,,ANXIETY / DEPRESSION,radio,,,true,,5,true,2026-09-04 00:00:00+00
+FFS/001,FFS/001,INSOMNIA/2026,FFS/2026,Insomnia/FFS,Was fatigue a problem for you?,radio,,,true,,1,false,2026-09-04 00:00:00+00
+FFS/002,FFS/002,INSOMNIA/2026,FFS/2026,Insomnia/FFS,"Did fatigue cause problems with your everyday functioning (e.g., work, social, family)?",radio,,,true,,2,false,2026-09-04 00:00:00+00
+FFS/003,FFS/003,INSOMNIA/2026,FFS/2026,Insomnia/FFS,Did fatigue cause you distress?,radio,,,true,,3,false,2026-09-04 00:00:00+00
+FFS/004,FFS/004,INSOMNIA/2026,FFS/2026,Insomnia/FFS,How often did you suffer from fatigue?,radio,,,true,,4,false,2026-09-04 00:00:00+00
+FFS/005,FFS/005,INSOMNIA/2026,FFS/2026,Insomnia/FFS,At what time(s) of the day did you typically experience fatigue? (Please tick box(es)),checkbox,,,true,Multiple selection,5,false,2026-09-04 00:00:00+00
+FFS/006,FFS/006,INSOMNIA/2026,FFS/2026,Insomnia/FFS,How severe was the fatigue you experienced?,radio,,,true,,6,false,2026-09-04 00:00:00+00
+FFS/007,FFS/007,INSOMNIA/2026,FFS/2026,Insomnia/FFS,How much was your fatigue caused by poor sleep?,radio,,,true,,7,false,2026-09-04 00:00:00+00
+FIQR/001,FIQR/001,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Brush or comb your hair,slider,,,true,,1,false,2026-09-04 00:00:00+00
+FIQR/002,FIQR/002,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Walk continuously for 20 minutes,slider,,,true,,2,false,2026-09-04 00:00:00+00
+FIQR/003,FIQR/003,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Prepare a homemade meal,slider,,,true,,3,false,2026-09-04 00:00:00+00
+FIQR/004,FIQR/004,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,"Vacuum, scrub or sweep floors",slider,,,true,,4,false,2026-09-04 00:00:00+00
+FIQR/005,FIQR/005,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Lift and carry a bag full of groceries,slider,,,true,,5,false,2026-09-04 00:00:00+00
+FIQR/006,FIQR/006,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Climb one flight of stairs,slider,,,true,,6,false,2026-09-04 00:00:00+00
+FIQR/007,FIQR/007,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Change bed sheets,slider,,,true,,7,false,2026-09-04 00:00:00+00
+FIQR/008,FIQR/008,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Sit in a chair for 45 minutes,slider,,,true,,8,false,2026-09-04 00:00:00+00
+FIQR/009,FIQR/009,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Go shopping for groceries,slider,,,true,,9,false,2026-09-04 00:00:00+00
+FIQR/010,FIQR/010,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Fibromyalgia prevented me from accomplishing goals for the week,slider,,,true,,10,false,2026-09-04 00:00:00+00
+FIQR/011,FIQR/011,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,I was completely overwhelmed by my fibromyalgia symptoms,slider,,,true,,11,false,2026-09-04 00:00:00+00
+FIQR/012,FIQR/012,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Please rate your level of pain,slider,,,true,,12,false,2026-09-04 00:00:00+00
+FIQR/013,FIQR/013,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Please rate your level of energy,slider,,,true,,13,false,2026-09-04 00:00:00+00
+FIQR/014,FIQR/014,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Please rate your level of stiffness,slider,,,true,,14,false,2026-09-04 00:00:00+00
+FIQR/015,FIQR/015,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Please rate the quality of your sleep,slider,,,true,,15,false,2026-09-04 00:00:00+00
+FIQR/016,FIQR/016,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Please rate your level of depression,slider,,,true,,16,false,2026-09-04 00:00:00+00
+FIQR/017,FIQR/017,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Please rate your level of memory problems,slider,,,true,,17,false,2026-09-04 00:00:00+00
+FIQR/018,FIQR/018,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Please rate your level of anxiety,slider,,,true,,18,false,2026-09-04 00:00:00+00
+FIQR/019,FIQR/019,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Please rate your level of tenderness to touch,slider,,,true,,19,false,2026-09-04 00:00:00+00
+FIQR/020,FIQR/020,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,Please rate your level of balance problems,slider,,,true,,20,false,2026-09-04 00:00:00+00
+FIQR/021,FIQR/021,FIBROMYALGIA/2026,FIQR/2026,Fibromyalgia/FIQR,"Please rate your level of sensitivity to loud noises, bright lights, odors and cold",slider,,,true,,21,false,2026-09-04 00:00:00+00
+FSS/001,FSS/001,FIBROMYALGIA/2026,FSS/2026,Fibromyalgia/FSS,My motivation is lower when I am fatigued.,slider,,,true,,1,false,2026-09-04 00:00:00+00
+FSS/002,FSS/002,FIBROMYALGIA/2026,FSS/2026,Fibromyalgia/FSS,Exercise brings on my fatigue.,slider,,,true,,2,false,2026-09-04 00:00:00+00
+FSS/003,FSS/003,FIBROMYALGIA/2026,FSS/2026,Fibromyalgia/FSS,I am easily fatigued.,slider,,,true,,3,false,2026-09-04 00:00:00+00
+FSS/004,FSS/004,FIBROMYALGIA/2026,FSS/2026,Fibromyalgia/FSS,Fatigue interferes with my physical functioning.,slider,,,true,,4,false,2026-09-04 00:00:00+00
+FSS/005,FSS/005,FIBROMYALGIA/2026,FSS/2026,Fibromyalgia/FSS,Fatigue causes frequent problems for me.,slider,,,true,,5,false,2026-09-04 00:00:00+00
+FSS/006,FSS/006,FIBROMYALGIA/2026,FSS/2026,Fibromyalgia/FSS,My fatigue prevents sustained physical functioning.,slider,,,true,,6,false,2026-09-04 00:00:00+00
+FSS/007,FSS/007,FIBROMYALGIA/2026,FSS/2026,Fibromyalgia/FSS,Fatigue interferes with carrying out certain duties and responsibilities.,slider,,,true,,7,false,2026-09-04 00:00:00+00
+FSS/008,FSS/008,FIBROMYALGIA/2026,FSS/2026,Fibromyalgia/FSS,Fatigue is among my most disabling symptoms.,slider,,,true,,8,false,2026-09-04 00:00:00+00
+FSS/009,FSS/009,FIBROMYALGIA/2026,FSS/2026,Fibromyalgia/FSS,"Fatigue interferes with my work, family, or social life.",slider,,,true,,9,false,2026-09-04 00:00:00+00
+GAD-7/001,GAD-7/001,,GAD-7/2026,,"Feeling nervous, anxious, or on edge",radio,,,true,,1,true,2026-09-04 00:00:00+00
+GAD-7/002,GAD-7/002,,GAD-7/2026,,Not being able to stop or control worrying,radio,,,true,,2,true,2026-09-04 00:00:00+00
+GAD-7/003,GAD-7/003,,GAD-7/2026,,Worrying too much about different things,radio,,,true,,3,true,2026-09-04 00:00:00+00
+GAD-7/004,GAD-7/004,,GAD-7/2026,,Trouble relaxing,radio,,,true,,4,true,2026-09-04 00:00:00+00
+GAD-7/005,GAD-7/005,,GAD-7/2026,,Being so restless that it is hard to sit still,radio,,,true,,5,true,2026-09-04 00:00:00+00
+GAD-7/006,GAD-7/006,,GAD-7/2026,,Becoming easily annoyed or irritable,radio,,,true,,6,true,2026-09-04 00:00:00+00
+GAD-7/007,GAD-7/007,,GAD-7/2026,,"Feeling afraid, as if something awful might happen",radio,,,true,,7,true,2026-09-04 00:00:00+00
+GDS/001,GDS/001,DEMENTIA/2026,GDS/2026,Dementia/GDS,Level 1 – No cognitive decline,radio,,,true,,1,false,2026-09-04 00:00:00+00
+GDS/002,GDS/002,DEMENTIA/2026,GDS/2026,Dementia/GDS,Level 2 – Very mild cognitive decline (Age Associated Memory Impairment),radio,,,true,,2,false,2026-09-04 00:00:00+00
+GDS/003,GDS/003,DEMENTIA/2026,GDS/2026,Dementia/GDS,Level 3 – Mild cognitive decline (Mild Cognitive Impairment),radio,,,true,,3,false,2026-09-04 00:00:00+00
+GDS/004,GDS/004,DEMENTIA/2026,GDS/2026,Dementia/GDS,Level 4 – Moderate cognitive decline (Mild Dementia),radio,,,true,,4,false,2026-09-04 00:00:00+00
+GDS/005,GDS/005,DEMENTIA/2026,GDS/2026,Dementia/GDS,Level 5 – Moderately severe cognitive decline (Moderate Dementia),radio,,,true,,5,false,2026-09-04 00:00:00+00
+GDS/006,GDS/006,DEMENTIA/2026,GDS/2026,Dementia/GDS,Level 6 – Severe cognitive decline (Moderately Severe Dementia),radio,,,true,,6,false,2026-09-04 00:00:00+00
+GDS/007,GDS/007,DEMENTIA/2026,GDS/2026,Dementia/GDS,Level 7 – Very severe cognitive decline (Severe Dementia),radio,,,true,,7,false,2026-09-04 00:00:00+00
+HDRS/001,HDRS/001,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,"DEPRESSED MOOD (sadness, hopeless, helpless, worthless)",radio,,,true,,1,false,2026-09-04 00:00:00+00
+HDRS/002,HDRS/002,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,FEELINGS OF GUILT,radio,,,true,,2,false,2026-09-04 00:00:00+00
+HDRS/003,HDRS/003,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,SUICIDE,radio,,,true,,3,false,2026-09-04 00:00:00+00
+HDRS/004,HDRS/004,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,INSOMNIA: EARLY IN THE NIGHT,radio,,,true,,4,false,2026-09-04 00:00:00+00
+HDRS/005,HDRS/005,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,INSOMNIA: MIDDLE OF THE NIGHT,radio,,,true,,5,false,2026-09-04 00:00:00+00
+HDRS/006,HDRS/006,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,INSOMNIA: EARLY HOURS OF THE MORNING,radio,,,true,,6,false,2026-09-04 00:00:00+00
+HDRS/007,HDRS/007,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,WORK AND ACTIVITIES,radio,,,true,,7,false,2026-09-04 00:00:00+00
+HDRS/008,HDRS/008,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,"RETARDATION (slowness of thought and speech, impaired ability to concentrate, decreased motor activity)",radio,,,true,,8,false,2026-09-04 00:00:00+00
+HDRS/009,HDRS/009,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,AGITATION,radio,,,true,,9,false,2026-09-04 00:00:00+00
+HDRS/010,HDRS/010,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,ANXIETY PSYCHIC,radio,,,true,,10,false,2026-09-04 00:00:00+00
+HDRS/011,HDRS/011,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,ANXIETY SOMATIC,radio,,,true,,11,false,2026-09-04 00:00:00+00
+HDRS/012,HDRS/012,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,SOMATIC SYMPTOMS GASTRO-INTESTINAL,radio,,,true,,12,false,2026-09-04 00:00:00+00
+HDRS/013,HDRS/013,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,GENERAL SOMATIC SYMPTOMS,radio,,,true,,13,false,2026-09-04 00:00:00+00
+HDRS/014,HDRS/014,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,"GENITAL SYMPTOMS (symptoms such as loss of libido, menstrual disturbances)",radio,,,true,,14,false,2026-09-04 00:00:00+00
+HDRS/015,HDRS/015,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,HYPOCHONDRIASIS,radio,,,true,,15,false,2026-09-04 00:00:00+00
+HDRS/016,HDRS/016,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,LOSS OF WEIGHT,radio,,,true,,16,false,2026-09-04 00:00:00+00
+HDRS/017,HDRS/017,IRRITABLEBOWELDISEASE/2026,HDRS/2026,Irritable Bowel Disease/HDRS,INSIGHT,radio,,,true,,17,false,2026-09-04 00:00:00+00
+IADL/001,IADL/001,DEMENTIA/2026,IADL/2026,Dementia/IADL,Ability to Use Telephone,radio,,,true,,1,false,2026-09-04 00:00:00+00
+IADL/002,IADL/002,DEMENTIA/2026,IADL/2026,Dementia/IADL,Shopping,radio,,,true,,2,false,2026-09-04 00:00:00+00
+IADL/003,IADL/003,DEMENTIA/2026,IADL/2026,Dementia/IADL,Food Preparation,radio,,,true,,3,false,2026-09-04 00:00:00+00
+IADL/004,IADL/004,DEMENTIA/2026,IADL/2026,Dementia/IADL,Housekeeping,radio,,,true,,4,false,2026-09-04 00:00:00+00
+IADL/005,IADL/005,DEMENTIA/2026,IADL/2026,Dementia/IADL,Laundry,radio,,,true,,5,false,2026-09-04 00:00:00+00
+IADL/006,IADL/006,DEMENTIA/2026,IADL/2026,Dementia/IADL,Mode of Transportation,radio,,,true,,6,false,2026-09-04 00:00:00+00
+IADL/007,IADL/007,DEMENTIA/2026,IADL/2026,Dementia/IADL,Responsibility for Own Medications,radio,,,true,,7,false,2026-09-04 00:00:00+00
+IADL/008,IADL/008,DEMENTIA/2026,IADL/2026,Dementia/IADL,Ability to Handle Finances,radio,,,true,,8,false,2026-09-04 00:00:00+00
+IBS-SSS/001,IBS-SSS/001,IRRITABLEBOWELDISEASE/2026,IBS-SSS/2026,Irritable Bowel Disease/IBS-SSS,Do you currently suffer from abdomen or belly pain?,radio,,,true,If No ? go to 1b; If Yes ? continue,1,false,2026-09-04 00:00:00+00
+IBS-SSS/002,IBS-SSS/002,IRRITABLEBOWELDISEASE/2026,IBS-SSS/2026,Irritable Bowel Disease/IBS-SSS,Severity of abdomen or belly pain,slider,,,true,Only if Q1 = Yes,2,false,2026-09-04 00:00:00+00
+IBS-SSS/003,IBS-SSS/003,IRRITABLEBOWELDISEASE/2026,IBS-SSS/2026,Irritable Bowel Disease/IBS-SSS,Number of days with abdominal pain (per 10 days),number,,,true,Always asked,3,false,2026-09-04 00:00:00+00
+IBS-SSS/004,IBS-SSS/004,IRRITABLEBOWELDISEASE/2026,IBS-SSS/2026,Irritable Bowel Disease/IBS-SSS,Do you currently suffer from abdominal distension?,radio,,,true,If No ? go to Q3; If Yes ? continue,4,false,2026-09-04 00:00:00+00
+IBS-SSS/005,IBS-SSS/005,IRRITABLEBOWELDISEASE/2026,IBS-SSS/2026,Irritable Bowel Disease/IBS-SSS,Severity of abdominal distension/tightness,slider,,,true,Only if Q2 = Yes,5,false,2026-09-04 00:00:00+00
+IBS-SSS/006,IBS-SSS/006,IRRITABLEBOWELDISEASE/2026,IBS-SSS/2026,Irritable Bowel Disease/IBS-SSS,How satisfied are you with your bowel habits?,slider,,,true,,6,false,2026-09-04 00:00:00+00
+IBS-SSS/007,IBS-SSS/007,IRRITABLEBOWELDISEASE/2026,IBS-SSS/2026,Irritable Bowel Disease/IBS-SSS,How much does IBS affect/interfere with your life?,slider,,,true,,7,false,2026-09-04 00:00:00+00
+ISI/001,ISI/001,INSOMNIA/2026,ISI/2026,Insomnia/ISI,Difficulty falling asleep,radio,,,true,,1,false,2026-09-04 00:00:00+00
+ISI/002,ISI/002,INSOMNIA/2026,ISI/2026,Insomnia/ISI,Difficulty staying asleep,radio,,,true,,2,false,2026-09-04 00:00:00+00
+ISI/003,ISI/003,INSOMNIA/2026,ISI/2026,Insomnia/ISI,Problems waking up too early,radio,,,true,,3,false,2026-09-04 00:00:00+00
+ISI/004,ISI/004,INSOMNIA/2026,ISI/2026,Insomnia/ISI,How SATISFIED/DISSATISFIED are you with your CURRENT sleep pattern?,radio,,,true,,4,false,2026-09-04 00:00:00+00
+ISI/005,ISI/005,INSOMNIA/2026,ISI/2026,Insomnia/ISI,How NOTICEABLE to others do you think your sleep problem is in terms of impairing the quality of your life?,radio,,,true,,5,false,2026-09-04 00:00:00+00
+ISI/006,ISI/006,INSOMNIA/2026,ISI/2026,Insomnia/ISI,How WORRIED/DISTRESSED are you about your current sleep problem?,radio,,,true,,6,false,2026-09-04 00:00:00+00
+ISI/007,ISI/007,INSOMNIA/2026,ISI/2026,Insomnia/ISI,"To what extent do you consider your sleep problem to INTERFERE with your daily functioning (e.g. daytime fatigue, mood, ability to function at work/daily chores, concentration, memory, mood, etc.) CURRENTLY?",radio,,,true,,7,false,2026-09-04 00:00:00+00
+KPS/001,KPS/001,AFTERSTROKE/TBI/2026,KPS/2026,After Stroke/TBI/KPS,Able to carry on normal activity and to work. No special care needed.,radio,,,true,,1,false,2026-09-04 00:00:00+00
+KPS/002,KPS/002,AFTERSTROKE/TBI/2026,KPS/2026,After Stroke/TBI/KPS,Unable to work; able to live at home and care for most personal needs; varying amount of assistance needed.,radio,,,true,,2,false,2026-09-04 00:00:00+00
+KPS/003,KPS/003,AFTERSTROKE/TBI/2026,KPS/2026,After Stroke/TBI/KPS,Unable to care for self; requires equivalent of institutional or hospital care; diseases may be progressing rapidly.,radio,,,true,,3,false,2026-09-04 00:00:00+00
+MADRS/001,MADRS/001,DEPRESSION/ANXIETY/2026,MADRS/2026,Depression/Anxiety/MADRS,Apparent Sadness,radio,,,true,,1,false,2026-09-04 00:00:00+00
+MADRS/002,MADRS/002,DEPRESSION/ANXIETY/2026,MADRS/2026,Depression/Anxiety/MADRS,Reported sadness,radio,,,true,,2,false,2026-09-04 00:00:00+00
+MADRS/003,MADRS/003,DEPRESSION/ANXIETY/2026,MADRS/2026,Depression/Anxiety/MADRS,Inner tension,radio,,,true,,3,false,2026-09-04 00:00:00+00
+MADRS/004,MADRS/004,DEPRESSION/ANXIETY/2026,MADRS/2026,Depression/Anxiety/MADRS,Reduced sleep,radio,,,true,,4,false,2026-09-04 00:00:00+00
+MADRS/005,MADRS/005,DEPRESSION/ANXIETY/2026,MADRS/2026,Depression/Anxiety/MADRS,Reduced appetite,radio,,,true,,5,false,2026-09-04 00:00:00+00
+MADRS/006,MADRS/006,DEPRESSION/ANXIETY/2026,MADRS/2026,Depression/Anxiety/MADRS,Concentration Difficulties,radio,,,true,,6,false,2026-09-04 00:00:00+00
+MADRS/007,MADRS/007,DEPRESSION/ANXIETY/2026,MADRS/2026,Depression/Anxiety/MADRS,Lassitude,radio,,,true,,7,false,2026-09-04 00:00:00+00
+MADRS/008,MADRS/008,DEPRESSION/ANXIETY/2026,MADRS/2026,Depression/Anxiety/MADRS,Inability to feel,radio,,,true,,8,false,2026-09-04 00:00:00+00
+MADRS/009,MADRS/009,DEPRESSION/ANXIETY/2026,MADRS/2026,Depression/Anxiety/MADRS,Pessimistic thoughts,radio,,,true,,9,false,2026-09-04 00:00:00+00
+MADRS/010,MADRS/010,DEPRESSION/ANXIETY/2026,MADRS/2026,Depression/Anxiety/MADRS,Suicidal thoughts,radio,,,true,,10,false,2026-09-04 00:00:00+00
+MAS/001,MAS/001,,MAS/2026,,"Please give a score from 0 to 5 for each muscle group, and then enter the total MAS score",likert,,,true,,1,true,2026-09-04 00:00:00+00
+MFIS/001,MFIS/001,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have been less alert.,radio,,,true,,1,false,2026-09-04 00:00:00+00
+MFIS/002,MFIS/002,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have had difficulty paying attention for long periods of time.,radio,,,true,,2,false,2026-09-04 00:00:00+00
+MFIS/003,MFIS/003,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have been unable to think clearly.,radio,,,true,,3,false,2026-09-04 00:00:00+00
+MFIS/004,MFIS/004,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have been clumsy and uncoordinated.,radio,,,true,,4,false,2026-09-04 00:00:00+00
+MFIS/005,MFIS/005,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have been forgetful.,radio,,,true,,5,false,2026-09-04 00:00:00+00
+MFIS/006,MFIS/006,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have had to pace myself in my physical activities.,radio,,,true,,6,false,2026-09-04 00:00:00+00
+MFIS/007,MFIS/007,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have been less motivated to do anything that requires physical effort.,radio,,,true,,7,false,2026-09-04 00:00:00+00
+MFIS/008,MFIS/008,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have been less motivated to participate in social activities.,radio,,,true,,8,false,2026-09-04 00:00:00+00
+MFIS/009,MFIS/009,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have been limited in my ability to do things away from home.,radio,,,true,,9,false,2026-09-04 00:00:00+00
+MFIS/010,MFIS/010,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have trouble maintaining physical effort for long periods.,radio,,,true,,10,false,2026-09-04 00:00:00+00
+MFIS/011,MFIS/011,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have had difficulty making decisions.,radio,,,true,,11,false,2026-09-04 00:00:00+00
+MFIS/012,MFIS/012,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have been less motivated to do anything that requires thinking.,radio,,,true,,12,false,2026-09-04 00:00:00+00
+MFIS/013,MFIS/013,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,My muscles have felt weak.,radio,,,true,,13,false,2026-09-04 00:00:00+00
+MFIS/014,MFIS/014,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have been physically uncomfortable.,radio,,,true,,14,false,2026-09-04 00:00:00+00
+MFIS/015,MFIS/015,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have had trouble finishing tasks that require thinking.,radio,,,true,,15,false,2026-09-04 00:00:00+00
+MFIS/016,MFIS/016,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have had difficulty organizing my thoughts when doing things at home or at work.,radio,,,true,,16,false,2026-09-04 00:00:00+00
+MFIS/017,MFIS/017,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have been less able to complete tasks that require physical effort.,radio,,,true,,17,false,2026-09-04 00:00:00+00
+MFIS/018,MFIS/018,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,My thinking has been slowed down.,radio,,,true,,18,false,2026-09-04 00:00:00+00
+MFIS/019,MFIS/019,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have had trouble concentrating.,radio,,,true,,19,false,2026-09-04 00:00:00+00
+MFIS/020,MFIS/020,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have limited my physical activities.,radio,,,true,,20,false,2026-09-04 00:00:00+00
+MFIS/021,MFIS/021,MULTIPLESCLEROSIS/2026,MFIS/2026,Multiple Sclerosis/MFIS,I have needed to rest more often or for longer periods.,radio,,,true,,21,false,2026-09-04 00:00:00+00
+MIDAS/001,MIDAS/001,MIGRAINE/2026,MIDAS/2026,Migraine/MIDAS,On how many days in the last 3 months did you miss work or school because of your headaches?,number,,,true,,1,false,2026-09-04 00:00:00+00
+MIDAS/002,MIDAS/002,MIGRAINE/2026,MIDAS/2026,Migraine/MIDAS,How many days in the last 3 months was your productivity at work or school reduced by half or more because of your headaches? (Do not include days counted in Q1),number,,,true,,2,false,2026-09-04 00:00:00+00
+MIDAS/003,MIDAS/003,MIGRAINE/2026,MIDAS/2026,Migraine/MIDAS,On how many days in the last 3 months did you not do household work because of your headaches?,number,,,true,,3,false,2026-09-04 00:00:00+00
+MIDAS/004,MIDAS/004,MIGRAINE/2026,MIDAS/2026,Migraine/MIDAS,How many days in the last 3 months was your productivity in household work reduced by half or more because of your headaches? (Do not include days counted in Q3),number,,,true,,4,false,2026-09-04 00:00:00+00
+MIDAS/005,MIDAS/005,MIGRAINE/2026,MIDAS/2026,Migraine/MIDAS,"On how many days in the last 3 months did you miss family, social or leisure activities because of your headaches?",number,,,true,,5,false,2026-09-04 00:00:00+00
+MoCA/001,MoCA/001,,MoCA/2026,,Enter the total MoCA  score,number,,,true,,1,true,2026-09-04 00:00:00+00
+MRC/001,MRC/001,AFTERSTROKE/TBI/2026,MRC/2026,After Stroke/TBI/MRC,Shoulder abductors (Left),radio,,,true,,1,false,2026-09-04 00:00:00+00
+MRC/002,MRC/002,AFTERSTROKE/TBI/2026,MRC/2026,After Stroke/TBI/MRC,Shoulder abductors (Right),radio,,,true,,2,false,2026-09-04 00:00:00+00
+MRC/003,MRC/003,AFTERSTROKE/TBI/2026,MRC/2026,After Stroke/TBI/MRC,Elbow flexors (Left),radio,,,true,,3,false,2026-09-04 00:00:00+00
+MRC/004,MRC/004,AFTERSTROKE/TBI/2026,MRC/2026,After Stroke/TBI/MRC,Elbow flexors (Right),radio,,,true,,4,false,2026-09-04 00:00:00+00
+MRC/005,MRC/005,AFTERSTROKE/TBI/2026,MRC/2026,After Stroke/TBI/MRC,Wrist extensors (Left),radio,,,true,,5,false,2026-09-04 00:00:00+00
+MRC/006,MRC/006,AFTERSTROKE/TBI/2026,MRC/2026,After Stroke/TBI/MRC,Wrist extensors (Right),radio,,,true,,6,false,2026-09-04 00:00:00+00
+MRC/007,MRC/007,AFTERSTROKE/TBI/2026,MRC/2026,After Stroke/TBI/MRC,Hip flexors (Left),radio,,,true,,7,false,2026-09-04 00:00:00+00
+MRC/008,MRC/008,AFTERSTROKE/TBI/2026,MRC/2026,After Stroke/TBI/MRC,Hip flexors (Right),radio,,,true,,8,false,2026-09-04 00:00:00+00
+MRC/009,MRC/009,AFTERSTROKE/TBI/2026,MRC/2026,After Stroke/TBI/MRC,Foot dorsiflexors (Left),radio,,,true,,9,false,2026-09-04 00:00:00+00
+MRC/010,MRC/010,AFTERSTROKE/TBI/2026,MRC/2026,After Stroke/TBI/MRC,Knee extensors (Right),radio,,,true,,10,false,2026-09-04 00:00:00+00
+MRC/011,MRC/011,AFTERSTROKE/TBI/2026,MRC/2026,After Stroke/TBI/MRC,Foot dorsiflexors (Left),radio,,,true,,11,false,2026-09-04 00:00:00+00
+MRC/012,MRC/012,AFTERSTROKE/TBI/2026,MRC/2026,After Stroke/TBI/MRC,Foot dorsiflexors (Right),radio,,,true,,12,false,2026-09-04 00:00:00+00
+MSQ/001,MSQ/001,MIGRAINE/2026,MSQ/2026,Migraine/MSQ,"How often have migraines interfered with how well you dealt with family, friends and others who are close to you?",radio,,,true,,1,false,2026-09-04 00:00:00+00
+MSQ/002,MSQ/002,MIGRAINE/2026,MSQ/2026,Migraine/MSQ,How often have migraines interrupted with your leisure time activities such as reading or exercising?,radio,,,true,,2,false,2026-09-04 00:00:00+00
+MSQ/003,MSQ/003,MIGRAINE/2026,MSQ/2026,Migraine/MSQ,How often have you had difficulty in performing work or other daily activities?,radio,,,true,,3,false,2026-09-04 00:00:00+00
+MSQ/004,MSQ/004,MIGRAINE/2026,MSQ/2026,Migraine/MSQ,How often have migraines kept you from getting as much accomplished as you normally do at work or at home?,radio,,,true,,4,false,2026-09-04 00:00:00+00
+MSQ/005,MSQ/005,MIGRAINE/2026,MSQ/2026,Migraine/MSQ,How often have migraines limited your ability to work or do other activities as carefully as you usually do them?,radio,,,true,,5,false,2026-09-04 00:00:00+00
+MSQ/006,MSQ/006,MIGRAINE/2026,MSQ/2026,Migraine/MSQ,How often have you had to cancel or delay work or social activities because you were exhausted?,radio,,,true,,6,false,2026-09-04 00:00:00+00
+MSQ/007,MSQ/007,MIGRAINE/2026,MSQ/2026,Migraine/MSQ,How often have migraines left you with limited energy levels?,radio,,,true,,7,false,2026-09-04 00:00:00+00
+MSQ/008,MSQ/008,MIGRAINE/2026,MSQ/2026,Migraine/MSQ,How often have you had to stop work or other activities?,radio,,,true,,8,false,2026-09-04 00:00:00+00
+MSQ/009,MSQ/009,MIGRAINE/2026,MSQ/2026,Migraine/MSQ,"How often have you needed the help of other people in handling routine tasks such as household chores, business, shopping, or caring for others during a migraine?",radio,,,true,,9,false,2026-09-04 00:00:00+00
+MSQ/010,MSQ/010,MIGRAINE/2026,MSQ/2026,Migraine/MSQ,How often have you avoided social or family activities to treat your migraine attacks?,radio,,,true,,10,false,2026-09-04 00:00:00+00
+MSQ/011,MSQ/011,MIGRAINE/2026,MSQ/2026,Migraine/MSQ,How often has it been difficult for you to go to social events such as parties?,radio,,,true,,11,false,2026-09-04 00:00:00+00
+MSQ/012,MSQ/012,MIGRAINE/2026,MSQ/2026,Migraine/MSQ,How often have you felt fed up or frustrated?,radio,,,true,,12,false,2026-09-04 00:00:00+00
+MSQ/013,MSQ/013,MIGRAINE/2026,MSQ/2026,Migraine/MSQ,How often have you felt like you were a burden on others?,radio,,,true,,13,false,2026-09-04 00:00:00+00
+MSQ/014,MSQ/014,MIGRAINE/2026,MSQ/2026,Migraine/MSQ,How often have you been afraid of letting others down?,radio,,,true,,14,false,2026-09-04 00:00:00+00
+PainDETECT/001,PainDETECT/001,,PainDETECT/2026,,"How would you assess your pain now, at this moment?",slider,,,true,,1,true,2026-09-04 00:00:00+00
+PainDETECT/002,PainDETECT/002,,PainDETECT/2026,,How strong was the strongest pain during the past 4 weeks?,slider,,,true,,2,true,2026-09-04 00:00:00+00
+PainDETECT/003,PainDETECT/003,,PainDETECT/2026,,How strong was the pain during the past 4 weeks on average?,slider,,,true,,3,true,2026-09-04 00:00:00+00
+PainDETECT/004,PainDETECT/004,,PainDETECT/2026,,Mark the picture that best describes the course of your pain,radio,,,true,,4,true,2026-09-04 00:00:00+00
+PainDETECT/005,PainDETECT/005,,PainDETECT/2026,,Does your pain radiate to other regions of your body?,radio,,,true,If Yes ? draw direction,5,true,2026-09-04 00:00:00+00
+PainDETECT/006,PainDETECT/006,,PainDETECT/2026,,"Do you suffer from a burning sensation (e.g., stinging nettles) in the marked areas?",radio,,,true,,6,true,2026-09-04 00:00:00+00
+PainDETECT/007,PainDETECT/007,,PainDETECT/2026,,Do you have a tingling or prickling sensation in the area of your pain?,radio,,,true,,7,true,2026-09-04 00:00:00+00
+PainDETECT/008,PainDETECT/008,,PainDETECT/2026,,"Is light touching (clothing, a blanket) in this area painful?",radio,,,true,,8,true,2026-09-04 00:00:00+00
+PainDETECT/009,PainDETECT/009,,PainDETECT/2026,,"Do you have sudden pain attacks in the area of your pain, like electric shocks?",radio,,,true,,9,true,2026-09-04 00:00:00+00
+PainDETECT/010,PainDETECT/010,,PainDETECT/2026,,Is cold or heat (bath water) in this area occasionally painful?,radio,,,true,,10,true,2026-09-04 00:00:00+00
+PainDETECT/011,PainDETECT/011,,PainDETECT/2026,,Do you suffer from a sensation of numbness in the areas that you marked?,radio,,,true,,11,true,2026-09-04 00:00:00+00
+PainDETECT/012,PainDETECT/012,,PainDETECT/2026,,"Does slight pressure in this area, e.g., with a finger, trigger pain?",radio,,,true,,12,true,2026-09-04 00:00:00+00
+PainRatingScale/001,PainRatingScale/001,,PRS/2026,,how would you rate your pain RIGHT NOW.,slider,,,true,,1,true,2026-09-04 00:00:00+00
+PainRatingScale/002,PainRatingScale/002,,PRS/2026,,how would you rate your USUAL level of pain during the last week.,slider,,,true,,2,true,2026-09-04 00:00:00+00
+PainRatingScale/003,PainRatingScale/003,,PRS/2026,,how would you rate your BEST level of pain during the last week.,slider,,,true,,3,true,2026-09-04 00:00:00+00
+PainRatingScale/004,PainRatingScale/004,,PRS/2026,,how would you rate your WORST level of pain during the last week.,slider,,,true,,4,true,2026-09-04 00:00:00+00
+PDSS/001,PDSS/001,PARKINSONSDISEASE/2026,PDSS/2026,Parkinson's Disease/PDSS,"Overall, did you sleep well during the last week?",radio,,,true,,1,false,2026-09-04 00:00:00+00
+PDSS/002,PDSS/002,PARKINSONSDISEASE/2026,PDSS/2026,Parkinson's Disease/PDSS,Did you have difficulty falling asleep each night?,radio,,,true,,2,false,2026-09-04 00:00:00+00
+PDSS/003,PDSS/003,PARKINSONSDISEASE/2026,PDSS/2026,Parkinson's Disease/PDSS,Did you have difficulty staying asleep?,radio,,,true,,3,false,2026-09-04 00:00:00+00
+PDSS/004,PDSS/004,PARKINSONSDISEASE/2026,PDSS/2026,Parkinson's Disease/PDSS,Did you have restlessness of legs or arms at nights causing disruption of sleep?,radio,,,true,,4,false,2026-09-04 00:00:00+00
+PDSS/005,PDSS/005,PARKINSONSDISEASE/2026,PDSS/2026,Parkinson's Disease/PDSS,Was your sleep disturbed due to an urge to move your legs or arms?,radio,,,true,,5,false,2026-09-04 00:00:00+00
+PDSS/006,PDSS/006,PARKINSONSDISEASE/2026,PDSS/2026,Parkinson's Disease/PDSS,Did you suffer from distressing dreams at night?,radio,,,true,,6,false,2026-09-04 00:00:00+00
+PDSS/007,PDSS/007,PARKINSONSDISEASE/2026,PDSS/2026,Parkinson's Disease/PDSS,Did you suffer from distressing hallucinations at night (seeing or hearing things you are told do not exist)?,radio,,,true,,7,false,2026-09-04 00:00:00+00
+PDSS/008,PDSS/008,PARKINSONSDISEASE/2026,PDSS/2026,Parkinson's Disease/PDSS,Did you get up at night to pass urine?,radio,,,true,,8,false,2026-09-04 00:00:00+00
+PDSS/009,PDSS/009,PARKINSONSDISEASE/2026,PDSS/2026,Parkinson's Disease/PDSS,Did you feel uncomfortable at night because you were unable to turn around in bed or move due to immobility?,radio,,,true,,9,false,2026-09-04 00:00:00+00
+PDSS/010,PDSS/010,PARKINSONSDISEASE/2026,PDSS/2026,Parkinson's Disease/PDSS,Did you feel pain in your arms or legs which woke you up from sleep at night?,radio,,,true,,10,false,2026-09-04 00:00:00+00
+PDSS/011,PDSS/011,PARKINSONSDISEASE/2026,PDSS/2026,Parkinson's Disease/PDSS,Did you have muscle cramps in your arms or legs which woke you up whilst sleeping at night?,radio,,,true,,11,false,2026-09-04 00:00:00+00
+PDSS/012,PDSS/012,PARKINSONSDISEASE/2026,PDSS/2026,Parkinson's Disease/PDSS,Did you wake early in the morning with painful posturing of arms and legs?,radio,,,true,,12,false,2026-09-04 00:00:00+00
+PDSS/013,PDSS/013,PARKINSONSDISEASE/2026,PDSS/2026,Parkinson's Disease/PDSS,"On waking, did you experience tremor?",radio,,,true,,13,false,2026-09-04 00:00:00+00
+PDSS/014,PDSS/014,PARKINSONSDISEASE/2026,PDSS/2026,Parkinson's Disease/PDSS,Did you feel tired and sleepy after waking in the morning?,radio,,,true,,14,false,2026-09-04 00:00:00+00
+PDSS/015,PDSS/015,PARKINSONSDISEASE/2026,PDSS/2026,Parkinson's Disease/PDSS,Did you wake up at night due to snoring or difficulties with breathing?,radio,,,true,,15,false,2026-09-04 00:00:00+00
+PFS-16/001,PFS-16/001,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,I have to rest during the day,radio,,,true,,1,false,2026-09-04 00:00:00+00
+PFS-16/002,PFS-16/002,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,My life is restricted by fatigue,radio,,,true,,2,false,2026-09-04 00:00:00+00
+PFS-16/003,PFS-16/003,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,I get tired more quickly than other people I know,radio,,,true,,3,false,2026-09-04 00:00:00+00
+PFS-16/004,PFS-16/004,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,Fatigue is one of my three worst symptoms,radio,,,true,,4,false,2026-09-04 00:00:00+00
+PFS-16/005,PFS-16/005,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,I feel completely exhausted,radio,,,true,,5,false,2026-09-04 00:00:00+00
+PFS-16/006,PFS-16/006,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,Fatigue makes me reluctant to socialise,radio,,,true,,6,false,2026-09-04 00:00:00+00
+PFS-16/007,PFS-16/007,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,It takes me longer to get things done because of fatigue,radio,,,true,,7,false,2026-09-04 00:00:00+00
+PFS-16/008,PFS-16/008,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,I have a feeling of heaviness,radio,,,true,,8,false,2026-09-04 00:00:00+00
+PFS-16/009,PFS-16/009,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,If I wasn’t so tired I could do more things,radio,,,true,,9,false,2026-09-04 00:00:00+00
+PFS-16/010,PFS-16/010,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,Everything I do is an effort,radio,,,true,,10,false,2026-09-04 00:00:00+00
+PFS-16/011,PFS-16/011,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,I feel tired for much of the time,radio,,,true,,11,false,2026-09-04 00:00:00+00
+PFS-16/012,PFS-16/012,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,I feel totally drained,radio,,,true,,12,false,2026-09-04 00:00:00+00
+PFS-16/013,PFS-16/013,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,Fatigue makes it difficult for me to cope with everyday activities,radio,,,true,,13,false,2026-09-04 00:00:00+00
+PFS-16/014,PFS-16/014,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,I feel tired even when I haven’t done anything,radio,,,true,,14,false,2026-09-04 00:00:00+00
+PFS-16/015,PFS-16/015,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,Because of fatigue I do less in my day than I would like,radio,,,true,,15,false,2026-09-04 00:00:00+00
+PFS-16/016,PFS-16/016,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,I get so tired I want to lie down wherever I am,radio,,,true,,16,false,2026-09-04 00:00:00+00
+PSQI/001,PSQI/001,,PSQI/2026,,"During the past month, what time have you usually gone to bed at night?",text,,,true,,1,true,2026-09-04 00:00:00+00
+PSQI/002,PSQI/002,,PSQI/2026,,"During the past month, how long (in minutes) has it usually taken you to fall asleep each night?",number,,,true,,2,true,2026-09-04 00:00:00+00
+PSQI/003,PSQI/003,,PSQI/2026,,"During the past month, what time have you usually gotten up in the morning?",text,,,true,,3,true,2026-09-04 00:00:00+00
+PSQI/004,PSQI/004,,PSQI/2026,,"During the past month, how many hours of actual sleep did you get at night?",number,,,true,,4,true,2026-09-04 00:00:00+00
+SARA/001,SARA/001,,SARA/2026,,"GAIT Proband is asked (1) to walk at a safe distance parallel to 
+a wall including a half-turn (turn around to face the 
+opposite direction of gait) and (2) to walk in tandem 
+(heels to toes) without support.",radio,,,true,,1,true,2026-09-04 00:00:00+00
+SARA/002,SARA/002,,SARA/2026,,"STANCE Proband is asked to stand (1) in natural position, (2) with 
+feet together in parallel (big toes touching each other) and 
+(3) in tandem (both feet on one line, no space between 
+heel and toe). Proband does not wear shoes, eyes are 
+open. For each condition, three trials are allowed. Best 
+trial is rated.",radio,,,true,,2,true,2026-09-04 00:00:00+00
+SARA/003,SARA/003,,SARA/2026,,"SITTING Proband is asked to sit on an examination bed without 
+support of feet, eyes open and arms outstretched to the 
+front.",radio,,,true,,3,true,2026-09-04 00:00:00+00
+SARA/004,SARA/004,,SARA/2026,,SPEECH DISTURBANCE Speech is assessed during normal conversation.,radio,,,true,,4,true,2026-09-04 00:00:00+00
+SARA/005,SARA/005,,SARA/2026,,"FINGER CHASE  Rated separately for each side 
+Proband sits comfortably(LEFT). If necessary, support of feet 
+and trunk is allowed. Examiner sits in front of proband 
+and performs 5 consecutive sudden and fast pointing 
+movements in unpredictable directions in a frontal plane, 
+at about 50 % of proband´s reach. Movements have an 
+amplitude of 30 cm and a frequency of 1 movement 
+every 2 s. Proband is asked to follow the movements 
+with his index finger, as fast and precisely as possible. 
+Average performance of last 3 movements is rated.",radio,,,true,,5,true,2026-09-04 00:00:00+00
+SARA/006,SARA/006,,SARA/2026,,"FINGER CHASE  Rated separately for each side 
+Proband sits comfortably(RIGHT). If necessary, support of feet 
+and trunk is allowed. Examiner sits in front of proband 
+and performs 5 consecutive sudden and fast pointing 
+movements in unpredictable directions in a frontal plane, 
+at about 50 % of proband´s reach. Movements have an 
+amplitude of 30 cm and a frequency of 1 movement 
+every 2 s. Proband is asked to follow the movements 
+with his index finger, as fast and precisely as possible. 
+Average performance of last 3 movements is rated.",radio,,,true,,6,true,2026-09-04 00:00:00+00
+SARA/007,SARA/007,,SARA/2026,,"NOSE-fINGER TEST Rated separately for each side 
+Proband sits comfortably(LEFT). If necessary, support of feet 
+and trunk is allowed. Proband is asked to point repeatedly 
+with his index finger from his nose to examiner’s finger 
+which is in front of the proband at about 90 % of 
+proband’s reach. Movements are performed at moderate 
+speed. Average performance of movements is rated 
+according to the amplitude of the kinetic tremor.",radio,,,true,,7,true,2026-09-04 00:00:00+00
+SARA/008,SARA/008,,SARA/2026,,"NOSE-fINGER TEST Rated separately for each side 
+Proband sits comfortably(RIGHT). If necessary, support of feet 
+and trunk is allowed. Proband is asked to point repeatedly 
+with his index finger from his nose to examiner’s finger 
+which is in front of the proband at about 90 % of 
+proband’s reach. Movements are performed at moderate 
+speed. Average performance of movements is rated 
+according to the amplitude of the kinetic tremor.",radio,,,true,,8,true,2026-09-04 00:00:00+00
+SARA/009,SARA/009,,SARA/2026,,"FAST ALTERNATING HAND MOVEMENTS Rated separately for each side  
+Proband sits comfortably(LEFT). If necessary, support of feet 
+and trunk is allowed. Proband is asked to perform 10 
+cycles of repetitive alternation of pro- and supinations of 
+the hand on his/her thigh as fast and as precise as 
+possible. Movement is demonstrated by examiner at a 
+speed of approx. 10 cycles within 7 s. Exact times for 
+movement execution have to be taken.",radio,,,true,,9,true,2026-09-04 00:00:00+00
+SARA/010,SARA/010,,SARA/2026,,"FAST ALTERNATING HAND MOVEMENTS Rated separately for each side  
+Proband sits comfortably(RIGHT). If necessary, support of feet 
+and trunk is allowed. Proband is asked to perform 10 
+cycles of repetitive alternation of pro- and supinations of 
+the hand on his/her thigh as fast and as precise as 
+possible. Movement is demonstrated by examiner at a 
+speed of approx. 10 cycles within 7 s. Exact times for 
+movement execution have to be taken.",radio,,,true,,10,true,2026-09-04 00:00:00+00
+SARA/011,SARA/011,,SARA/2026,,"HEEL-SHIN SLIDE Rated separately for each side (LEFT)
+Proband lies on examination bed, without sight of his 
+legs. Proband is asked to lift one leg, point with the heel 
+to the opposite knee, slide down along the shin to the 
+ankle, and lay the leg back on the examination bed. The 
+task is performed 3 times. Slide-down movements should 
+be performed within 1 s. If proband slides down without 
+contact to shin in all three trials, rate 4.",radio,,,true,,11,true,2026-09-04 00:00:00+00
+SARA/012,SARA/012,,SARA/2026,,"HEEL-SHIN SLIDE Rated separately for each side(RIGHT) 
+Proband lies on examination bed, without sight of his 
+legs. Proband is asked to lift one leg, point with the heel 
+to the opposite knee, slide down along the shin to the 
+ankle, and lay the leg back on the examination bed. The 
+task is performed 3 times. Slide-down movements should 
+be performed within 1 s. If proband slides down without 
+contact to shin in all three trials, rate 4.",radio,,,true,,12,true,2026-09-04 00:00:00+00
+SLEEP-50/001,SLEEP-50/001,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I am told that I snore.,radio,,,true,,1,false,2026-09-04 00:00:00+00
+SLEEP-50/002,SLEEP-50/002,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I sweat during the night.,radio,,,true,,2,false,2026-09-04 00:00:00+00
+SLEEP-50/003,SLEEP-50/003,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I am told that I hold my breath when sleeping.,radio,,,true,,3,false,2026-09-04 00:00:00+00
+SLEEP-50/004,SLEEP-50/004,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I am told that I wake up gasping for air.,radio,,,true,,4,false,2026-09-04 00:00:00+00
+SLEEP-50/005,SLEEP-50/005,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I wake up with a dry mouth.,radio,,,true,,5,false,2026-09-04 00:00:00+00
+SLEEP-50/006,SLEEP-50/006,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I wake up during the night while coughing or being short of breath.,radio,,,true,,6,false,2026-09-04 00:00:00+00
+SLEEP-50/007,SLEEP-50/007,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I wake up with a sour taste in my mouth.,radio,,,true,,7,false,2026-09-04 00:00:00+00
+SLEEP-50/008,SLEEP-50/008,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I wake up with a headache.,radio,,,true,,8,false,2026-09-04 00:00:00+00
+SLEEP-50/009,SLEEP-50/009,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I have difficulty in falling asleep.,radio,,,true,,9,false,2026-09-04 00:00:00+00
+SLEEP-50/010,SLEEP-50/010,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,Thoughts go through my head and keep me awake.,radio,,,true,,10,false,2026-09-04 00:00:00+00
+SLEEP-50/011,SLEEP-50/011,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I worry and find it hard to relax.,radio,,,true,,11,false,2026-09-04 00:00:00+00
+SLEEP-50/012,SLEEP-50/012,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I wake up during the night.,radio,,,true,,12,false,2026-09-04 00:00:00+00
+SLEEP-50/013,SLEEP-50/013,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,"After waking up during the night, I fall asleep slowly.",radio,,,true,,13,false,2026-09-04 00:00:00+00
+SLEEP-50/014,SLEEP-50/014,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I wake up early and cannot get back to sleep.,radio,,,true,,14,false,2026-09-04 00:00:00+00
+SLEEP-50/015,SLEEP-50/015,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I sleep lightly.,radio,,,true,,15,false,2026-09-04 00:00:00+00
+SLEEP-50/016,SLEEP-50/016,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I sleep too little.,radio,,,true,,16,false,2026-09-04 00:00:00+00
+SLEEP-50/017,SLEEP-50/017,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I see dreamlike images when falling asleep or waking up.,radio,,,true,,17,false,2026-09-04 00:00:00+00
+SLEEP-50/018,SLEEP-50/018,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I sometimes fall asleep on a social occasion.,radio,,,true,,18,false,2026-09-04 00:00:00+00
+SLEEP-50/019,SLEEP-50/019,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I have sleep attacks during the day.,radio,,,true,,19,false,2026-09-04 00:00:00+00
+SLEEP-50/020,SLEEP-50/020,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,"With intense emotions, my muscles sometimes collapse during the day.",radio,,,true,,20,false,2026-09-04 00:00:00+00
+SLEEP-50/021,SLEEP-50/021,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I sometimes cannot move when falling asleep or waking up.,radio,,,true,,21,false,2026-09-04 00:00:00+00
+SLEEP-50/022,SLEEP-50/022,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I am told that I kick my legs when I sleep.,radio,,,true,,22,false,2026-09-04 00:00:00+00
+SLEEP-50/023,SLEEP-50/023,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I have cramps or pain in my legs during the night.,radio,,,true,,23,false,2026-09-04 00:00:00+00
+SLEEP-50/024,SLEEP-50/024,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I feel little shocks in my legs during the night.,radio,,,true,,24,false,2026-09-04 00:00:00+00
+SLEEP-50/025,SLEEP-50/025,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I cannot keep my legs at rest when falling asleep.,radio,,,true,,25,false,2026-09-04 00:00:00+00
+SLEEP-50/026,SLEEP-50/026,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I would rather go to bed at a different time.,radio,,,true,,26,false,2026-09-04 00:00:00+00
+SLEEP-50/027,SLEEP-50/027,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I go to bed at very different times (more than 2 hr difference).,radio,,,true,,27,false,2026-09-04 00:00:00+00
+SLEEP-50/028,SLEEP-50/028,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I do shift work.,radio,,,true,,28,false,2026-09-04 00:00:00+00
+SLEEP-50/029,SLEEP-50/029,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I sometimes walk when I am sleeping.,radio,,,true,,29,false,2026-09-04 00:00:00+00
+SLEEP-50/030,SLEEP-50/030,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I sometimes wake up in a different place than where I fell asleep.,radio,,,true,,30,false,2026-09-04 00:00:00+00
+SLEEP-50/031,SLEEP-50/031,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I sometimes find evidence of having performed an action during the night I do not remember.,radio,,,true,,31,false,2026-09-04 00:00:00+00
+SLEEP-50/032,SLEEP-50/032,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,"I have frightening dreams (if not, go to Item 37).",radio,,,true,If No ? skip to 37,32,false,2026-09-04 00:00:00+00
+SLEEP-50/033,SLEEP-50/033,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I wake up from these dreams.,radio,,,true,Conditional on 32,33,false,2026-09-04 00:00:00+00
+SLEEP-50/034,SLEEP-50/034,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I remember the content of these dreams.,radio,,,true,Conditional on 32,34,false,2026-09-04 00:00:00+00
+SLEEP-50/035,SLEEP-50/035,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I can orientate quickly after these dreams.,radio,,,true,Conditional on 32,35,false,2026-09-04 00:00:00+00
+SLEEP-50/036,SLEEP-50/036,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,"I have physical symptoms during or after these dreams (e.g., movements, sweating, heart palpitations, shortness of breath).",radio,,,true,Conditional on 32,36,false,2026-09-04 00:00:00+00
+SLEEP-50/037,SLEEP-50/037,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,It is too light in my bedroom during the night.,radio,,,true,,37,false,2026-09-04 00:00:00+00
+SLEEP-50/038,SLEEP-50/038,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,It is too noisy in my bedroom during the night.,radio,,,true,,38,false,2026-09-04 00:00:00+00
+SLEEP-50/039,SLEEP-50/039,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I drink alcoholic beverages during the evening.,radio,,,true,,39,false,2026-09-04 00:00:00+00
+SLEEP-50/040,SLEEP-50/040,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I smoke during the evening.,radio,,,true,,40,false,2026-09-04 00:00:00+00
+SLEEP-50/041,SLEEP-50/041,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,"I use other substances during the evening (e.g., sleep or other medication).",radio,,,true,,41,false,2026-09-04 00:00:00+00
+SLEEP-50/042,SLEEP-50/042,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I feel sad.,radio,,,true,,42,false,2026-09-04 00:00:00+00
+SLEEP-50/043,SLEEP-50/043,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I have no pleasure or interest in daily occupations.,radio,,,true,,43,false,2026-09-04 00:00:00+00
+SLEEP-50/044,SLEEP-50/044,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I feel tired at getting up.,radio,,,true,,44,false,2026-09-04 00:00:00+00
+SLEEP-50/045,SLEEP-50/045,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I feel sleepy during the day and struggle to remain alert.,radio,,,true,,45,false,2026-09-04 00:00:00+00
+SLEEP-50/046,SLEEP-50/046,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I would like to have more energy during the day.,radio,,,true,,46,false,2026-09-04 00:00:00+00
+SLEEP-50/047,SLEEP-50/047,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I am told that I am easily irritated.,radio,,,true,,47,false,2026-09-04 00:00:00+00
+SLEEP-50/048,SLEEP-50/048,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I have difficulty in concentrating at work or school.,radio,,,true,,48,false,2026-09-04 00:00:00+00
+SLEEP-50/049,SLEEP-50/049,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I worry whether I sleep enough.,radio,,,true,,49,false,2026-09-04 00:00:00+00
+SLEEP-50/050,SLEEP-50/050,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,"Generally, I sleep badly.",radio,,,true,,50,false,2026-09-04 00:00:00+00
+SNAP-IV/001,SNAP-IV/001,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often fails to give close attention to details or makes careless mistakes in schoolwork or tasks,radio,,,true,,1,false,2026-09-04 00:00:00+00
+SNAP-IV/002,SNAP-IV/002,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often has difficulty sustaining attention in tasks or play activities,radio,,,true,,2,false,2026-09-04 00:00:00+00
+SNAP-IV/003,SNAP-IV/003,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often does not seem to listen when spoken to directly,radio,,,true,,3,false,2026-09-04 00:00:00+00
+SNAP-IV/004,SNAP-IV/004,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,"Often does not follow through on instructions and fails to finish schoolwork, chores, or duties",radio,,,true,,4,false,2026-09-04 00:00:00+00
+SNAP-IV/005,SNAP-IV/005,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often has difficulty organizing tasks and activities,radio,,,true,,5,false,2026-09-04 00:00:00+00
+SNAP-IV/006,SNAP-IV/006,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,"Often avoids, dislikes, or reluctantly engages in tasks requiring sustained mental effort",radio,,,true,,6,false,2026-09-04 00:00:00+00
+SNAP-IV/007,SNAP-IV/007,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,"Often loses things necessary for activities (e.g., toys, school assignments, pencils or books",radio,,,true,,7,false,2026-09-04 00:00:00+00
+SNAP-IV/008,SNAP-IV/008,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often is distracted by extraneous stimuli,radio,,,true,,8,false,2026-09-04 00:00:00+00
+SNAP-IV/009,SNAP-IV/009,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often is forgetful in daily activities,radio,,,true,,9,false,2026-09-04 00:00:00+00
+SNAP-IV/010,SNAP-IV/010,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often fidgets with hands or feet or squirms in seat,radio,,,true,,10,false,2026-09-04 00:00:00+00
+SNAP-IV/011,SNAP-IV/011,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often leaves seat in classroom or in other situations in which remaining seated is expected,radio,,,true,,11,false,2026-09-04 00:00:00+00
+SNAP-IV/012,SNAP-IV/012,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often runs about or climbs excessively in situations in which it is inappropriate,radio,,,true,,12,false,2026-09-04 00:00:00+00
+SNAP-IV/013,SNAP-IV/013,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often has difficulty playing or engaging in leisure activities quietly,radio,,,true,,13,false,2026-09-04 00:00:00+00
+SNAP-IV/014,SNAP-IV/014,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often is “on the go” or often acts as if “driven by a motor”,radio,,,true,,14,false,2026-09-04 00:00:00+00
+SNAP-IV/015,SNAP-IV/015,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often talks excessively,radio,,,true,,15,false,2026-09-04 00:00:00+00
+SNAP-IV/016,SNAP-IV/016,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often blurts out answers before questions have been completed,radio,,,true,,16,false,2026-09-04 00:00:00+00
+SNAP-IV/017,SNAP-IV/017,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often has difficulty awaiting turn,radio,,,true,,17,false,2026-09-04 00:00:00+00
+SNAP-IV/018,SNAP-IV/018,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,"Often interrupts or intrudes on others (e.g., butts into conversations/games",radio,,,true,,18,false,2026-09-04 00:00:00+00
+SNAP-IV/019,SNAP-IV/019,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often loses temper,radio,,,true,,19,false,2026-09-04 00:00:00+00
+SNAP-IV/020,SNAP-IV/020,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often argues with adults,radio,,,true,,20,false,2026-09-04 00:00:00+00
+SNAP-IV/021,SNAP-IV/021,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often actively defies or refuses adult requests or rules,radio,,,true,,21,false,2026-09-04 00:00:00+00
+SNAP-IV/022,SNAP-IV/022,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often deliberately does things that annoy other people,radio,,,true,,22,false,2026-09-04 00:00:00+00
+SNAP-IV/023,SNAP-IV/023,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often blames others for his or her mistakes or misbehaviour,radio,,,true,,23,false,2026-09-04 00:00:00+00
+SNAP-IV/024,SNAP-IV/024,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often is touchy or easily annoyed by others,radio,,,true,,24,false,2026-09-04 00:00:00+00
+SNAP-IV/025,SNAP-IV/025,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often is angry and resentful,radio,,,true,,25,false,2026-09-04 00:00:00+00
+SNAP-IV/026,SNAP-IV/026,ADHD/2026,SNAP-IV/2026,ADHD/SNAP-IV,Often is spiteful or vindictive,radio,,,true,,26,false,2026-09-04 00:00:00+00
+SS-QOL/001,SS-QOL/001,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I felt tired most of the time.,radio,,,true,,1,false,2026-09-04 00:00:00+00
+SS-QOL/002,SS-QOL/002,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I had to stop and rest during the day.,radio,,,true,,2,false,2026-09-04 00:00:00+00
+SS-QOL/003,SS-QOL/003,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I was too tired to do what I wanted to do.,radio,,,true,,3,false,2026-09-04 00:00:00+00
+SS-QOL/004,SS-QOL/004,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I didn't join in activities just for fun with my family.,radio,,,true,,4,false,2026-09-04 00:00:00+00
+SS-QOL/005,SS-QOL/005,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I felt I was a burden to my family.,radio,,,true,,5,false,2026-09-04 00:00:00+00
+SS-QOL/006,SS-QOL/006,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,My physical condition interfered with my personal life.,radio,,,true,,6,false,2026-09-04 00:00:00+00
+SS-QOL/007,SS-QOL/007,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,"Did you have trouble speaking? For example, get stuck, stutter, stammer, or slur your words?",radio,,,true,,7,false,2026-09-04 00:00:00+00
+SS-QOL/008,SS-QOL/008,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble speaking clearly enough to use the telephone?,radio,,,true,,8,false,2026-09-04 00:00:00+00
+SS-QOL/009,SS-QOL/009,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did other people have trouble in understanding what you said?,radio,,,true,,9,false,2026-09-04 00:00:00+00
+SS-QOL/010,SS-QOL/010,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble finding the word you wanted to say?,radio,,,true,,10,false,2026-09-04 00:00:00+00
+SS-QOL/011,SS-QOL/011,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have to repeat yourself so others could understand you?,radio,,,true,,11,false,2026-09-04 00:00:00+00
+SS-QOL/012,SS-QOL/012,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble walking?,radio,,,true,Conditional note in PDF,12,false,2026-09-04 00:00:00+00
+SS-QOL/013,SS-QOL/013,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you lose your balance when bending over to or reaching for something?,radio,,,true,,13,false,2026-09-04 00:00:00+00
+SS-QOL/014,SS-QOL/014,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble climbing stairs?,radio,,,true,,14,false,2026-09-04 00:00:00+00
+SS-QOL/015,SS-QOL/015,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have to stop and rest more than you would like when walking or using a wheelchair?,radio,,,true,,15,false,2026-09-04 00:00:00+00
+SS-QOL/016,SS-QOL/016,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble with standing?,radio,,,true,,16,false,2026-09-04 00:00:00+00
+SS-QOL/017,SS-QOL/017,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble getting out of a chair?,radio,,,true,,17,false,2026-09-04 00:00:00+00
+SS-QOL/018,SS-QOL/018,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I was discouraged about my future.,radio,,,true,,18,false,2026-09-04 00:00:00+00
+SS-QOL/019,SS-QOL/019,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I wasn't interested in other people or activities.,radio,,,true,,19,false,2026-09-04 00:00:00+00
+SS-QOL/020,SS-QOL/020,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I felt withdrawn from other people.,radio,,,true,,20,false,2026-09-04 00:00:00+00
+SS-QOL/021,SS-QOL/021,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I had little confidence in myself.,radio,,,true,,21,false,2026-09-04 00:00:00+00
+SS-QOL/022,SS-QOL/022,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I was not interested in food.,radio,,,true,,22,false,2026-09-04 00:00:00+00
+SS-QOL/023,SS-QOL/023,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I was irritable.,radio,,,true,,23,false,2026-09-04 00:00:00+00
+SS-QOL/024,SS-QOL/024,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I was impatient with others.,radio,,,true,,24,false,2026-09-04 00:00:00+00
+SS-QOL/025,SS-QOL/025,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,My personality has changed.,radio,,,true,,25,false,2026-09-04 00:00:00+00
+SS-QOL/026,SS-QOL/026,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you need help preparing food?,radio,,,true,,26,false,2026-09-04 00:00:00+00
+SS-QOL/027,SS-QOL/027,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you need help eating?,radio,,,true,,27,false,2026-09-04 00:00:00+00
+SS-QOL/028,SS-QOL/028,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you need help getting dressed?,radio,,,true,,28,false,2026-09-04 00:00:00+00
+SS-QOL/029,SS-QOL/029,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you need help taking a bath or a shower?,radio,,,true,,29,false,2026-09-04 00:00:00+00
+SS-QOL/030,SS-QOL/030,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you need help to use the toilet?,radio,,,true,,30,false,2026-09-04 00:00:00+00
+SS-QOL/031,SS-QOL/031,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I didn't go out as often as I would like.,radio,,,true,,31,false,2026-09-04 00:00:00+00
+SS-QOL/032,SS-QOL/032,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I did my hobbies and recreation for shorter periods of time than I would like.,radio,,,true,,32,false,2026-09-04 00:00:00+00
+SS-QOL/033,SS-QOL/033,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I didn't see as many of my friends as I would like.,radio,,,true,,33,false,2026-09-04 00:00:00+00
+SS-QOL/034,SS-QOL/034,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I had sex less often than I would like.,radio,,,true,,34,false,2026-09-04 00:00:00+00
+SS-QOL/035,SS-QOL/035,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,My physical condition interfered with my social life.,radio,,,true,,35,false,2026-09-04 00:00:00+00
+SS-QOL/036,SS-QOL/036,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,It was hard for me to concentrate.,radio,,,true,,36,false,2026-09-04 00:00:00+00
+SS-QOL/037,SS-QOL/037,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I had trouble remembering things.,radio,,,true,,37,false,2026-09-04 00:00:00+00
+SS-QOL/038,SS-QOL/038,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,I had to write things down to remember them.,radio,,,true,,38,false,2026-09-04 00:00:00+00
+SS-QOL/039,SS-QOL/039,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble writing or typing?,radio,,,true,,39,false,2026-09-04 00:00:00+00
+SS-QOL/040,SS-QOL/040,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble putting on socks?,radio,,,true,,40,false,2026-09-04 00:00:00+00
+SS-QOL/041,SS-QOL/041,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble buttoning buttons?,radio,,,true,,41,false,2026-09-04 00:00:00+00
+SS-QOL/042,SS-QOL/042,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble zipping a zipper?,radio,,,true,,42,false,2026-09-04 00:00:00+00
+SS-QOL/043,SS-QOL/043,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble opening a jar?,radio,,,true,,43,false,2026-09-04 00:00:00+00
+SS-QOL/044,SS-QOL/044,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble seeing the television well enough to enjoy a show?,radio,,,true,,44,false,2026-09-04 00:00:00+00
+SS-QOL/045,SS-QOL/045,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble reaching things because of poor eyesight?,radio,,,true,,45,false,2026-09-04 00:00:00+00
+SS-QOL/046,SS-QOL/046,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble seeing things off to one side?,radio,,,true,,46,false,2026-09-04 00:00:00+00
+SS-QOL/047,SS-QOL/047,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble doing daily work around the house?,radio,,,true,,47,false,2026-09-04 00:00:00+00
+SS-QOL/048,SS-QOL/048,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble finishing jobs that you started?,radio,,,true,,48,false,2026-09-04 00:00:00+00
+SS-QOL/049,SS-QOL/049,AFTERSTROKE/TBI/2026,SS-QOL/2026,After Stroke/TBI/SS-QOL,Did you have trouble doing the work you used to do?,radio,,,true,,49,false,2026-09-04 00:00:00+00
+THI/001,THI/001,TINNITUS/2026,THI/2026,Tinnitus/THI,"Because of your tinnitus, is it difficult for you to concentrate?",radio,,,true,,1,false,2026-09-04 00:00:00+00
+THI/002,THI/002,TINNITUS/2026,THI/2026,Tinnitus/THI,Does the loudness of your tinnitus make it difficult for you to hear people?,radio,,,true,,2,false,2026-09-04 00:00:00+00
+THI/003,THI/003,TINNITUS/2026,THI/2026,Tinnitus/THI,Does your tinnitus make you angry?,radio,,,true,,3,false,2026-09-04 00:00:00+00
+THI/004,THI/004,TINNITUS/2026,THI/2026,Tinnitus/THI,Does your tinnitus make you feel confused?,radio,,,true,,4,false,2026-09-04 00:00:00+00
+THI/005,THI/005,TINNITUS/2026,THI/2026,Tinnitus/THI,"Because of your tinnitus, do you feel desperate?",radio,,,true,,5,false,2026-09-04 00:00:00+00
+THI/006,THI/006,TINNITUS/2026,THI/2026,Tinnitus/THI,Do you complain a great deal about your tinnitus?,radio,,,true,,6,false,2026-09-04 00:00:00+00
+THI/007,THI/007,TINNITUS/2026,THI/2026,Tinnitus/THI,"Because of your tinnitus, do you have trouble falling to sleep at night?",radio,,,true,,7,false,2026-09-04 00:00:00+00
+THI/008,THI/008,TINNITUS/2026,THI/2026,Tinnitus/THI,Do you feel as though you cannot escape your tinnitus?,radio,,,true,,8,false,2026-09-04 00:00:00+00
+THI/009,THI/009,TINNITUS/2026,THI/2026,Tinnitus/THI,"Does your tinnitus interfere with your ability to enjoy your social activities (such as going out to dinner, to the movies)?",radio,,,true,,9,false,2026-09-04 00:00:00+00
+THI/010,THI/010,TINNITUS/2026,THI/2026,Tinnitus/THI,"Because of your tinnitus, do you feel frustrated?",radio,,,true,,10,false,2026-09-04 00:00:00+00
+THI/011,THI/011,TINNITUS/2026,THI/2026,Tinnitus/THI,"Because of your tinnitus, do you feel that you have a terrible disease?",radio,,,true,,11,false,2026-09-04 00:00:00+00
+THI/012,THI/012,TINNITUS/2026,THI/2026,Tinnitus/THI,Does your tinnitus make it difficult for you to enjoy life?,radio,,,true,,12,false,2026-09-04 00:00:00+00
+THI/013,THI/013,TINNITUS/2026,THI/2026,Tinnitus/THI,Does your tinnitus interfere with your job or household responsibilities?,radio,,,true,,13,false,2026-09-04 00:00:00+00
+THI/014,THI/014,TINNITUS/2026,THI/2026,Tinnitus/THI,"Because of your tinnitus, do you find that you are often irritable?",radio,,,true,,14,false,2026-09-04 00:00:00+00
+THI/015,THI/015,TINNITUS/2026,THI/2026,Tinnitus/THI,"Because of your tinnitus, is it difficult for you to read?",radio,,,true,,15,false,2026-09-04 00:00:00+00
+THI/016,THI/016,TINNITUS/2026,THI/2026,Tinnitus/THI,Does your tinnitus make you upset?,radio,,,true,,16,false,2026-09-04 00:00:00+00
+THI/017,THI/017,TINNITUS/2026,THI/2026,Tinnitus/THI,Do you feel that your tinnitus problem has placed stress on your relationships with members of your family and friends?,radio,,,true,,17,false,2026-09-04 00:00:00+00
+THI/018,THI/018,TINNITUS/2026,THI/2026,Tinnitus/THI,Do you find it difficult to focus your attention away from your tinnitus and on other things?,radio,,,true,,18,false,2026-09-04 00:00:00+00
+THI/019,THI/019,TINNITUS/2026,THI/2026,Tinnitus/THI,Do you feel that you have no control over your tinnitus?,radio,,,true,,19,false,2026-09-04 00:00:00+00
+THI/020,THI/020,TINNITUS/2026,THI/2026,Tinnitus/THI,"Because of your tinnitus, do you often feel tired?",radio,,,true,,20,false,2026-09-04 00:00:00+00
+THI/021,THI/021,TINNITUS/2026,THI/2026,Tinnitus/THI,"Because of your tinnitus, do you feel depressed?",radio,,,true,,21,false,2026-09-04 00:00:00+00
+THI/022,THI/022,TINNITUS/2026,THI/2026,Tinnitus/THI,Does your tinnitus make you feel anxious?,radio,,,true,,22,false,2026-09-04 00:00:00+00
+THI/023,THI/023,TINNITUS/2026,THI/2026,Tinnitus/THI,Do you feel that you can no longer cope with your tinnitus?,radio,,,true,,23,false,2026-09-04 00:00:00+00
+THI/024,THI/024,TINNITUS/2026,THI/2026,Tinnitus/THI,Does your tinnitus get worse when you are under stress?,radio,,,true,,24,false,2026-09-04 00:00:00+00
+THI/025,THI/025,TINNITUS/2026,THI/2026,Tinnitus/THI,Does your tinnitus make you feel insecure?,radio,,,true,,25,false,2026-09-04 00:00:00+00
+VAS/001,VAS/001,FIBROMYALGIA/2026,VAS/2026,Fibromyalgia/VAS,Enter your pain on a scale from 0 no pain to 10 severe pain,likert,,,true,,1,false,2026-09-04 00:00:00+00
+VVAS/001,VVAS/001,ATAXIA/2026,VVAS/2026,Ataxia/VVAS,Indicate the amount of dizziness you experience when walking through a supermarket aisle,slider,,,true,,1,false,2026-09-04 00:00:00+00
+VVAS/002,VVAS/002,ATAXIA/2026,VVAS/2026,Ataxia/VVAS,Indicate the amount of dizziness you experience when being a passenger in a car,slider,,,true,,2,false,2026-09-04 00:00:00+00
+VVAS/003,VVAS/003,ATAXIA/2026,VVAS/2026,Ataxia/VVAS,Indicate the amount of dizziness you experience when being under fluorescent lights,slider,,,true,,3,false,2026-09-04 00:00:00+00
+VVAS/004,VVAS/004,ATAXIA/2026,VVAS/2026,Ataxia/VVAS,Indicate the amount of dizziness you experience when watching traffic at a busy intersection,slider,,,true,,4,false,2026-09-04 00:00:00+00
+VVAS/005,VVAS/005,ATAXIA/2026,VVAS/2026,Ataxia/VVAS,Indicate the amount of dizziness you experience when walking through a shopping mall,slider,,,true,,5,false,2026-09-04 00:00:00+00
+VVAS/006,VVAS/006,ATAXIA/2026,VVAS/2026,Ataxia/VVAS,Indicate the amount of dizziness you experience when going down an escalator,slider,,,true,,6,false,2026-09-04 00:00:00+00
+VVAS/007,VVAS/007,ATAXIA/2026,VVAS/2026,Ataxia/VVAS,Indicate the amount of dizziness you experience when watching a movie at the movie theatre,slider,,,true,,7,false,2026-09-04 00:00:00+00
+VVAS/008,VVAS/008,ATAXIA/2026,VVAS/2026,Ataxia/VVAS,Indicate the amount of dizziness you experience when walking over a patterned floor,slider,,,true,,8,false,2026-09-04 00:00:00+00
+VVAS/009,VVAS/009,ATAXIA/2026,VVAS/2026,Ataxia/VVAS,Indicate the amount of dizziness you experience when watching action television,slider,,,true,,9,false,2026-09-04 00:00:00+00
