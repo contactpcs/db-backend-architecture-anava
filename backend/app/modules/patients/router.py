@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
+from app.config import get_settings
 from app.core.db import RequestContext, get_db
 from app.core.permissions import require_role
 from app.core.scoping import assert_clinic_scope, assert_patient_self
@@ -14,6 +15,7 @@ from app.modules.patients.service import (
 )
 
 router = APIRouter()
+settings = get_settings()
 
 _ALL_STAFF = ("super_admin", "regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist")
 
@@ -26,7 +28,16 @@ async def register_patient(
     data = body.model_dump()
     data["primary_clinic_id"] = str(data["primary_clinic_id"])
     await assert_clinic_scope(ctx, db, data["primary_clinic_id"])
-    return await PatientService(db).register(data)
+    # Staff-registered patients never go through the self-service OTP
+    # signup wizard (patients/router.py's own routes below) — no channel to
+    # collect an OTP from, since the staff member is filling this in, not
+    # the patient. Same temp-password-emailed provisioning staff accounts
+    # get, just for a patient identity instead.
+    cognito_sub = None
+    if settings.auth_mode == "cognito":
+        from app.core.cognito import provision_staff_user
+        cognito_sub = provision_staff_user(email=data["email"], first_name=data["first_name"], last_name=data["last_name"], phone=data.get("phone"))
+    return await PatientService(db).register(data, cognito_sub=cognito_sub)
 
 
 @router.get("/patients", response_model=list[s.PatientRead])
@@ -87,6 +98,16 @@ async def decide_patient_approval(
     return await PatientService(db).decide_approval(
         patient_id, decision=body.decision, decided_by=UUID(ctx.user_id), rejection_reason=body.rejection_reason
     )
+
+
+@router.patch("/patients/{patient_id}/allocate-doctor", response_model=s.PatientRead)
+async def allocate_doctor(
+    patient_id: UUID, body: s.DoctorAllocation, db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin", "receptionist")),
+):
+    existing = await PatientService(db).get(patient_id)
+    await assert_clinic_scope(ctx, db, existing["primary_clinic_id"])
+    return await PatientService(db).allocate_doctor(patient_id, body.doctor_id, allocated_by=UUID(ctx.user_id))
 
 
 @router.get("/patients/{patient_id}/disease-selection", response_model=list[s.DiseaseSelectionRead])

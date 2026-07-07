@@ -31,13 +31,30 @@ class WeeklyScheduleRead(BaseModel):
     is_active: bool
 
 
+class MyWeeklyScheduleItem(BaseModel):
+    """Same shape as WeeklyScheduleCreate minus clinic_id — resolved from the
+    caller doctor's own denormalized doctors.clinic_id, not chosen by the
+    caller (same reasoning as MyScheduleOverrideCreate)."""
+
+    day_of_week: int = Field(ge=0, le=6)
+    start_time: time
+    end_time: time
+    slot_duration_minutes: int = 30
+    break_start: time | None = None
+    break_end: time | None = None
+    max_appointments: int | None = None
+    effective_from: date | None = None
+    effective_until: date | None = None
+    is_active: bool = True
+
+
 class MyWeeklyScheduleReplace(BaseModel):
     """Atomic replace of the caller doctor's own weekly template — delete
     every existing rule, insert this set. Matches v1's upsert_weekly_schedule
     (delete-then-insert), since there's no natural per-day PATCH when a
     doctor is redrawing their whole week at once in one form submit."""
 
-    items: list[WeeklyScheduleCreate]
+    items: list[MyWeeklyScheduleItem]
 
 
 class ScheduleOverrideCreate(BaseModel):
@@ -127,6 +144,9 @@ class AppointmentRequestRead(BaseModel):
     patient_name: str | None = None
     doctor_id: UUID | None
     doctor_name: str | None = None
+    # doctors.doctor_id (public ID) — /doctors/{doctor_id}/availability and
+    # similar path params expect this, not doctor_id above (profiles.id).
+    doctor_public_id: UUID | None = None
     reviewer_name: str | None = None
     request_type: str
     parent_appointment_id: UUID | None = None
@@ -184,6 +204,9 @@ class AppointmentRead(BaseModel):
     patient_name: str | None = None
     doctor_id: UUID
     doctor_name: str | None = None
+    # doctors.doctor_id (public ID) — /doctors/{doctor_id}/availability and
+    # similar path params expect this, not doctor_id above (profiles.id).
+    doctor_public_id: UUID | None = None
     ca_id: UUID | None
     session_id: UUID | None
     cycle_id: UUID | None = None

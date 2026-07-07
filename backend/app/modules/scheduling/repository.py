@@ -13,19 +13,31 @@ from app.core.sql_helpers import fetch_one, fetch_optional, insert_returning
 # profiles.id, never a second hop through patients/doctors.
 _APPT_SELECT = (
     "SELECT a.*, pp.first_name || ' ' || pp.last_name AS patient_name, "
-    "dp.first_name || ' ' || dp.last_name AS doctor_name "
+    "dp.first_name || ' ' || dp.last_name AS doctor_name, "
+    # doctors.doctor_id (public ID) — /doctors/{doctor_id}/availability and
+    # similar path params expect this, not a.doctor_id (profiles.id). Same
+    # gap as _REQ_SELECT's doctor_public_id, fixed for the same reason.
+    "dd.doctor_id AS doctor_public_id "
     "FROM appointments a "
     "JOIN profiles pp ON pp.id = a.patient_id "
     "JOIN profiles dp ON dp.id = a.doctor_id "
+    "LEFT JOIN doctors dd ON dd.profile_id = a.doctor_id "
 )
 
 _REQ_SELECT = (
     "SELECT r.*, pp.first_name || ' ' || pp.last_name AS patient_name, "
     "dp.first_name || ' ' || dp.last_name AS doctor_name, "
+    # doctors.doctor_id (public ID) — path params like /doctors/{doctor_id}/
+    # availability expect this, not r.doctor_id (which is profiles.id, same
+    # value space as doctors.profile_id). Without this, a caller resolving
+    # slots straight from a request row 404s against the availability
+    # endpoint (see doctor/schedule page's identical bug, fixed via /auth/me).
+    "dd.doctor_id AS doctor_public_id, "
     "rp.first_name || ' ' || rp.last_name AS reviewer_name "
     "FROM appointment_requests r "
     "JOIN profiles pp ON pp.id = r.patient_id "
     "LEFT JOIN profiles dp ON dp.id = r.doctor_id "
+    "LEFT JOIN doctors dd ON dd.profile_id = r.doctor_id "
     "LEFT JOIN profiles rp ON rp.id = r.reviewed_by "
 )
 
@@ -281,16 +293,3 @@ class AppointmentAuditLogRepository:
             )
         ).mappings().all()
         return [dict(r) for r in rows]
-
-
-async def list_clinic_receptionists(session: AsyncSession, clinic_id: UUID) -> list[UUID]:
-    rows = (
-        await session.execute(
-            text(
-                "SELECT profile_id FROM clinic_staff_assignments "
-                "WHERE clinic_id = :cid AND staff_role = 'receptionist' AND is_active = TRUE"
-            ),
-            {"cid": str(clinic_id)},
-        )
-    ).all()
-    return [r.profile_id for r in rows]

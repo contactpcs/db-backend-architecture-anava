@@ -17,7 +17,6 @@ from app.modules.scheduling.repository import (
     AppointmentRequestRepository,
     ScheduleOverrideRepository,
     WeeklyScheduleRepository,
-    list_clinic_receptionists,
 )
 
 # Same shape as v1's appointment_service constants — the whole point of this
@@ -295,7 +294,6 @@ class AppointmentRequestService:
             self.session, aggregate_type="appointment_request", aggregate_id=req["request_id"],
             event_type="appointment_request_submitted", payload={"request_id": str(req["request_id"])},
         )
-        await self._notify_new_request(req)
         return req
 
     async def create_reschedule_request(self, appointment_id: UUID, data: dict, *, submitted_by: UUID, ctx: RequestContext) -> dict:
@@ -406,34 +404,7 @@ class AppointmentRequestService:
             self.session, aggregate_type="appointment_request", aggregate_id=request_id,
             event_type="appointment_request_decided", payload={"request_id": str(request_id), "decision": data["decision"]},
         )
-        await self._notify_decision(updated, decision=data["decision"])
         return updated  # type: ignore[return-value]
-
-    async def _notify_new_request(self, req: dict) -> None:
-        from app.modules.notifications.service import NotificationService
-
-        notifications = NotificationService(self.session)
-        try:
-            for recipient_id in await list_clinic_receptionists(self.session, req["clinic_id"]):
-                await notifications.create(
-                    recipient_id=recipient_id, type="appointment", title="New appointment request",
-                    body=f"A patient submitted a {req['request_type']} appointment request.",
-                    entity_type="appointment_request", entity_id=req["request_id"],
-                )
-        except Exception:
-            pass  # notifications are best-effort, never block the request itself
-
-    async def _notify_decision(self, req: dict, *, decision: str) -> None:
-        from app.modules.notifications.service import NotificationService
-
-        try:
-            await NotificationService(self.session).create(
-                recipient_id=req["patient_id"], type="appointment",
-                title=f"Your appointment request was {decision}",
-                body=req.get("review_notes"), entity_type="appointment_request", entity_id=req["request_id"],
-            )
-        except Exception:
-            pass
 
 
 class AppointmentService:
@@ -480,7 +451,6 @@ class AppointmentService:
             self.session, aggregate_type="appointment", aggregate_id=appointment["appointment_id"],
             event_type="appointment_booked", payload={"appointment_id": str(appointment["appointment_id"]), "doctor_id": str(doctor_profile_id)},
         )
-        await self._notify_booked(appointment)
         return await self.get(appointment["appointment_id"])
 
     async def get(self, appointment_id: UUID) -> dict:
@@ -577,14 +547,8 @@ class AppointmentService:
         await emit_event(
             self.session, aggregate_type="appointment", aggregate_id=appointment_id,
             event_type="appointment_cancelled" if status == "cancelled" else "appointment_status_changed",
-            payload={"appointment_id": str(appointment_id), "status": status},
+            payload={"appointment_id": str(appointment_id), "status": status, "changed_by_role": changed_by_role},
         )
-        if status == "cancelled":
-            await self._notify_cancelled(appt, cancelled_by_role=changed_by_role)
-        elif status == "confirmed":
-            await self._notify_status(appt, title="Your appointment is confirmed")
-        elif status == "completed":
-            await self._notify_status(appt, title="Your appointment is complete")
         return await self.get(appointment_id)
 
     async def update_fields(self, appointment_id: UUID, data: dict, *, ctx: RequestContext) -> dict:
@@ -626,44 +590,7 @@ class AppointmentService:
             self.session, aggregate_type="appointment", aggregate_id=appointment_id,
             event_type="appointment_rescheduled", payload={"old_appointment_id": str(appointment_id), "new_appointment_id": str(new_appointment["appointment_id"])},
         )
-        await self._notify_status(new_appointment, title="Your appointment was rescheduled")
         return await self.get(new_appointment["appointment_id"])
 
     async def audit_log(self, appointment_id: UUID) -> list[dict]:
         return await self.audit.list_for_appointment(appointment_id)
-
-    async def _notify_booked(self, appt: dict) -> None:
-        from app.modules.notifications.service import NotificationService
-
-        try:
-            await NotificationService(self.session).create(
-                recipient_id=appt["patient_id"], type="appointment", title="Appointment booked",
-                body=f"Your appointment is scheduled for {appt['appointment_date']} at {appt['start_time']}.",
-                entity_type="appointment", entity_id=appt["appointment_id"],
-            )
-        except Exception:
-            pass
-
-    async def _notify_cancelled(self, appt: dict, *, cancelled_by_role: str) -> None:
-        from app.modules.notifications.service import NotificationService
-
-        # Notify whichever side didn't do the cancelling.
-        recipient = appt["doctor_id"] if cancelled_by_role == "patient" else appt["patient_id"]
-        try:
-            await NotificationService(self.session).create(
-                recipient_id=recipient, type="appointment", title="Appointment cancelled",
-                body=appt.get("cancellation_reason"), entity_type="appointment", entity_id=appt["appointment_id"],
-            )
-        except Exception:
-            pass
-
-    async def _notify_status(self, appt: dict, *, title: str) -> None:
-        from app.modules.notifications.service import NotificationService
-
-        try:
-            await NotificationService(self.session).create(
-                recipient_id=appt["patient_id"], type="appointment", title=title,
-                entity_type="appointment", entity_id=appt["appointment_id"],
-            )
-        except Exception:
-            pass

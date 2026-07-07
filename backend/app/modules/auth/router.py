@@ -1,6 +1,6 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 
 from app.config import get_settings
@@ -11,13 +11,29 @@ from app.core.security import create_local_token
 from app.modules.auth.schemas import (
     CurrentUserRead,
     LocalLoginRequest,
+    LoginRequest,
+    NewPasswordRequest,
+    PatientSignupComplete,
+    PatientSignupResend,
+    PatientSignupStart,
+    PatientSignupVerify,
     PublicPatientRegister,
     PublicPatientRegisterResponse,
     TokenResponse,
+    VerifyChannelConfirm,
+    VerifyChannelStart,
 )
 
 router = APIRouter()
 settings = get_settings()
+
+
+@router.get("/config")
+async def get_auth_config() -> dict:
+    """Public — tells the frontend which endpoints to call (the OTP signup
+    wizard + /auth/login in cognito mode, vs the single-step /auth/register +
+    /auth/local-login in local dev). No secrets here, just the mode string."""
+    return {"auth_mode": settings.auth_mode}
 
 
 @router.get("/clinics")
@@ -42,12 +58,16 @@ async def list_public_clinics() -> list[dict]:
 
 @router.post("/register", response_model=PublicPatientRegisterResponse, status_code=201)
 async def register_patient_public(body: PublicPatientRegister, db=Depends(get_db)) -> PublicPatientRegisterResponse:
-    """Public self-registration — no auth required (see PUBLIC_PATHS in
-    core/middleware.py). Creates an inactive patient profile and logs them
-    in immediately so they can continue the rest of the wizard (disease
-    selection, consent, anamnesis, PRS) while still inactive; only a
-    receptionist's later approval (PATCH /patients/{id}/approval) flips the
-    account live."""
+    """Public self-registration — LOCAL DEV ONLY (404s once auth_mode ==
+    'cognito'; real patients go through the OTP wizard below instead, which
+    this single-step, no-OTP shape can't represent). No auth required (see
+    PUBLIC_PATHS in core/middleware.py). Creates an inactive patient profile
+    and logs them in immediately so they can continue the rest of the wizard
+    (disease selection, consent, anamnesis, PRS) while still inactive; only
+    a receptionist's later approval (PATCH /patients/{id}/approval) flips
+    the account live."""
+    if settings.auth_mode != "local":
+        raise HTTPException(status_code=404, detail="Not found")
     from app.modules.patients.service import PatientService
 
     data = body.model_dump()
@@ -57,11 +77,154 @@ async def register_patient_public(body: PublicPatientRegister, db=Depends(get_db
     return PublicPatientRegisterResponse(access_token=token, patient_id=patient["patient_id"])
 
 
+@router.post("/login", response_model=TokenResponse)
+async def login(body: LoginRequest) -> TokenResponse:
+    """Real password login (Stage 13) — calls Cognito's InitiateAuth
+    directly with the email/password from our own login form (no Hosted-UI
+    redirect). Works for staff and patients alike; username may be an email
+    or a phone number. 404s in local mode; use /auth/local-login there instead."""
+    if settings.auth_mode != "cognito":
+        raise HTTPException(status_code=404, detail="Not found")
+    from app.core.cognito import initiate_auth
+
+    result = initiate_auth(username=body.username, password=body.password)
+    return TokenResponse(access_token=result["AccessToken"], refresh_token=result.get("RefreshToken"))
+
+
+@router.post("/login/new-password", response_model=TokenResponse)
+async def login_new_password(body: NewPasswordRequest) -> TokenResponse:
+    """Completes the NEW_PASSWORD_REQUIRED challenge — a staff account's
+    first login after AdminCreateUser's auto-emailed temp password. session
+    is the value the /auth/login 400 (code NEW_PASSWORD_REQUIRED) returned."""
+    if settings.auth_mode != "cognito":
+        raise HTTPException(status_code=404, detail="Not found")
+    from app.core.cognito import respond_new_password
+
+    result = respond_new_password(username=body.username, new_password=body.new_password, session=body.session)
+    return TokenResponse(access_token=result["AccessToken"], refresh_token=result.get("RefreshToken"))
+
+
+def _bearer_token(request: Request) -> str:
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authorization header required")
+    return auth_header.removeprefix("Bearer ").strip()
+
+
+@router.post("/patients/signup/start", status_code=204)
+async def patient_signup_start(body: PatientSignupStart) -> None:
+    """Step 1 of the real patient signup wizard — starts Cognito's SignUp,
+    which auto-sends the OTP to whichever channel (email or phone) the
+    patient chose. 404s in local mode (use /auth/register there instead —
+    no OTP step needed for local testing)."""
+    if settings.auth_mode != "cognito":
+        raise HTTPException(status_code=404, detail="Not found")
+    from app.core.cognito import sign_up_patient
+
+    sign_up_patient(
+        username=body.contact, first_name=body.first_name, last_name=body.last_name,
+        dob=body.dob.isoformat() if body.dob else None, gender=body.gender,
+    )
+
+
+@router.post("/patients/signup/resend", status_code=204)
+async def patient_signup_resend(body: PatientSignupResend) -> None:
+    if settings.auth_mode != "cognito":
+        raise HTTPException(status_code=404, detail="Not found")
+    from app.core.cognito import resend_confirmation_code
+
+    resend_confirmation_code(body.contact)
+
+
+@router.post("/patients/signup/verify", status_code=204)
+async def patient_signup_verify(body: PatientSignupVerify) -> None:
+    """Step 2 — verifies the OTP the patient just entered. Doesn't touch our
+    DB at all; the wizard only writes a profiles/patients row once the
+    password is set too (see /signup/complete)."""
+    if settings.auth_mode != "cognito":
+        raise HTTPException(status_code=404, detail="Not found")
+    from app.core.cognito import confirm_sign_up
+
+    confirm_sign_up(username=body.contact, code=body.code)
+
+
+@router.post("/patients/signup/complete", response_model=PublicPatientRegisterResponse, status_code=201)
+async def patient_signup_complete(body: PatientSignupComplete, db=Depends(get_db)) -> PublicPatientRegisterResponse:
+    """Step 3 — sets the real password (overwriting SignUp's throwaway one),
+    creates our own profiles/patients row with the now-real Cognito sub, and
+    auto-logs the patient in. The channel they signed up with is already
+    verified (ConfirmSignUp in step 2); the other one still needs the
+    separate /patients/verify-channel/* round-trip post-login."""
+    if settings.auth_mode != "cognito":
+        raise HTTPException(status_code=404, detail="Not found")
+    if body.password != body.confirm_password:
+        raise HTTPException(status_code=422, detail="Passwords do not match")
+    from app.core.cognito import initiate_auth, set_patient_password
+    from app.modules.patients.service import PatientService
+
+    cognito_sub = set_patient_password(username=body.contact, password=body.password)
+
+    # profiles.email is NOT NULL UNIQUE — a mobile-only signup has no real
+    # email yet (it's added+verified later via /verify-channel/*), so this
+    # placeholder holds the column until then, same pattern as cognito_sub's
+    # own 'pending-<uuid>' placeholder elsewhere in this codebase.
+    data = {
+        "first_name": body.first_name, "last_name": body.last_name, "dob": body.dob,
+        "gender": body.gender, "city": body.city, "state": body.state, "country": body.country,
+        "primary_clinic_id": str(body.primary_clinic_id),
+        "email": body.contact if body.method == "email" else f"pending-{uuid4()}@no-email.local",
+        "phone": body.contact if body.method == "mobile" else None,
+    }
+    patient = await PatientService(db).register(data, self_registered=True, cognito_sub=cognito_sub)
+    if body.method == "email":
+        await db.execute(text("UPDATE profiles SET email_verified = TRUE WHERE id = :id"), {"id": patient["profile_id"]})
+    else:
+        await db.execute(text("UPDATE profiles SET phone_verified = TRUE WHERE id = :id"), {"id": patient["profile_id"]})
+    await db.commit()
+
+    result = initiate_auth(username=body.contact, password=body.password)
+    return PublicPatientRegisterResponse(access_token=result["AccessToken"], patient_id=patient["patient_id"])
+
+
+@router.post("/patients/verify-channel/start", status_code=204)
+async def verify_channel_start(body: VerifyChannelStart, request: Request,
+                                _ctx: RequestContext = Depends(get_current_context)) -> None:
+    """Post-signup: adds the channel NOT used at signup (e.g. a
+    mobile-signup patient's Cognito user has no email attribute at all yet)
+    and triggers its verification code in one call. Authenticated — needs
+    the caller's own Cognito access token, which this reads straight off the
+    Authorization header (get_current_context already validated it; this
+    just needs the raw string Cognito itself wants)."""
+    if settings.auth_mode != "cognito":
+        raise HTTPException(status_code=404, detail="Not found")
+    from app.core.cognito import add_and_verify_channel_start
+
+    add_and_verify_channel_start(access_token=_bearer_token(request), attribute=body.attribute, value=body.value)
+
+
+@router.post("/patients/verify-channel/confirm", status_code=204)
+async def verify_channel_confirm(body: VerifyChannelConfirm, request: Request, db=Depends(get_db),
+                                  ctx: RequestContext = Depends(get_current_context)) -> None:
+    """On success, overwrites our own profiles.email/phone with the real
+    verified value too — email in particular may still be holding the
+    'pending-<uuid>@no-email.local' placeholder from a mobile-only signup."""
+    if settings.auth_mode != "cognito":
+        raise HTTPException(status_code=404, detail="Not found")
+    from app.core.cognito import verify_attribute
+
+    verify_attribute(access_token=_bearer_token(request), attribute=body.attribute, code=body.code)
+    if body.attribute == "email":
+        await db.execute(text("UPDATE profiles SET email_verified = TRUE, email = :value WHERE id = :id"), {"value": body.value, "id": ctx.user_id})
+    else:
+        await db.execute(text("UPDATE profiles SET phone_verified = TRUE, phone = :value WHERE id = :id"), {"value": body.value, "id": ctx.user_id})
+    await db.commit()
+
+
 @router.post("/local-login", response_model=TokenResponse)
 async def local_login(body: LocalLoginRequest) -> TokenResponse:
     """Dev/test-only endpoint — issues a token for a seeded profile without
     needing a Cognito account. Disabled once auth_mode='cognito' (Stage 13);
-    real clients authenticate directly against Cognito instead."""
+    real clients use /auth/login above instead."""
     if settings.auth_mode != "local":
         raise HTTPException(status_code=404, detail="Not found")
     if not body.cognito_sub and not body.email:
@@ -103,7 +266,7 @@ async def get_current_user(ctx: RequestContext = Depends(get_current_context), d
     side fix; this one didn't need a new policy, just the right session)."""
     row = (
         await db.execute(
-            text("SELECT id, email, first_name, last_name, role FROM profiles WHERE id = :id"),
+            text("SELECT id, email, first_name, last_name, role, email_verified, phone_verified FROM profiles WHERE id = :id"),
             {"id": ctx.user_id},
         )
     ).mappings().first()
@@ -121,6 +284,12 @@ async def get_current_user(ctx: RequestContext = Depends(get_current_context), d
             )
         ).mappings().first()
 
+    doctor_row = None
+    if row["role"] == "doctor":
+        doctor_row = (
+            await db.execute(text("SELECT doctor_id FROM doctors WHERE profile_id = :pid"), {"pid": row["id"]})
+        ).mappings().first()
+
     return CurrentUserRead(
         id=row["id"], email=row["email"], first_name=row["first_name"], last_name=row["last_name"],
         role=row["role"], clinic_id=UUID(ctx.clinic_id) if ctx.clinic_id else None,
@@ -131,4 +300,12 @@ async def get_current_user(ctx: RequestContext = Depends(get_current_context), d
         self_registered=bool(patient_row["self_registered"]) if patient_row else False,
         patient_id=patient_row["patient_id"] if patient_row else None,
         registration_status=patient_row["registration_status"] if patient_row else None,
+        doctor_id=doctor_row["doctor_id"] if doctor_row else None,
+        # Only meaningful for a real cognito-mode patient (the only flow that
+        # ever leaves one channel unverified) — every other case (local dev,
+        # staff, patients pre-dating this feature) reports True regardless of
+        # the column's actual value so no "verify your email" banner ever
+        # nags someone this feature was never asked of.
+        email_verified=True if not (settings.auth_mode == "cognito" and row["role"] == "patient") else row["email_verified"],
+        phone_verified=True if not (settings.auth_mode == "cognito" and row["role"] == "patient") else row["phone_verified"],
     )

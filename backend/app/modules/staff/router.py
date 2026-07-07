@@ -25,6 +25,11 @@ _STAFF_READ_ROLES = (*_STAFF_MGMT_ROLES, "doctor", "clinical_assistant", "recept
 # separate manual step; regional_admin/super_admin retain full CRUD.
 _STAFF_CREATE_ROLES = ("super_admin", "regional_admin")
 _STAFF_DELETE_ROLES = ("super_admin", "regional_admin")
+# Every one of these roles belongs to exactly one clinic (ctx.clinic_id is
+# always set) — a bare GET with no clinic_id should default to "my own
+# clinic", never every doctor system-wide. super_admin/regional_admin see
+# everything by default since they aren't clinic-scoped.
+_SINGLE_CLINIC_ROLES = ("clinic_admin", "doctor", "clinical_assistant", "receptionist")
 
 
 # --------------------------------------------------------------- doctors --
@@ -38,7 +43,7 @@ async def create_doctor(body: s.DoctorCreate, db=Depends(get_db), ctx: RequestCo
 
 @router.get("/doctors", response_model=list[s.DoctorRead])
 async def list_doctors(clinic_id: UUID | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_STAFF_READ_ROLES))):
-    if clinic_id is None and ctx.role == "clinic_admin":
+    if clinic_id is None and ctx.role in _SINGLE_CLINIC_ROLES:
         clinic_id = UUID(ctx.clinic_id)
     return await DoctorService(db).list(clinic_id=clinic_id)
 

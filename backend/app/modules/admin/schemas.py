@@ -95,6 +95,7 @@ class AdminAccountUpdate(BaseModel):
     last_name: str | None = None
     email: EmailStr | None = None
     phone: str | None = None
+    is_active: bool | None = None
 
 
 class AdminAccountRead(BaseModel):

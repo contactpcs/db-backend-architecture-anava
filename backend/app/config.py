@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     cognito_region: str | None = None
     cognito_user_pool_id: str | None = None
     cognito_app_client_id: str | None = None
+    cognito_app_client_secret: str | None = None
 
     # File storage — local dev writes to disk behind the same interface
     # integrations/s3.py exposes; Stage 13 swaps this for a real S3 bucket.
@@ -48,6 +49,15 @@ class Settings(BaseSettings):
     # just an endpoint override; boto3 SQS code never changes at cutover.
     sqs_endpoint_url: str | None = "http://localhost:9324"
     aws_region: str = "ap-south-1"
+    # Real AWS IAM credentials — needed for Cognito's Admin* calls
+    # (AdminCreateUser/AdminSetUserPassword/AdminGetUser), which require IAM
+    # auth, unlike InitiateAuth (app-client-secret only, no IAM). Left unset
+    # for real deployments (EC2/ECS/Lambda IAM role covers it there instead
+    # — boto3 falls back to its default credential chain when these are
+    # None), set explicitly here for local dev / anywhere without an
+    # attached role.
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
 
     # Payments — Razorpay test-mode keys, set once available (Stage 10).
     # Empty in early development; payments module runs in stub mode until set.
@@ -60,7 +70,7 @@ class Settings(BaseSettings):
     # Clinical staff (doctor/CA/receptionist) must log in with an official
     # org email — patients are exempt, always use their own. Enforced at
     # staff profile creation time (see staff/service.py).
-    staff_allowed_email_domains: list[str] = ["anavaclinic.com", "anavaclinics.com", "manahealthsciences.com"]
+    staff_allowed_email_domains: list[str] = ["anavaclinics.com", "manahealthsciences.com"]
 
 
 @lru_cache

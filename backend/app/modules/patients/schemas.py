@@ -37,6 +37,7 @@ class PatientUpdate(BaseModel):
     address: str | None = None
     emergency_contact_name: str | None = None
     emergency_contact_phone: str | None = None
+    is_active: bool | None = None
 
 
 class DiseaseSelectionCreate(BaseModel):
@@ -66,6 +67,11 @@ class PatientRead(BaseModel):
     dob: date | None = None
     address: str | None = None
     profile_is_active: bool = True
+    doctor_name: str | None = None
+    doctor_first_name: str | None = None
+    doctor_last_name: str | None = None
+    doctor_phone: str | None = None
+    doctor_specialization: str | None = None
     # Self-registration gate — 'not_required' forever for staff-registered
     # patients (unaffected, matches pre-existing behavior). Self-registered
     # patients start 'pending' and only reach 'approved'/'rejected' once a
@@ -80,6 +86,10 @@ class PatientRead(BaseModel):
 class PatientApprovalDecision(BaseModel):
     decision: str = Field(pattern="^(approved|rejected)$")
     rejection_reason: str | None = None
+
+
+class DoctorAllocation(BaseModel):
+    doctor_id: UUID
 
 
 class DiseaseSelectionRead(BaseModel):

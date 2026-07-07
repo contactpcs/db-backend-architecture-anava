@@ -7,6 +7,7 @@ from app.core.exceptions import PermissionError_
 from app.core.permissions import require_role
 from app.core.scoping import assert_clinic_scope
 from app.modules.admin import schemas as s
+from app.modules.admin.repository import ClinicRepository
 from app.modules.admin.service import (
     AdminAccountsService,
     ClinicRequestService,
@@ -89,8 +90,19 @@ async def update_admin(
     admin_id: UUID,
     body: s.AdminAccountUpdate,
     db=Depends(get_db),
-    _ctx: RequestContext = Depends(require_role("super_admin")),
+    ctx: RequestContext = Depends(require_role("super_admin", "regional_admin")),
 ):
+    # A regional_admin may only manage clinic_admin accounts within their
+    # own region — not other regional_admins, and not clinic_admins
+    # elsewhere. clinic_admin rows have admins.region_id = NULL (they're
+    # clinic-scoped, not region-scoped directly) — same reasoning as the
+    # /admins list filter's clinic join, reach their region via the clinic.
+    if ctx.role == "regional_admin":
+        existing = await AdminAccountsService(db).get(admin_id)
+        clinic = await ClinicRepository(db).get(existing["clinic_id"]) if existing["clinic_id"] else None
+        admin_region_id = existing["region_id"] or (clinic["region_id"] if clinic else None)
+        if existing["admin_type"] != "clinic_admin" or str(admin_region_id) != ctx.region_id:
+            raise PermissionError_("You can only manage clinic admins in your own region", code="ADMIN_SCOPE_MISMATCH")
     return await AdminAccountsService(db).update(admin_id, body.model_dump())
 
 

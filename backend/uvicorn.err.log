@@ -1,4 +1,6 @@
-INFO:     Started server process [39984]
+INFO:     Will watch for changes in these directories: ['D:\\PCS\\backend-v2\\backend']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [19360] using WatchFiles
+INFO:     Started server process [33228]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)

@@ -5,7 +5,10 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.core.sql_helpers import fetch_one, fetch_optional, insert_returning
+
+settings = get_settings()
 
 
 async def create_profile(session: AsyncSession, *, email: str, first_name: str, last_name: str,
@@ -14,26 +17,35 @@ async def create_profile(session: AsyncSession, *, email: str, first_name: str, 
                           city: str | None = None, state: str | None = None, country: str | None = None,
                           pincode: str | None = None) -> dict:
     """Every staff/admin identity starts as a profiles row. cognito_sub is a
-    placeholder ('pending-<uuid>') until Stage 13's real Cognito invite flow
-    replaces it — this module owns the write today because no dedicated
-    profiles/identity module exists (profiles is core/universal per
-    Architecture Section 6, read by auth, not owned by any one module).
+    placeholder ('pending-<uuid>') in local dev; in real Cognito mode this
+    provisions the actual Cognito user first (temp password auto-emailed by
+    Cognito — see core/cognito.py) and stores its real sub instead. This
+    module owns the write today because no dedicated profiles/identity
+    module exists (profiles is core/universal per Architecture Section 6,
+    read by auth, not owned by any one module).
 
     is_active/consent_signed both default True for backward compatibility,
     but every caller in this codebase now passes both False for
     newly-registered people — they're gated until they sign the onboarding
     consent (see consent/service.py ConsentRecordService.sign, and
     SQL/28_consent_redesign.sql for why these are two separate columns)."""
+    if settings.auth_mode == "cognito":
+        from app.core.cognito import provision_staff_user
+        cognito_sub = provision_staff_user(email=email, first_name=first_name, last_name=last_name, phone=phone)
+    else:
+        cognito_sub = None
+
     row = (
         await session.execute(
             text(
                 "INSERT INTO profiles (cognito_sub, email, first_name, last_name, phone, role, is_active, "
                 "consent_signed, gender, dob, address, city, state, country, pincode) "
-                "VALUES ('pending-' || gen_random_uuid()::TEXT, :email, :first_name, :last_name, :phone, :role, "
-                ":is_active, :consent_signed, :gender, :dob, :address, :city, :state, :country, :pincode) "
-                "RETURNING *"
+                "VALUES (COALESCE(:cognito_sub, 'pending-' || gen_random_uuid()::TEXT), :email, :first_name, "
+                ":last_name, :phone, :role, :is_active, :consent_signed, :gender, :dob, :address, :city, :state, "
+                ":country, :pincode) RETURNING *"
             ),
             {
+                "cognito_sub": cognito_sub,
                 "email": email, "first_name": first_name, "last_name": last_name, "phone": phone, "role": role,
                 "is_active": is_active, "consent_signed": consent_signed, "gender": gender, "dob": dob,
                 "address": address, "city": city, "state": state, "country": country, "pincode": pincode,

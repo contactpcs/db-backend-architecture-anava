@@ -16,25 +16,46 @@ class PatientRepository:
                                            gender, dob, address, primary_clinic_id: UUID,
                                            emergency_contact_name, emergency_contact_phone,
                                            city=None, state=None, country=None, pincode=None,
-                                           self_registered: bool = False, approval_status: str = "not_required") -> dict:
+                                           self_registered: bool = False, approval_status: str = "not_required",
+                                           cognito_sub: str | None = None) -> dict:
         # is_active = FALSE — gated until the patient signs the
         # patient_onboarding consent (see consent/service.py ConsentRecordService.sign),
         # or (self-registered) until a receptionist approves (patients.approval_status).
         # consent_signed = FALSE alongside it — separate column, see
         # SQL/28_consent_redesign.sql; sign() flips this one directly but
         # is_active for patients stays gated behind the rest of registration.
+        # Anonymous self-registration has no RLS context at all — the INSERT's
+        # own WITH CHECK allows it (see SQL/38), but INSERT ... RETURNING also
+        # needs the SELECT policy to allow seeing the new row, and
+        # rls_profiles_select has nothing to match an anonymous caller against
+        # yet (no id/cognito_sub/email GUC was ever set for this flow). Same
+        # self-lookup-right-before-the-query pattern as the login-by-email fix
+        # (SQL/33) — set app.current_email to the row we're about to create,
+        # which rls_profiles_select's existing `email = rls_email()` clause
+        # already covers.
+        # cognito_sub: real value already resolved by the caller (the OTP
+        # signup wizard, patients/router.py) when auth_mode == "cognito";
+        # None here falls back to the local-dev placeholder below.
+        await self.session.execute(text("SELECT set_config('app.current_email', :email, true)"), {"email": email})
         profile = await fetch_one(
             self.session,
             text(
                 "INSERT INTO profiles (cognito_sub, email, first_name, last_name, phone, role, gender, dob, address, "
                 "city, state, country, pincode, is_active, consent_signed) "
-                "VALUES ('pending-' || gen_random_uuid()::TEXT, :email, :first_name, :last_name, :phone, "
+                "VALUES (COALESCE(:cognito_sub, 'pending-' || gen_random_uuid()::TEXT), :email, :first_name, :last_name, :phone, "
                 "'patient', :gender, :dob, :address, :city, :state, :country, :pincode, FALSE, FALSE) RETURNING *"
             ),
-            {"email": email, "first_name": first_name, "last_name": last_name, "phone": phone,
+            {"cognito_sub": cognito_sub,
+             "email": email, "first_name": first_name, "last_name": last_name, "phone": phone,
              "gender": gender, "dob": dob, "address": address,
              "city": city, "state": state, "country": country, "pincode": pincode},
         )
+        # Same reason, for the patients insert's own RETURNING (rls_patients_
+        # select's `profile_id = rls_user_id()` clause) and for
+        # create_onboarding_consent's consent_records insert right after this
+        # method returns, still the same transaction (rls_cr_select's
+        # `patient_id = rls_user_id()` clause) — one GUC, set once, covers both.
+        await self.session.execute(text("SELECT set_config('app.current_user_id', :uid, true)"), {"uid": str(profile["id"])})
         # mrn is set by the fn_generate_mrn() trigger (SQL/14_triggers.sql) — not passed here.
         patient = await fetch_one(
             self.session,
@@ -60,7 +81,13 @@ class PatientRepository:
 
     _SELECT_WITH_PROFILE = (
         "SELECT pt.*, p.first_name, p.last_name, p.email, p.phone, p.gender, p.dob, p.address, "
-        "p.is_active AS profile_is_active FROM patients pt JOIN profiles p ON p.id = pt.profile_id"
+        "p.is_active AS profile_is_active, "
+        "dp.first_name AS doctor_first_name, dp.last_name AS doctor_last_name, "
+        "dp.first_name || ' ' || dp.last_name AS doctor_name, "
+        "dp.phone AS doctor_phone, dd.specialization AS doctor_specialization "
+        "FROM patients pt JOIN profiles p ON p.id = pt.profile_id "
+        "LEFT JOIN profiles dp ON dp.id = pt.primary_doctor_id "
+        "LEFT JOIN doctors dd ON dd.profile_id = pt.primary_doctor_id"
     )
 
     async def get(self, patient_id: UUID) -> dict | None:

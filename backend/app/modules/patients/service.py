@@ -30,7 +30,7 @@ class PatientService:
         self.disease_repo = DiseaseSelectionRepository(session)
         self.assignments = DoctorPatientAssignmentRepository(session)
 
-    async def register(self, data: dict, *, self_registered: bool = False) -> dict:
+    async def register(self, data: dict, *, self_registered: bool = False, cognito_sub: str | None = None) -> dict:
         clinic = (
             await self.session.execute(
                 text(
@@ -63,6 +63,7 @@ class PatientService:
                 emergency_contact_phone=data.get("emergency_contact_phone"),
                 city=data.get("city"), state=data.get("state"), country=data.get("country"), pincode=data.get("pincode"),
                 self_registered=self_registered, approval_status="pending" if self_registered else "not_required",
+                cognito_sub=cognito_sub,
             )
         except IntegrityError as exc:
             raise ConflictError(f"Email {data['email']!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
@@ -90,7 +91,7 @@ class PatientService:
 
     async def update(self, patient_id: UUID, fields: dict) -> dict:
         await self.get(patient_id)  # 404 if missing
-        profile_keys = {"first_name", "last_name", "email", "phone", "gender", "dob", "address"}
+        profile_keys = {"first_name", "last_name", "email", "phone", "gender", "dob", "address", "is_active"}
         patient_keys = {"emergency_contact_name", "emergency_contact_phone"}
         clean = {k: v for k, v in fields.items() if v is not None}
         profile_fields = {k: v for k, v in clean.items() if k in profile_keys}
@@ -123,6 +124,31 @@ class PatientService:
         await emit_event(
             self.session, aggregate_type="patient", aggregate_id=patient_id,
             event_type="patient_registration_decided", payload={"patient_id": str(patient_id), "decision": decision},
+        )
+        return await self.get(patient_id)
+
+    async def allocate_doctor(self, patient_id: UUID, doctor_id: UUID, *, allocated_by: UUID) -> dict:
+        """Manual (re)allocation — receptionist/clinic_admin explicitly
+        picking a doctor, as opposed to _complete_registration's automatic
+        least-loaded pick. Ends any existing active assignment before
+        creating the new one (doctor_patient_assignments has no unique
+        constraint stopping two 'active' rows for the same patient
+        otherwise)."""
+        patient = await self.get(patient_id)
+        doctor = await DoctorService(self.session).get(doctor_id)
+        if not doctor:
+            raise NotFoundError("Doctor not found", code="DOCTOR_NOT_FOUND")
+        if str(doctor["clinic_id"]) != str(patient["primary_clinic_id"]):
+            raise BusinessRuleError("Doctor must be at the patient's own clinic", code="DOCTOR_CLINIC_MISMATCH")
+
+        await self.assignments.end_active(patient_id=patient["profile_id"], clinic_id=patient["primary_clinic_id"])
+        await self.assignments.create(
+            doctor_id=doctor["profile_id"], patient_id=patient["profile_id"], clinic_id=patient["primary_clinic_id"]
+        )
+        await self.repo.update(patient_id, profile_fields={}, patient_fields={"primary_doctor_id": str(doctor["profile_id"])})
+        await emit_event(
+            self.session, aggregate_type="patient", aggregate_id=patient_id,
+            event_type="doctor_allocated", payload={"patient_id": str(patient_id), "doctor_id": str(doctor["profile_id"]), "allocated_by": str(allocated_by)},
         )
         return await self.get(patient_id)
 

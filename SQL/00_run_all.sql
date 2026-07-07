@@ -124,6 +124,30 @@
 \echo '>>> 36 Fix Consent Records Self-Sign RLS (doctor/CA/receptionist/patient sign loop)'
 \i 36_fix_consent_records_self_sign_rls.sql
 
+\echo '>>> 37 Fix Regions RLS Anonymous Read (public self-registration clinic lookup)'
+\i 37_fix_regions_rls_anonymous_read.sql
+
+\echo '>>> 38 Fix Self-Registration Anonymous Insert RLS (profiles/patients/consent_records)'
+\i 38_fix_self_registration_anonymous_insert_rls.sql
+
+\echo '>>> 39 Fix Patient Scale Assignments Self-Select RLS (disease-selection auto-assign)'
+\i 39_fix_patient_scale_assignments_self_select_rls.sql
+
+\echo '>>> 40 Fix PRS Scale/Final Results Self-Submit RLS (general PRS submission)'
+\i 40_fix_prs_scale_and_final_results_self_submit_rls.sql
+
+\echo '>>> 41 Fix Profiles Patient Sees Own Clinic Staff RLS (doctor auto-allocation)'
+\i 41_fix_profiles_patient_sees_own_clinic_staff_rls.sql
+
+\echo '>>> 42 Fix Doctor Patient Assignments Self-Insert RLS (auto-allocation write)'
+\i 42_fix_doctor_patient_assignments_self_insert_rls.sql
+
+\echo '>>> 43 Fix Receptionist Patient Approval RLS (is_active activation write)'
+\i 43_fix_receptionist_patient_approval_rls.sql
+
+\echo '>>> 44 Patient OTP Channel Verification (email_verified/phone_verified columns)'
+\i 44_patient_otp_channel_verification.sql
+
 \echo '>>> Schema build complete. 60 tables created.'
 \echo '>>>'
 \echo '>>> NOT included above (run manually, in this order, once schema is up):'

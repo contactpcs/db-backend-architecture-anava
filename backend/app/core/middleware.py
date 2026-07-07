@@ -22,9 +22,15 @@ PUBLIC_PATHS = {
     "/openapi.json",
     "/redoc",
     "/api/v1/auth/login",
+    "/api/v1/auth/login/new-password",  # completes NEW_PASSWORD_REQUIRED — no session yet either
     "/api/v1/auth/local-login",  # dev-only (Stage 13 removes this route entirely)
     "/api/v1/auth/register",  # public patient self-registration — see patients module
     "/api/v1/auth/clinics",  # public clinic picker for the self-registration form
+    "/api/v1/auth/config",  # public — tells the frontend which auth endpoints to call
+    "/api/v1/auth/patients/signup/start",
+    "/api/v1/auth/patients/signup/resend",
+    "/api/v1/auth/patients/signup/verify",
+    "/api/v1/auth/patients/signup/complete",
     "/api/v1/webhooks/razorpay",  # authenticated via HMAC signature, not a user JWT
 }
 
