@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     # attached role.
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
+    # SSO (IAM Identity Center) alternative to the two above — set this to
+    # an AWS CLI profile name you've already run `aws sso login --profile
+    # <name>` against instead of pasting long-lived keys here. Takes
+    # priority over aws_access_key_id/secret when both are somehow set.
+    aws_profile: str | None = None
 
     # Payments — Razorpay test-mode keys, set once available (Stage 10).
     # Empty in early development; payments module runs in stub mode until set.
@@ -70,7 +75,7 @@ class Settings(BaseSettings):
     # Clinical staff (doctor/CA/receptionist) must log in with an official
     # org email — patients are exempt, always use their own. Enforced at
     # staff profile creation time (see staff/service.py).
-    staff_allowed_email_domains: list[str] = ["anavaclinics.com", "manahealthsciences.com"]
+    staff_allowed_email_domains: list[str] = ["anavaclinics.com", "manahealthsciences.com", "pcsdatai.com"]
 
 
 @lru_cache

@@ -40,6 +40,11 @@ settings = get_settings()
 
 @lru_cache
 def _client():
+    if settings.aws_profile:
+        # SSO / any other named CLI profile — reads whatever `aws sso login
+        # --profile <name>` (or `aws configure`) already cached on disk, no
+        # keys needed here at all.
+        return boto3.Session(profile_name=settings.aws_profile).client("cognito-idp", region_name=settings.cognito_region)
     return boto3.client(
         "cognito-idp", region_name=settings.cognito_region,
         aws_access_key_id=settings.aws_access_key_id, aws_secret_access_key=settings.aws_secret_access_key,
