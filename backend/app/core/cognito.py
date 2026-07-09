@@ -109,14 +109,27 @@ def sign_up_patient(*, username: str, first_name: str, last_name: str,
         attrs.append({"Name": "birthdate", "Value": dob})
     if gender:
         attrs.append({"Name": "gender", "Value": gender})
-    throwaway_password = secrets.token_urlsafe(24)
+    # token_urlsafe's alphabet has no symbol char this pool's password
+    # policy accepts — appended suffix guarantees upper/lower/digit/symbol.
+    throwaway_password = secrets.token_urlsafe(24) + "aA1!"
     try:
         _client().sign_up(
             ClientId=settings.cognito_app_client_id, SecretHash=_secret_hash(username),
             Username=username, Password=throwaway_password, UserAttributes=attrs,
         )
     except _client().exceptions.UsernameExistsException as exc:
-        raise BusinessRuleError("An account with this email/phone already exists", code="ACCOUNT_ALREADY_EXISTS") from exc
+        # Cognito raises this even for an abandoned signup (OTP never
+        # entered, still UNCONFIRMED) — not a real conflict, so resend the
+        # code and let the wizard continue instead of blocking the patient
+        # from ever finishing. Only a genuinely CONFIRMED account is a
+        # real "already exists".
+        try:
+            status = _client().admin_get_user(UserPoolId=settings.cognito_user_pool_id, Username=username)["UserStatus"]
+        except ClientError:
+            raise BusinessRuleError("An account with this email/phone already exists", code="ACCOUNT_ALREADY_EXISTS") from exc
+        if status != "UNCONFIRMED":
+            raise BusinessRuleError("An account with this email/phone already exists", code="ACCOUNT_ALREADY_EXISTS") from exc
+        resend_confirmation_code(username)
     except ClientError as exc:
         raise BusinessRuleError(f"Could not start signup: {exc}", code="COGNITO_SIGNUP_FAILED") from exc
 

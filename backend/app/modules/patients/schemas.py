@@ -66,6 +66,10 @@ class PatientRead(BaseModel):
     gender: str | None = None
     dob: date | None = None
     address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    pincode: str | None = None
     profile_is_active: bool = True
     doctor_name: str | None = None
     doctor_first_name: str | None = None

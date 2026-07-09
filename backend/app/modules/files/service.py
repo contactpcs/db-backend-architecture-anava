@@ -78,9 +78,11 @@ class FileService:
                 results.append({**r, "doc_type": "medical_history", "file_id": r["mhf_id"]})
         return results
 
-    async def download_url(self, doc_type: str, file_id: UUID) -> str:
+    async def download_url(self, doc_type: str, file_id: UUID, *, caller_profile_id: UUID | None = None) -> str:
         record = await self.eeg.get(file_id) if doc_type == "eeg" else await self.mhf.get(file_id)
         if not record:
+            raise NotFoundError("File not found", code="FILE_NOT_FOUND")
+        if caller_profile_id is not None and record["patient_id"] != caller_profile_id:
             raise NotFoundError("File not found", code="FILE_NOT_FOUND")
         key = record["raw_data_s3_key"] if doc_type == "eeg" else record["s3_key"]
         return s3.presign_download(key)

@@ -81,6 +81,7 @@ class PatientRepository:
 
     _SELECT_WITH_PROFILE = (
         "SELECT pt.*, p.first_name, p.last_name, p.email, p.phone, p.gender, p.dob, p.address, "
+        "p.city, p.state, p.country, p.pincode, "
         "p.is_active AS profile_is_active, "
         "dp.first_name AS doctor_first_name, dp.last_name AS doctor_last_name, "
         "dp.first_name || ' ' || dp.last_name AS doctor_name, "

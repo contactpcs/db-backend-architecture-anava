@@ -170,7 +170,8 @@ async def patient_signup_complete(body: PatientSignupComplete, db=Depends(get_db
     # own 'pending-<uuid>' placeholder elsewhere in this codebase.
     data = {
         "first_name": body.first_name, "last_name": body.last_name, "dob": body.dob,
-        "gender": body.gender, "city": body.city, "state": body.state, "country": body.country,
+        "gender": body.gender, "address": body.address, "city": body.city, "state": body.state,
+        "country": body.country, "pincode": body.pincode,
         "primary_clinic_id": str(body.primary_clinic_id),
         "email": body.contact if body.method == "email" else f"pending-{uuid4()}@no-email.local",
         "phone": body.contact if body.method == "mobile" else None,

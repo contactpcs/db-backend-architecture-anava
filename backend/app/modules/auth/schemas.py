@@ -17,9 +17,11 @@ class PublicPatientRegister(BaseModel):
     phone: str | None = None
     gender: str | None = Field(default=None, pattern="^(male|female|other)$")
     dob: date | None = None
+    address: str | None = None
     city: str | None = None
     state: str | None = None
     country: str | None = None
+    pincode: str | None = None
     primary_clinic_id: UUID
 
 
@@ -34,9 +36,11 @@ class PatientSignupStart(BaseModel):
     last_name: str
     dob: date | None = None
     gender: str | None = Field(default=None, pattern="^(male|female|other)$")
+    address: str | None = None
     city: str | None = None
     state: str | None = None
     country: str | None = None
+    pincode: str | None = None
     primary_clinic_id: UUID
     method: str = Field(pattern="^(email|mobile)$")
     # Email address (method=='email') or E.164 phone ("+91XXXXXXXXXX",
@@ -63,9 +67,11 @@ class PatientSignupComplete(BaseModel):
     last_name: str
     dob: date | None = None
     gender: str | None = Field(default=None, pattern="^(male|female|other)$")
+    address: str | None = None
     city: str | None = None
     state: str | None = None
     country: str | None = None
+    pincode: str | None = None
     primary_clinic_id: UUID
     method: str = Field(pattern="^(email|mobile)$")
     contact: str
