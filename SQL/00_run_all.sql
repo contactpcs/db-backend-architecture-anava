@@ -154,6 +154,9 @@
 \echo '>>> 46 PRS Translations (Hindi, Marathi — questions + option labels)'
 \i 46_translations_insert.sql
 
+\echo '>>> 47 PRS Assessment Language (language_code on prs_assessment_instances)'
+\i 47_prs_assessment_language.sql
+
 \echo '>>> Schema build complete. 60 tables created.'
 \echo '>>>'
 \echo '>>> NOT included above (run manually, in this order, once schema is up):'
