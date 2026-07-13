@@ -23,3 +23,12 @@ ALTER TABLE prs_assessment_instances
 
 COMMENT ON COLUMN prs_assessment_instances.language_code IS
     'BCP-47-style language the patient took this assessment in (en/hi/mr). Matches prs_question_translations.language_code; en = base content in prs_questions/prs_options.';
+
+-- Per-response language: patient may switch language mid-assessment
+-- (each answer records the language of the wording actually shown).
+-- Backfill 'en' for the same reason as above.
+ALTER TABLE prs_responses
+    ADD COLUMN IF NOT EXISTS language_code VARCHAR(10) NOT NULL DEFAULT 'en';
+
+COMMENT ON COLUMN prs_responses.language_code IS
+    'Language of the question wording shown when this answer was given (en/hi/mr). May differ from the instance language if the patient switched mid-assessment.';
