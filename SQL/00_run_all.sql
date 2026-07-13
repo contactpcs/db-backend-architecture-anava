@@ -148,6 +148,12 @@
 \echo '>>> 44 Patient OTP Channel Verification (email_verified/phone_verified columns)'
 \i 44_patient_otp_channel_verification.sql
 
+\echo '>>> 45 PRS Question Translations (Hindi, Marathi — questions only)'
+\i 45_questions_translations_insert.sql
+
+\echo '>>> 46 PRS Translations (Hindi, Marathi — questions + option labels)'
+\i 46_translations_insert.sql
+
 \echo '>>> Schema build complete. 60 tables created.'
 \echo '>>>'
 \echo '>>> NOT included above (run manually, in this order, once schema is up):'
