@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from uuid import UUID
 
@@ -7,6 +8,58 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.sql_helpers import fetch_one, fetch_optional
+
+# prs_questions.skip_logic is free text from the real clinical CSV
+# (Data/prs_questions_rows_v1.csv), not a fixed format — 16 distinct values
+# exist across all scales, and only two shapes are unambiguous single-clause
+# instructions. Confirmed against real data (e.g. COMPASS-31/001 "If No ?
+# skip to Q5" — Q<N> is the 1-based position within THIS scale's ordered
+# question list, not the question_id's numeric suffix, though they usually
+# coincide). Everything else (composite "...; If Yes ? continue" clauses,
+# and non-instructional notes like "Multiple selection", "Always asked",
+# "Conditional note in PDF") is left unparsed by design — question stays
+# always visible rather than guessing at ambiguous clinical logic.
+_FORWARD_SKIP_RE = re.compile(r"^if\s+(.+?)\s*\S?\s*(?:skip to|go to)\s+q?(\d+)\s*$", re.IGNORECASE)
+_REVERSE_SKIP_RE = re.compile(r"^only if\s+q(\d+)\s*=\s*(.+?)\s*$", re.IGNORECASE)
+
+
+def _apply_skip_logic(questions: list[dict]) -> None:
+    """Mutates each question dict in place, adding hidden_unless: dict | None.
+    Two authoring directions in the real data resolve to the same shape —
+    "hide this question unless a referenced question's answer matches":
+      - "Only if Q1 = Yes" (declared on the dependent question itself) ->
+        {"question_id": <Q1>, "visible_only_when_label": "Yes"}
+      - "If No -> skip to Q5" (declared on the trigger question, Q1) ->
+        propagated onto Q2/Q3/Q4 (the ones actually skipped) as
+        {"question_id": <Q1>, "hidden_when_label": "No"}
+    A question's own explicit "Only if" always wins over a propagated
+    forward-skip rule for the same question (checked before overwriting)."""
+    for q in questions:
+        q["hidden_unless"] = None
+
+    # Pass 1: explicit self-declared "Only if Q<N> = <label>" — authoritative.
+    for q in questions:
+        raw = (q.get("skip_logic") or "").strip()
+        m = _REVERSE_SKIP_RE.match(raw)
+        if not m:
+            continue
+        ref_idx = int(m.group(1)) - 1
+        if 0 <= ref_idx < len(questions):
+            q["hidden_unless"] = {"question_id": questions[ref_idx]["question_id"], "visible_only_when_label": m.group(2).strip()}
+
+    # Pass 2: "If <label> (skip to|go to) Q<N>" propagated onto the in-between
+    # questions that don't already have their own explicit rule from pass 1.
+    for idx, q in enumerate(questions):
+        raw = (q.get("skip_logic") or "").strip()
+        m = _FORWARD_SKIP_RE.match(raw)
+        if not m:
+            continue
+        trigger_label = m.group(1).strip()
+        target_idx = int(m.group(2)) - 1
+        if idx < target_idx <= len(questions):
+            for skipped in questions[idx + 1 : target_idx]:
+                if skipped["hidden_unless"] is None:
+                    skipped["hidden_unless"] = {"question_id": q["question_id"], "hidden_when_label": trigger_label}
 
 
 class PrsCatalogRepository:
@@ -68,20 +121,30 @@ class PrsCatalogRepository:
         ).mappings().all()
         return [dict(r) for r in rows]
 
-    async def questions_for_scale(self, scale_id: str) -> list[dict]:
+    async def questions_for_scale(self, scale_id: str, language: str = "en") -> list[dict]:
         # Questions + their options in two queries (same pattern as
         # anamnesis/repository.py::list_with_options and diseases() above) —
         # prs_options was only ever used internally for scoring math
         # (option_points/max_points_for_question below); nobody could
         # actually render a question's answer choices without this.
+        #
+        # LEFT JOIN + COALESCE: translation is a pure data add (SQL 45/46),
+        # 'en' has no rows in prs_question_translations/prs_option_translations
+        # (base text lives on prs_questions/prs_options directly), and any
+        # question/option missing a translation row for the requested
+        # language silently falls back to English rather than 404ing.
         question_rows = (
             await self.session.execute(
                 text(
-                    "SELECT q.* FROM prs_questions q "
+                    "SELECT q.question_id, q.question_code, q.disease_id, q.scale_id, q.ds_map_id, "
+                    "COALESCE(t.question_text, q.question_text) AS question_text, "
+                    "q.answer_type, q.min_value, q.max_value, q.is_required, q.skip_logic, q.display_order "
+                    "FROM prs_questions q "
                     "JOIN prs_scale_question_map m ON m.question_id = q.question_id "
+                    "LEFT JOIN prs_question_translations t ON t.question_id = q.question_id AND t.language_code = :lang "
                     "WHERE m.scale_id = :scale_id ORDER BY m.display_order"
                 ),
-                {"scale_id": scale_id},
+                {"scale_id": scale_id, "lang": language},
             )
         ).mappings().all()
         if not question_rows:
@@ -89,11 +152,15 @@ class PrsCatalogRepository:
         option_rows = (
             await self.session.execute(
                 text(
-                    "SELECT option_id, question_id, option_label, option_value, points, display_order "
-                    "FROM prs_options WHERE question_id = ANY(:qids) AND status = TRUE "
-                    "ORDER BY question_id, display_order"
+                    "SELECT o.option_id, o.question_id, "
+                    "COALESCE(ot.option_label, o.option_label) AS option_label, "
+                    "o.option_value, o.points, o.display_order "
+                    "FROM prs_options o "
+                    "LEFT JOIN prs_option_translations ot ON ot.option_id = o.option_id AND ot.language_code = :lang "
+                    "WHERE o.question_id = ANY(:qids) AND o.status = TRUE "
+                    "ORDER BY o.question_id, o.display_order"
                 ),
-                {"qids": [r["question_id"] for r in question_rows]},
+                {"qids": [r["question_id"] for r in question_rows], "lang": language},
             )
         ).mappings().all()
         options_by_question: dict[str, list[dict]] = {}
@@ -110,6 +177,7 @@ class PrsCatalogRepository:
             q["options"] = options_by_question.get(q["question_id"], [])
             q["question_index"] = idx
             result.append(q)
+        _apply_skip_logic(result)
         return result
 
     async def option_points(self, question_id: str, option_value: str) -> float | None:
@@ -167,23 +235,35 @@ class AssessmentInstanceRepository:
         self.session = session
 
     async def create(self, *, disease_id: str, patient_id: UUID, session_id, cycle_id, initiated_by: str,
-                      administered_by, assessment_stage: str) -> dict:
+                      administered_by, assessment_stage: str, language_code: str = "en") -> dict:
         # '-' not '/' — used as a URL path parameter, same fix as anamnesis_id.
         instance_id = f"{str(patient_id)[:8]}-{uuid.uuid4().hex[:8]}"
         return await fetch_one(
             self.session,
             text(
                 "INSERT INTO prs_assessment_instances (instance_id, disease_id, patient_id, session_id, cycle_id, "
-                "initiated_by, administered_by, assessment_stage) VALUES "
-                "(:id, :disease_id, :patient_id, :session_id, :cycle_id, :initiated_by, :administered_by, :stage) "
+                "initiated_by, administered_by, assessment_stage, language_code) VALUES "
+                "(:id, :disease_id, :patient_id, :session_id, :cycle_id, :initiated_by, :administered_by, :stage, :lang) "
                 "RETURNING *"
             ),
             {
                 "id": instance_id, "disease_id": disease_id, "patient_id": str(patient_id),
                 "session_id": str(session_id) if session_id else None, "cycle_id": str(cycle_id) if cycle_id else None,
                 "initiated_by": initiated_by, "administered_by": str(administered_by) if administered_by else None,
-                "stage": assessment_stage,
+                "stage": assessment_stage, "lang": language_code,
             },
+        )
+
+    async def update_language(self, instance_id: str, language_code: str) -> dict:
+        # Called when the patient picks/switches the assessment language
+        # post-start (dropdown after "Start Assessment") — instance-level
+        # language reflects the wording last shown; per-response language
+        # is tracked separately (prs_responses.language_code) since a
+        # patient may switch mid-assessment (SQL/47 design comment).
+        return await fetch_one(
+            self.session,
+            text("UPDATE prs_assessment_instances SET language_code = :lang WHERE instance_id = :id RETURNING *"),
+            {"id": instance_id, "lang": language_code},
         )
 
     async def get(self, instance_id: str) -> dict | None:
@@ -222,22 +302,53 @@ class PrsResponseRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def upsert(self, *, instance_id: str, question_id: str, given_response: str, response_value: float | None) -> dict:
+    async def upsert(self, *, instance_id: str, question_id: str, given_response: str, response_value: float | None,
+                      language_code: str = "en") -> dict:
+        # given_response is always prs_options.option_value (a language-neutral
+        # code, e.g. "0"/"1"/"2" — see prs_options.option_value vs option_label),
+        # so this is already stored "in English" regardless of display language.
+        # language_code here just records which wording the patient was shown.
         response_id = f"{instance_id}/{question_id.replace('/', '-')}"
         return await fetch_one(
             self.session,
             text(
-                "INSERT INTO prs_responses (response_id, instance_id, question_id, given_response, response_value) "
-                "VALUES (:id, :instance_id, :question_id, :given, :value) "
+                "INSERT INTO prs_responses (response_id, instance_id, question_id, given_response, response_value, language_code) "
+                "VALUES (:id, :instance_id, :question_id, :given, :value, :lang) "
                 "ON CONFLICT (response_id) DO UPDATE SET given_response = EXCLUDED.given_response, "
-                "response_value = EXCLUDED.response_value RETURNING *"
+                "response_value = EXCLUDED.response_value, language_code = EXCLUDED.language_code RETURNING *"
             ),
-            {"id": response_id, "instance_id": instance_id, "question_id": question_id, "given": given_response, "value": response_value},
+            {
+                "id": response_id, "instance_id": instance_id, "question_id": question_id, "given": given_response,
+                "value": response_value, "lang": language_code,
+            },
         )
 
     async def list_for_instance(self, instance_id: str) -> list[dict]:
         rows = (
             await self.session.execute(text("SELECT * FROM prs_responses WHERE instance_id = :id"), {"id": instance_id})
+        ).mappings().all()
+        return [dict(r) for r in rows]
+
+    async def list_for_instance_translated(self, instance_id: str, language: str) -> list[dict]:
+        # Doctor/staff display view — given_response stays the raw option_value
+        # code (already language-neutral); question_text/response_label are
+        # resolved to whatever language the viewer asks for, independent of
+        # the language the patient actually answered in.
+        rows = (
+            await self.session.execute(
+                text(
+                    "SELECT r.response_id, r.instance_id, r.question_id, r.given_response, r.response_value, "
+                    "r.language_code, COALESCE(qt.question_text, q.question_text) AS question_text, "
+                    "COALESCE(ot.option_label, o.option_label) AS response_label "
+                    "FROM prs_responses r "
+                    "JOIN prs_questions q ON q.question_id = r.question_id "
+                    "LEFT JOIN prs_question_translations qt ON qt.question_id = q.question_id AND qt.language_code = :lang "
+                    "LEFT JOIN prs_options o ON o.question_id = r.question_id AND o.option_value = r.given_response "
+                    "LEFT JOIN prs_option_translations ot ON ot.option_id = o.option_id AND ot.language_code = :lang "
+                    "WHERE r.instance_id = :instance_id"
+                ),
+                {"instance_id": instance_id, "lang": language},
+            )
         ).mappings().all()
         return [dict(r) for r in rows]
 

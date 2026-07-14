@@ -16,6 +16,33 @@ from app.modules.prs.repository import (
 )
 
 
+def _is_skipped(q: dict, questions: list[dict], given_by_qid: dict[str, str]) -> bool:
+    """Server-side mirror of the frontend's computeHiddenQuestionIndices
+    (prsSkipLogic.ts) — same hidden_unless rule (repository._apply_skip_logic),
+    but evaluated against this instance's actual recorded given_response
+    instead of live UI state, so scoring can't be tricked by what the client
+    happened to render. Trigger question not answered -> not skipped (matches
+    the frontend's "show until we know" default)."""
+    rule = q.get("hidden_unless")
+    if not rule:
+        return False
+    ref_question = next((x for x in questions if x["question_id"] == rule["question_id"]), None)
+    if not ref_question:
+        return False
+    ref_given = given_by_qid.get(rule["question_id"])
+    if ref_given is None:
+        return False
+    ref_label = next((o["label"] for o in ref_question["options"] if o["value"] == ref_given), None)
+    if ref_label is None:
+        return False
+    ref_label = ref_label.strip().lower()
+    if rule.get("hidden_when_label") and ref_label == rule["hidden_when_label"].strip().lower():
+        return True
+    if rule.get("visible_only_when_label") and ref_label != rule["visible_only_when_label"].strip().lower():
+        return True
+    return False
+
+
 async def _resolve_profile_id(session: AsyncSession, patient_id: UUID) -> UUID:
     """Same fix as anamnesis/service.py — prs_assessment_instances.patient_id
     (and patient_scale_assignments.patient_id) reference profiles(id), not
@@ -36,7 +63,7 @@ class PrsCatalogService:
     async def diseases(self) -> list[dict]:
         return await self.repo.diseases()
 
-    async def questions_for_scale(self, scale_id: str) -> list[dict]:
+    async def questions_for_scale(self, scale_id: str, language: str = "en") -> list[dict]:
         # repo.questions_for_scale already existed (used internally by
         # _finalize_scale's scoring) but was never exposed to a router — no
         # endpoint anywhere returns a scale's question list. Found while
@@ -44,7 +71,7 @@ class PrsCatalogService:
         # patient has no way to actually see/answer the general_registration
         # PRS scales, so registration_status can never reach
         # general_prs_complete for ANY patient, self- or staff-registered.
-        return await self.repo.questions_for_scale(scale_id)
+        return await self.repo.questions_for_scale(scale_id, language=language)
 
 
 class PatientScaleAssignmentService:
@@ -95,12 +122,56 @@ class PrsAssessmentService:
         profile_id = await _resolve_profile_id(self.session, patient_id)
         return await self.instances.list_for_patient(profile_id, assessment_stage=assessment_stage)
 
-    async def responses_for_instance(self, instance_id: str) -> list[dict]:
+    async def responses_for_instance(self, instance_id: str, *, language: str | None = None) -> list[dict]:
         await self.get(instance_id)
+        if language:
+            # Doctor/staff display view — translate into whatever language
+            # the viewer asks for, independent of what the patient answered in.
+            return await self.responses.list_for_instance_translated(instance_id, language)
         return await self.responses.list_for_instance(instance_id)
 
+    async def _compose_scales(self, instance: dict, *, language_code: str) -> list[dict]:
+        """Shared by start() and set_language() — same scales[] shape (each
+        with its questions/options translated into language_code), so a
+        language switch re-renders through the identical response shape the
+        frontend already handles from start()."""
+        profile_id = instance["patient_id"]
+        assignment_repo = PatientScaleAssignmentRepository(self.session)
+        assignments = await assignment_repo.list(
+            patient_id=profile_id, assessment_stage=instance["assessment_stage"], disease_id=instance["disease_id"]
+        )
+        scale_ids = [a["scale_id"] for a in assignments]
+        if not scale_ids:
+            catalog_scales = await self.catalog.scales_for_disease(instance["disease_id"], [instance["assessment_stage"], "all"])
+            scale_ids = [s["scale_id"] for s in catalog_scales]
+
+        scale_meta = {s["scale_id"]: s for s in await self.catalog.scales_by_ids(scale_ids)}
+        completed_scale_ids = {r["scale_id"] for r in await self.scale_results.list_for_instance(instance["instance_id"])}
+
+        scales = []
+        for scale_id in scale_ids:
+            meta = scale_meta.get(scale_id)
+            if not meta:
+                continue
+            questions = await self.catalog.questions_for_scale(scale_id, language=language_code)
+            scales.append({
+                "scale_id": scale_id, "scale_code": meta["scale_code"], "scale_name": meta["scale_name"],
+                "is_completed": scale_id in completed_scale_ids, "questions": questions,
+            })
+        return scales
+
+    async def set_language(self, instance_id: str, language_code: str) -> dict:
+        """Language dropdown after "Start Assessment" — updates the instance's
+        stored language_code (so it's reflected in the DB / clinical record,
+        per SQL/47) and returns the same scales[] shape as start() but with
+        every question/option re-translated, so the UI just re-renders."""
+        instance = await self.get(instance_id)
+        instance = await self.instances.update_language(instance_id, language_code)
+        scales = await self._compose_scales(instance, language_code=language_code)
+        return {"instance_id": instance["instance_id"], "is_resumed": True, "scales": scales}
+
     async def start(self, *, patient_id: UUID, disease_id: str, assessment_stage: str, session_id, cycle_id,
-                     administered_by=None, initiated_by: str = "patient") -> dict:
+                     administered_by=None, initiated_by: str = "patient", language_code: str = "en") -> dict:
         """Composed in one round trip: resumes an in-progress instance for
         this patient/disease/stage instead of creating a duplicate, then
         loads every scale actually assigned to this patient (patient_scale_
@@ -119,36 +190,16 @@ class PrsAssessmentService:
             instance = await self.instances.create(
                 disease_id=disease_id, patient_id=profile_id, session_id=session_id, cycle_id=cycle_id,
                 initiated_by=initiated_by, administered_by=administered_by, assessment_stage=assessment_stage,
+                language_code=language_code,
             )
             await emit_event(
                 self.session, aggregate_type="prs_assessment_instance", aggregate_id=instance["instance_id"],
                 event_type="prs_started", payload={"instance_id": instance["instance_id"], "patient_id": str(patient_id)},
             )
 
-        assignment_repo = PatientScaleAssignmentRepository(self.session)
-        assignments = await assignment_repo.list(patient_id=profile_id, assessment_stage=assessment_stage, disease_id=disease_id)
-        scale_ids = [a["scale_id"] for a in assignments]
-        # Fallback for accounts assigned before patient_scale_assignments had
-        # disease_id (existing rows backfilled NULL) — same catalog default
-        # auto_assign_for_disease itself would have used.
-        if not scale_ids:
-            catalog_scales = await self.catalog.scales_for_disease(disease_id, [assessment_stage, "all"])
-            scale_ids = [s["scale_id"] for s in catalog_scales]
-
-        scale_meta = {s["scale_id"]: s for s in await self.catalog.scales_by_ids(scale_ids)}
-        completed_scale_ids = {r["scale_id"] for r in await self.scale_results.list_for_instance(instance["instance_id"])}
-
-        scales = []
-        for scale_id in scale_ids:
-            meta = scale_meta.get(scale_id)
-            if not meta:
-                continue
-            questions = await self.catalog.questions_for_scale(scale_id)
-            scales.append({
-                "scale_id": scale_id, "scale_code": meta["scale_code"], "scale_name": meta["scale_name"],
-                "is_completed": scale_id in completed_scale_ids, "questions": questions,
-            })
-
+        # Resumed instance keeps whatever language it was already set to
+        # (the patient picks language via set_language(), not by re-starting).
+        scales = await self._compose_scales(instance, language_code=instance["language_code"])
         return {"instance_id": instance["instance_id"], "is_resumed": is_resumed, "scales": scales}
 
     async def get(self, instance_id: str) -> dict:
@@ -165,6 +216,7 @@ class PrsAssessmentService:
             await self.responses.upsert(
                 instance_id=instance_id, question_id=item["question_id"],
                 given_response=item["given_response"], response_value=points,
+                language_code=item.get("language_code") or instance["language_code"],
             )
 
         if finalize_scale_id:
@@ -199,8 +251,19 @@ class PrsAssessmentService:
     async def _finalize_scale(self, instance_id: str, scale_id: str) -> dict:
         calculated_value, _answered = await self.responses.sum_for_scale(instance_id, scale_id)
         questions = await self.catalog.questions_for_scale(scale_id)
+
+        # Denominator must match what this patient was actually asked — a
+        # question skipped via skip_logic (e.g. COMPASS-31's branching) never
+        # got a response, so its max points must not count against them.
+        # given_response is already this instance's real recorded answer
+        # (server-authoritative), not live UI state, so this can't be spoofed
+        # by a client sending a different scales[] than it was shown.
+        given_by_qid = {r["question_id"]: r["given_response"] for r in await self.responses.list_for_instance(instance_id)}
+
         max_possible = 0.0
         for q in questions:
+            if _is_skipped(q, questions, given_by_qid):
+                continue
             max_possible += await self.catalog.max_points_for_question(q["question_id"])
         return await self.scale_results.upsert(
             instance_id=instance_id, scale_id=scale_id, calculated_value=calculated_value, max_possible=max_possible

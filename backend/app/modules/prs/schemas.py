@@ -12,6 +12,16 @@ class PrsOptionRead(BaseModel):
     display_order: int
 
 
+class SkipCondition(BaseModel):
+    """Parsed from prs_questions.skip_logic (see repository._apply_skip_logic).
+    Exactly one of the two label fields is set — the referenced question's
+    (question_id) current answer label decides whether this question shows."""
+
+    question_id: str
+    hidden_when_label: str | None = None
+    visible_only_when_label: str | None = None
+
+
 class PrsQuestionRead(BaseModel):
     question_id: str
     question_text: str
@@ -22,6 +32,7 @@ class PrsQuestionRead(BaseModel):
     display_order: int
     question_index: int = 0
     options: list[PrsOptionRead] = []
+    hidden_unless: SkipCondition | None = None
 
 
 class PatientScaleAssignmentCreate(BaseModel):
@@ -50,6 +61,7 @@ class AssessmentInstanceCreate(BaseModel):
     assessment_stage: str = Field(pattern="^(general_registration|main_clinical|followup)$")
     session_id: UUID | None = None
     cycle_id: UUID | None = None
+    language_code: str = Field(default="en", pattern="^[a-z]{2}$")
 
 
 class AssessmentInstanceRead(BaseModel):
@@ -63,11 +75,17 @@ class AssessmentInstanceRead(BaseModel):
     started_at: datetime
     completed_at: datetime | None
     final_result: str | None
+    language_code: str
+
+
+class InstanceLanguageUpdate(BaseModel):
+    language_code: str = Field(pattern="^[a-z]{2}$")
 
 
 class ResponseSubmitItem(BaseModel):
     question_id: str
     given_response: str
+    language_code: str | None = None  # defaults to the instance's current language_code if omitted
 
 
 class ResponsesSubmit(BaseModel):
@@ -81,6 +99,9 @@ class ResponseRead(BaseModel):
     question_id: str
     given_response: str | None
     response_value: float | None
+    language_code: str = "en"
+    question_text: str | None = None  # populated only by the translated (?language=) read
+    response_label: str | None = None  # populated only by the translated (?language=) read
 
 
 class AssessmentStartScaleRead(BaseModel):

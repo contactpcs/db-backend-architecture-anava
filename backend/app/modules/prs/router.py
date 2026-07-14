@@ -19,11 +19,13 @@ async def list_diseases(db=Depends(get_db), _ctx: RequestContext = Depends(requi
 
 
 @router.get("/prs-catalog/scale-questions", response_model=list[s.PrsQuestionRead])
-async def list_scale_questions(scale_id: str, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+async def list_scale_questions(
+    scale_id: str, language: str = "en", db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))
+):
     # scale_id is a composite TEXT key containing "/" (e.g. "GAD-7/2026") —
     # never usable as a path segment (breaks REST routing, see this
     # codebase's own convention), so it's a query param here, not {scale_id}.
-    return await PrsCatalogService(db).questions_for_scale(scale_id)
+    return await PrsCatalogService(db).questions_for_scale(scale_id, language=language)
 
 
 @router.post("/patient-scale-assignments", response_model=s.PatientScaleAssignmentRead, status_code=201)
@@ -54,7 +56,21 @@ async def start_assessment(body: s.AssessmentInstanceCreate, db=Depends(get_db),
         patient_id=body.patient_id, disease_id=body.disease_id, assessment_stage=body.assessment_stage,
         session_id=body.session_id, cycle_id=body.cycle_id,
         administered_by=UUID(ctx.user_id) if ctx.role != "patient" else None, initiated_by=initiated_by,
+        language_code=body.language_code,
     )
+
+
+@router.patch("/prs-assessment-instances/{instance_id}/language", response_model=s.AssessmentStartRead)
+async def set_assessment_language(
+    instance_id: str, body: s.InstanceLanguageUpdate, db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    # Language dropdown after "Start Assessment" — updates the instance's
+    # stored language_code and returns questions/options re-translated in
+    # the same shape start() returns, so the UI just re-renders.
+    instance = await PrsAssessmentService(db).get(instance_id)
+    assert_owns_profile(ctx, instance["patient_id"])
+    return await PrsAssessmentService(db).set_language(instance_id, body.language_code)
 
 
 @router.get("/prs-assessment-instances/{instance_id}", response_model=s.AssessmentInstanceRead)
@@ -65,10 +81,16 @@ async def get_assessment(instance_id: str, db=Depends(get_db), ctx: RequestConte
 
 
 @router.get("/prs-assessment-instances/{instance_id}/responses", response_model=list[s.ResponseRead])
-async def list_responses(instance_id: str, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+async def list_responses(
+    instance_id: str, language: str | None = None, db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    # language=<code> — doctor/staff view: translates question_text/response_label
+    # into the requested language regardless of what the patient answered in.
+    # Omitted: returns raw rows in whatever language each response was recorded in.
     instance = await PrsAssessmentService(db).get(instance_id)
     assert_owns_profile(ctx, instance["patient_id"])
-    return await PrsAssessmentService(db).responses_for_instance(instance_id)
+    return await PrsAssessmentService(db).responses_for_instance(instance_id, language=language)
 
 
 @router.post("/prs-assessment-instances/{instance_id}/responses", response_model=s.AssessmentInstanceRead)
