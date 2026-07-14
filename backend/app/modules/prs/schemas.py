@@ -104,6 +104,22 @@ class ResponseRead(BaseModel):
     response_label: str | None = None  # populated only by the translated (?language=) read
 
 
+class ScaleQuestionResponseRead(BaseModel):
+    question_id: str
+    question_text: str
+    given_response: str | None = None
+    response_label: str | None = None
+    is_answered: bool
+    is_skipped: bool
+
+
+class ScaleResponsesRead(BaseModel):
+    scale_id: str
+    scale_code: str
+    scale_name: str
+    questions: list[ScaleQuestionResponseRead]
+
+
 class AssessmentStartScaleRead(BaseModel):
     scale_id: str
     scale_code: str

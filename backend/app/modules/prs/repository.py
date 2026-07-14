@@ -345,7 +345,8 @@ class PrsResponseRepository:
                     "LEFT JOIN prs_question_translations qt ON qt.question_id = q.question_id AND qt.language_code = :lang "
                     "LEFT JOIN prs_options o ON o.question_id = r.question_id AND o.option_value = r.given_response "
                     "LEFT JOIN prs_option_translations ot ON ot.option_id = o.option_id AND ot.language_code = :lang "
-                    "WHERE r.instance_id = :instance_id"
+                    "WHERE r.instance_id = :instance_id "
+                    "ORDER BY q.scale_id, q.display_order"
                 ),
                 {"instance_id": instance_id, "lang": language},
             )

@@ -93,6 +93,19 @@ async def list_responses(
     return await PrsAssessmentService(db).responses_for_instance(instance_id, language=language)
 
 
+@router.get("/prs-assessment-instances/{instance_id}/responses-by-scale", response_model=list[s.ScaleResponsesRead])
+async def list_responses_by_scale(
+    instance_id: str, language: str = "en", db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    # Detailed report view — grouped by scale, every question the patient was
+    # assigned (answered, unanswered, or skipped via skip_logic), not just the
+    # ones that ended up with a saved response row.
+    instance = await PrsAssessmentService(db).get(instance_id)
+    assert_owns_profile(ctx, instance["patient_id"])
+    return await PrsAssessmentService(db).responses_by_scale(instance_id, language=language)
+
+
 @router.post("/prs-assessment-instances/{instance_id}/responses", response_model=s.AssessmentInstanceRead)
 async def submit_responses(instance_id: str, body: s.ResponsesSubmit, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
     instance = await PrsAssessmentService(db).get(instance_id)

@@ -130,6 +130,42 @@ class PrsAssessmentService:
             return await self.responses.list_for_instance_translated(instance_id, language)
         return await self.responses.list_for_instance(instance_id)
 
+    async def responses_by_scale(self, instance_id: str, *, language: str = "en") -> list[dict]:
+        """Doctor/staff detailed report — every question in every scale
+        assigned to this instance, not just the ones with a saved answer
+        (plain responses_for_instance only has rows for what got answered,
+        so a skipped or never-reached question is silently absent from it).
+        Reuses _compose_scales (same scales+questions the patient actually
+        saw) and _is_skipped (same skip_logic evaluation used for scoring)
+        so "skipped" here means exactly what it meant when the score was
+        computed — not a separate, potentially inconsistent, notion of it."""
+        instance = await self.get(instance_id)
+        scales = await self._compose_scales(instance, language_code=language)
+        given_by_qid = {r["question_id"]: r for r in await self.responses.list_for_instance(instance_id)}
+        raw_given = {qid: r["given_response"] for qid, r in given_by_qid.items()}
+
+        result = []
+        for scale in scales:
+            questions_out = []
+            for q in scale["questions"]:
+                given = given_by_qid.get(q["question_id"])
+                label = None
+                if given is not None:
+                    label = next((o["label"] for o in q["options"] if o["value"] == given["given_response"]), given["given_response"])
+                questions_out.append({
+                    "question_id": q["question_id"],
+                    "question_text": q["question_text"],
+                    "given_response": given["given_response"] if given else None,
+                    "response_label": label,
+                    "is_answered": given is not None,
+                    "is_skipped": _is_skipped(q, scale["questions"], raw_given),
+                })
+            result.append({
+                "scale_id": scale["scale_id"], "scale_code": scale["scale_code"], "scale_name": scale["scale_name"],
+                "questions": questions_out,
+            })
+        return result
+
     async def _compose_scales(self, instance: dict, *, language_code: str) -> list[dict]:
         """Shared by start() and set_language() — same scales[] shape (each
         with its questions/options translated into language_code), so a
