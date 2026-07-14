@@ -91,7 +91,7 @@ async def delete_patient(
 @router.patch("/patients/{patient_id}/approval", response_model=s.PatientRead)
 async def decide_patient_approval(
     patient_id: UUID, body: s.PatientApprovalDecision, db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin", "receptionist")),
+    ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin", "receptionist", "clinical_assistant")),
 ):
     existing = await PatientService(db).get(patient_id)
     await assert_clinic_scope(ctx, db, existing["primary_clinic_id"])
