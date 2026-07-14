@@ -51,10 +51,10 @@ class PatientScaleAssignmentService:
     def __init__(self, session: AsyncSession):
         self.repo = PatientScaleAssignmentRepository(session)
 
-    async def create(self, *, patient_id: UUID, scale_id: str, assessment_stage: str, assigned_by: UUID, assignment_reason: str) -> dict:
+    async def create(self, *, patient_id: UUID, scale_id: str, disease_id: str, assessment_stage: str, assigned_by: UUID, assignment_reason: str) -> dict:
         profile_id = await _resolve_profile_id(self.repo.session, patient_id)
         return await self.repo.create(
-            patient_id=profile_id, scale_id=scale_id, assessment_stage=assessment_stage,
+            patient_id=profile_id, scale_id=scale_id, disease_id=disease_id, assessment_stage=assessment_stage,
             assigned_by=assigned_by, assignment_reason=assignment_reason,
         )
 
@@ -73,7 +73,7 @@ class PatientScaleAssignmentService:
         for scale in scales:
             assigned.append(
                 await self.repo.create(
-                    patient_id=profile_id, scale_id=scale["scale_id"], assessment_stage=assessment_stage,
+                    patient_id=profile_id, scale_id=scale["scale_id"], disease_id=disease_id, assessment_stage=assessment_stage,
                     assigned_by=assigned_by, assignment_reason="auto_disease_match",
                 )
             )
@@ -95,18 +95,61 @@ class PrsAssessmentService:
         profile_id = await _resolve_profile_id(self.session, patient_id)
         return await self.instances.list_for_patient(profile_id, assessment_stage=assessment_stage)
 
+    async def responses_for_instance(self, instance_id: str) -> list[dict]:
+        await self.get(instance_id)
+        return await self.responses.list_for_instance(instance_id)
+
     async def start(self, *, patient_id: UUID, disease_id: str, assessment_stage: str, session_id, cycle_id,
                      administered_by=None, initiated_by: str = "patient") -> dict:
+        """Composed in one round trip: resumes an in-progress instance for
+        this patient/disease/stage instead of creating a duplicate, then
+        loads every scale actually assigned to this patient (patient_scale_
+        assignments — not just the disease's catalog default, since a doctor
+        may have overridden the set) with full question+option data and each
+        scale's completion state. Previously this only ever created a bare
+        instance row and returned scales=[] — nothing downstream could
+        render an actual question without a second, never-built endpoint."""
         profile_id = await _resolve_profile_id(self.session, patient_id)
-        instance = await self.instances.create(
-            disease_id=disease_id, patient_id=profile_id, session_id=session_id, cycle_id=cycle_id,
-            initiated_by=initiated_by, administered_by=administered_by, assessment_stage=assessment_stage,
-        )
-        await emit_event(
-            self.session, aggregate_type="prs_assessment_instance", aggregate_id=instance["instance_id"],
-            event_type="prs_started", payload={"instance_id": instance["instance_id"], "patient_id": str(patient_id)},
-        )
-        return instance
+
+        existing = await self.instances.find_in_progress(patient_id=profile_id, disease_id=disease_id, assessment_stage=assessment_stage)
+        is_resumed = existing is not None
+        if existing:
+            instance = existing
+        else:
+            instance = await self.instances.create(
+                disease_id=disease_id, patient_id=profile_id, session_id=session_id, cycle_id=cycle_id,
+                initiated_by=initiated_by, administered_by=administered_by, assessment_stage=assessment_stage,
+            )
+            await emit_event(
+                self.session, aggregate_type="prs_assessment_instance", aggregate_id=instance["instance_id"],
+                event_type="prs_started", payload={"instance_id": instance["instance_id"], "patient_id": str(patient_id)},
+            )
+
+        assignment_repo = PatientScaleAssignmentRepository(self.session)
+        assignments = await assignment_repo.list(patient_id=profile_id, assessment_stage=assessment_stage, disease_id=disease_id)
+        scale_ids = [a["scale_id"] for a in assignments]
+        # Fallback for accounts assigned before patient_scale_assignments had
+        # disease_id (existing rows backfilled NULL) — same catalog default
+        # auto_assign_for_disease itself would have used.
+        if not scale_ids:
+            catalog_scales = await self.catalog.scales_for_disease(disease_id, [assessment_stage, "all"])
+            scale_ids = [s["scale_id"] for s in catalog_scales]
+
+        scale_meta = {s["scale_id"]: s for s in await self.catalog.scales_by_ids(scale_ids)}
+        completed_scale_ids = {r["scale_id"] for r in await self.scale_results.list_for_instance(instance["instance_id"])}
+
+        scales = []
+        for scale_id in scale_ids:
+            meta = scale_meta.get(scale_id)
+            if not meta:
+                continue
+            questions = await self.catalog.questions_for_scale(scale_id)
+            scales.append({
+                "scale_id": scale_id, "scale_code": meta["scale_code"], "scale_name": meta["scale_name"],
+                "is_completed": scale_id in completed_scale_ids, "questions": questions,
+            })
+
+        return {"instance_id": instance["instance_id"], "is_resumed": is_resumed, "scales": scales}
 
     async def get(self, instance_id: str) -> dict:
         instance = await self.instances.get(instance_id)

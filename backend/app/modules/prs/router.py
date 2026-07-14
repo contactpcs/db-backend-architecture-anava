@@ -46,7 +46,7 @@ async def list_patient_prs_instances(
     return await PrsAssessmentService(db).list_for_patient(patient_id, assessment_stage=assessment_stage)
 
 
-@router.post("/prs-assessment-instances", response_model=s.AssessmentInstanceRead, status_code=201)
+@router.post("/prs-assessment-instances", response_model=s.AssessmentStartRead, status_code=201)
 async def start_assessment(body: s.AssessmentInstanceCreate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
     await assert_patient_self(ctx, db, body.patient_id)
     initiated_by = "doctor_on_behalf" if ctx.role != "patient" else "patient"
@@ -62,6 +62,13 @@ async def get_assessment(instance_id: str, db=Depends(get_db), ctx: RequestConte
     instance = await PrsAssessmentService(db).get(instance_id)
     assert_owns_profile(ctx, instance["patient_id"])
     return instance
+
+
+@router.get("/prs-assessment-instances/{instance_id}/responses", response_model=list[s.ResponseRead])
+async def list_responses(instance_id: str, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    instance = await PrsAssessmentService(db).get(instance_id)
+    assert_owns_profile(ctx, instance["patient_id"])
+    return await PrsAssessmentService(db).responses_for_instance(instance_id)
 
 
 @router.post("/prs-assessment-instances/{instance_id}/responses", response_model=s.AssessmentInstanceRead)

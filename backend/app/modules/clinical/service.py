@@ -137,16 +137,23 @@ class ProtocolRequestService:
                 # req["patient_id"] is already profiles.id here (assessment_protocol_requests
                 # stores it that way) — PatientScaleAssignmentService.create expects
                 # patients.patient_id, so go through the patients table the other way.
-                from app.modules.patients.repository import PatientRepository
+                from app.modules.patients.repository import DiseaseSelectionRepository, PatientRepository
 
                 patient = await PatientRepository(self.session).get_by_profile_id(req["patient_id"])
                 if patient:
-                    assignment_service = PatientScaleAssignmentService(self.session)
-                    for scale_id in scale_ids:
-                        await assignment_service.create(
-                            patient_id=patient["patient_id"], scale_id=scale_id, assessment_stage="main_clinical",
-                            assigned_by=req["doctor_id"], assignment_reason="ca_selected",
-                        )
+                    # assessment_protocol_requests carries no disease_id of its own —
+                    # patient_scale_assignments.disease_id (SQL/48) needs one, so this
+                    # resolves the patient's primary disease selection the same way
+                    # Session 1's Main PRS is actually about their registered condition.
+                    selections = await DiseaseSelectionRepository(self.session).list_for_patient(req["patient_id"])
+                    primary = next((sel for sel in selections if sel["is_primary"]), None) or (selections[0] if selections else None)
+                    if primary and primary["disease_id"]:
+                        assignment_service = PatientScaleAssignmentService(self.session)
+                        for scale_id in scale_ids:
+                            await assignment_service.create(
+                                patient_id=patient["patient_id"], scale_id=scale_id, disease_id=primary["disease_id"],
+                                assessment_stage="main_clinical", assigned_by=req["doctor_id"], assignment_reason="ca_selected",
+                            )
 
         await emit_event(
             self.session, aggregate_type="assessment_protocol_request", aggregate_id=request_id,

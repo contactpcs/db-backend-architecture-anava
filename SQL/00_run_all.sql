@@ -157,6 +157,9 @@
 \echo '>>> 47 PRS Assessment Language (language_code on prs_assessment_instances)'
 \i 47_prs_assessment_language.sql
 
+\echo '>>> 48 patient_scale_assignments.disease_id'
+\i 48_patient_scale_assignments_disease_id.sql
+
 \echo '>>> Schema build complete. 60 tables created.'
 \echo '>>>'
 \echo '>>> NOT included above (run manually, in this order, once schema is up):'
