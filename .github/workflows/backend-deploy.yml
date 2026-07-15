@@ -15,8 +15,8 @@ permissions:
 env:
   AWS_REGION: ap-south-1
   ECR_REPOSITORY: anava-backend
-  ECS_CLUSTER: anava-cluster       # change to your ECS cluster name
-  ECS_SERVICE: anava-backend-service  # change to your ECS service name
+  ECS_CLUSTER: anava-cluster
+  ECS_SERVICE: anava-backend-service-xzknhp50
 
 jobs:
   build-and-push:
