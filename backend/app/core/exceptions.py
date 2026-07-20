@@ -30,6 +30,15 @@ class PermissionError_(AnavaException):
     code = "PERMISSION_DENIED"
 
 
+class AuthenticationError(AnavaException):
+    """Missing/invalid credentials (no token, malformed Authorization header)
+    — distinct from PermissionError_, which is a valid caller lacking the
+    right role/scope."""
+
+    status_code = 401
+    code = "AUTHENTICATION_REQUIRED"
+
+
 class NotFoundError(AnavaException):
     status_code = 404
     code = "NOT_FOUND"

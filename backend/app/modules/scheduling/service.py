@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import RequestContext
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, PermissionError_
+from app.core.resolve import resolve_doctor_profile_id as _resolve_doctor_profile_id
+from app.core.resolve import resolve_patient_profile_id as _resolve_patient_profile_id
 from app.core.scoping import assert_clinic_scope, assert_owns_profile
 from app.modules.scheduling.repository import (
     AppointmentAuditLogRepository,
@@ -39,24 +41,6 @@ _ALLOWED_FROM = {
     "cancelled": ACTIVE_STATUSES,
 }
 _DOCTOR_ONLY_STATUSES = {"in_progress", "completed"}
-
-
-async def _resolve_doctor_profile_id(session: AsyncSession, doctor_id: UUID) -> UUID:
-    from app.modules.staff.repository import DoctorRepository
-
-    doctor = await DoctorRepository(session).get(doctor_id)
-    if not doctor:
-        raise NotFoundError("Doctor not found", code="DOCTOR_NOT_FOUND")
-    return doctor["profile_id"]
-
-
-async def _resolve_patient_profile_id(session: AsyncSession, patient_id: UUID) -> UUID:
-    from app.modules.patients.repository import PatientRepository
-
-    patient = await PatientRepository(session).get(patient_id)
-    if not patient:
-        raise NotFoundError("Patient not found", code="PATIENT_NOT_FOUND")
-    return patient["profile_id"]
 
 
 async def _get_patient_row(session: AsyncSession, *, profile_id: UUID) -> dict:

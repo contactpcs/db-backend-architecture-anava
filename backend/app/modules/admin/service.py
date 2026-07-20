@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError
+from app.core.fsm import assert_transition
 from app.modules.admin.repository import (
     AdminsRepository,
     ClinicRepository,
@@ -228,11 +229,7 @@ class ClinicService:
     async def change_status(self, clinic_id: UUID, new_status: str) -> dict:
         clinic = await self.get(clinic_id)
         current = clinic["status"]
-        if new_status not in _VALID_CLINIC_TRANSITIONS.get(current, set()):
-            raise BusinessRuleError(
-                f"Cannot transition clinic from '{current}' to '{new_status}'",
-                code="INVALID_CLINIC_STATUS_TRANSITION",
-            )
+        assert_transition(current, new_status, _VALID_CLINIC_TRANSITIONS, entity="clinic", code="INVALID_CLINIC_STATUS_TRANSITION")
         if new_status == "active":
             region = await self.region_repo.get(clinic["region_id"])
             if not region or region["regional_admin_id"] is None:

@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, NotFoundError
+from app.core.fsm import assert_transition
+from app.core.resolve import resolve_patient_profile_id as _resolve_patient_profile_id
 from app.modules.store.repository import DeviceAssignmentRepository, ProductRepository, StoreOrderRepository
 
 # Device order flow (Master Doc Section 14.3): pending_doctor_approval -> doctor_approved
@@ -20,15 +22,6 @@ _DEVICE_TRANSITIONS = {
     "collected_by_patient": set(),
     "cancelled": set(),
 }
-
-
-async def _resolve_patient_profile_id(session: AsyncSession, patient_id: UUID) -> UUID:
-    from app.modules.patients.repository import PatientRepository
-
-    patient = await PatientRepository(session).get(patient_id)
-    if not patient:
-        raise NotFoundError("Patient not found", code="PATIENT_NOT_FOUND")
-    return patient["profile_id"]
 
 
 class ProductService:
@@ -94,8 +87,7 @@ class StoreOrderService:
 
     async def update_status(self, order_id: UUID, *, status: str, changed_by: UUID) -> dict:
         order = await self.get(order_id)
-        if status not in _DEVICE_TRANSITIONS.get(order["status"], set()):
-            raise BusinessRuleError(f"Cannot transition order from '{order['status']}' to '{status}'", code="INVALID_ORDER_TRANSITION")
+        assert_transition(order["status"], status, _DEVICE_TRANSITIONS, entity="order", code="INVALID_ORDER_TRANSITION")
         updated = await self.repo.set_status(order_id, status=status, approved_by=changed_by if status in ("doctor_approved", "cancelled") else None)
 
         event_map = {

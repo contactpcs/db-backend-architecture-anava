@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, NotFoundError
+from app.core.fsm import assert_transition
 from app.modules.inventory.repository import InventoryRepository, StockTransferRepository
 
 _TRANSITIONS = {"pending": {"dispatched"}, "dispatched": {"received"}, "received": set()}
@@ -56,8 +57,7 @@ class StockTransferService:
 
     async def update_status(self, st_id: UUID, *, status: str, changed_by: UUID) -> dict:
         transfer = await self.get(st_id)
-        if status not in _TRANSITIONS.get(transfer["status"], set()):
-            raise BusinessRuleError(f"Cannot transition stock transfer from '{transfer['status']}' to '{status}'", code="INVALID_TRANSFER_TRANSITION")
+        assert_transition(transfer["status"], status, _TRANSITIONS, entity="stock transfer", code="INVALID_TRANSFER_TRANSITION")
         updated = await self.repo.set_status(st_id, status=status, received_by=changed_by if status == "received" else None)
 
         if status == "received":

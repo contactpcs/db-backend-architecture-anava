@@ -6,26 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
 from app.core.exceptions import NotFoundError
+from app.core.resolve import resolve_patient_profile_id as _resolve_profile_id
 from app.modules.anamnesis.repository import (
     AnamnesisAssessmentRepository,
     AnamnesisQuestionRepository,
     AnamnesisResponseRepository,
 )
-
-
-async def _resolve_profile_id(session: AsyncSession, patient_id: UUID) -> UUID:
-    """anamnesis_assessments.patient_id (like most 'patient_id' FK columns in
-    this schema) actually references profiles(id), NOT patients.patient_id —
-    two different UUIDs for the same person. The API accepts patients.patient_id
-    everywhere for consistency with GET /patients/{id}; this resolves it to the
-    profiles.id the DB column actually wants. (Found as a real bug during Stage
-    6 testing — was passing patients.patient_id straight through before this.)"""
-    from app.modules.patients.repository import PatientRepository
-
-    patient = await PatientRepository(session).get(patient_id)
-    if not patient:
-        raise NotFoundError("Patient not found", code="PATIENT_NOT_FOUND")
-    return patient["profile_id"]
 
 
 class AnamnesisCatalogService:

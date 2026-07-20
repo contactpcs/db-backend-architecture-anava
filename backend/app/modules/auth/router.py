@@ -1,11 +1,11 @@
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import text
 
 from app.config import get_settings
 from app.core.db import RequestContext, engine, get_db
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import AuthenticationError, NotFoundError, ValidationError
 from app.core.permissions import get_current_context
 from app.core.security import create_local_token
 from app.modules.auth.schemas import (
@@ -67,7 +67,7 @@ async def register_patient_public(body: PublicPatientRegister, db=Depends(get_db
     a receptionist's later approval (PATCH /patients/{id}/approval) flips
     the account live."""
     if settings.auth_mode != "local":
-        raise HTTPException(status_code=404, detail="Not found")
+        raise NotFoundError("Not found", code="NOT_FOUND")
     from app.modules.patients.service import PatientService
 
     data = body.model_dump()
@@ -84,7 +84,7 @@ async def login(body: LoginRequest) -> TokenResponse:
     redirect). Works for staff and patients alike; username may be an email
     or a phone number. 404s in local mode; use /auth/local-login there instead."""
     if settings.auth_mode != "cognito":
-        raise HTTPException(status_code=404, detail="Not found")
+        raise NotFoundError("Not found", code="NOT_FOUND")
     from app.core.cognito import initiate_auth
 
     result = initiate_auth(username=body.username, password=body.password)
@@ -97,7 +97,7 @@ async def login_new_password(body: NewPasswordRequest) -> TokenResponse:
     first login after AdminCreateUser's auto-emailed temp password. session
     is the value the /auth/login 400 (code NEW_PASSWORD_REQUIRED) returned."""
     if settings.auth_mode != "cognito":
-        raise HTTPException(status_code=404, detail="Not found")
+        raise NotFoundError("Not found", code="NOT_FOUND")
     from app.core.cognito import respond_new_password
 
     result = respond_new_password(username=body.username, new_password=body.new_password, session=body.session)
@@ -107,7 +107,7 @@ async def login_new_password(body: NewPasswordRequest) -> TokenResponse:
 def _bearer_token(request: Request) -> str:
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Authorization header required")
+        raise AuthenticationError("Authorization header required", code="AUTHORIZATION_HEADER_REQUIRED")
     return auth_header.removeprefix("Bearer ").strip()
 
 
@@ -118,7 +118,7 @@ async def patient_signup_start(body: PatientSignupStart) -> None:
     patient chose. 404s in local mode (use /auth/register there instead —
     no OTP step needed for local testing)."""
     if settings.auth_mode != "cognito":
-        raise HTTPException(status_code=404, detail="Not found")
+        raise NotFoundError("Not found", code="NOT_FOUND")
     from app.core.cognito import sign_up_patient
 
     sign_up_patient(
@@ -130,7 +130,7 @@ async def patient_signup_start(body: PatientSignupStart) -> None:
 @router.post("/patients/signup/resend", status_code=204)
 async def patient_signup_resend(body: PatientSignupResend) -> None:
     if settings.auth_mode != "cognito":
-        raise HTTPException(status_code=404, detail="Not found")
+        raise NotFoundError("Not found", code="NOT_FOUND")
     from app.core.cognito import resend_confirmation_code
 
     resend_confirmation_code(body.contact)
@@ -142,7 +142,7 @@ async def patient_signup_verify(body: PatientSignupVerify) -> None:
     DB at all; the wizard only writes a profiles/patients row once the
     password is set too (see /signup/complete)."""
     if settings.auth_mode != "cognito":
-        raise HTTPException(status_code=404, detail="Not found")
+        raise NotFoundError("Not found", code="NOT_FOUND")
     from app.core.cognito import confirm_sign_up
 
     confirm_sign_up(username=body.contact, code=body.code)
@@ -156,9 +156,9 @@ async def patient_signup_complete(body: PatientSignupComplete, db=Depends(get_db
     verified (ConfirmSignUp in step 2); the other one still needs the
     separate /patients/verify-channel/* round-trip post-login."""
     if settings.auth_mode != "cognito":
-        raise HTTPException(status_code=404, detail="Not found")
+        raise NotFoundError("Not found", code="NOT_FOUND")
     if body.password != body.confirm_password:
-        raise HTTPException(status_code=422, detail="Passwords do not match")
+        raise ValidationError("Passwords do not match", code="PASSWORD_MISMATCH")
     from app.core.cognito import initiate_auth, set_patient_password
     from app.modules.patients.service import PatientService
 
@@ -197,7 +197,7 @@ async def verify_channel_start(body: VerifyChannelStart, request: Request,
     Authorization header (get_current_context already validated it; this
     just needs the raw string Cognito itself wants)."""
     if settings.auth_mode != "cognito":
-        raise HTTPException(status_code=404, detail="Not found")
+        raise NotFoundError("Not found", code="NOT_FOUND")
     from app.core.cognito import add_and_verify_channel_start
 
     add_and_verify_channel_start(access_token=_bearer_token(request), attribute=body.attribute, value=body.value)
@@ -210,7 +210,7 @@ async def verify_channel_confirm(body: VerifyChannelConfirm, request: Request, d
     verified value too — email in particular may still be holding the
     'pending-<uuid>@no-email.local' placeholder from a mobile-only signup."""
     if settings.auth_mode != "cognito":
-        raise HTTPException(status_code=404, detail="Not found")
+        raise NotFoundError("Not found", code="NOT_FOUND")
     from app.core.cognito import verify_attribute
 
     verify_attribute(access_token=_bearer_token(request), attribute=body.attribute, code=body.code)
@@ -227,9 +227,9 @@ async def local_login(body: LocalLoginRequest) -> TokenResponse:
     needing a Cognito account. Disabled once auth_mode='cognito' (Stage 13);
     real clients use /auth/login above instead."""
     if settings.auth_mode != "local":
-        raise HTTPException(status_code=404, detail="Not found")
+        raise NotFoundError("Not found", code="NOT_FOUND")
     if not body.cognito_sub and not body.email:
-        raise HTTPException(status_code=422, detail="cognito_sub or email required")
+        raise ValidationError("cognito_sub or email required", code="COGNITO_SUB_OR_EMAIL_REQUIRED")
 
     cognito_sub = body.cognito_sub
     if not cognito_sub:
@@ -245,7 +245,7 @@ async def local_login(body: LocalLoginRequest) -> TokenResponse:
                 await conn.execute(text("SELECT cognito_sub FROM profiles WHERE email = :email"), {"email": body.email})
             ).mappings().first()
         if not row:
-            raise HTTPException(status_code=404, detail="No profile found for this email")
+            raise NotFoundError("No profile found for this email", code="PROFILE_NOT_FOUND")
         cognito_sub = row["cognito_sub"]
 
     token = create_local_token(sub=cognito_sub)

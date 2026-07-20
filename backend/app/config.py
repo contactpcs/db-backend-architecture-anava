@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,13 +9,20 @@ class Settings(BaseSettings):
 
     environment: str = "local"
 
-    # Database — database_url is what the running app connects as (the
-    # scoped anava_app role in real environments, not the master user, so
-    # RLS policies actually apply). migration_database_url is what alembic
-    # connects as instead — needs DDL privileges (CREATE/ALTER/DROP), so it's
-    # the RDS master user in real environments. Defaults to database_url
-    # (unset locally — Docker dev has one role for everything, no split).
-    database_url: str = "postgresql+asyncpg://anava:anava_dev_password@localhost:5433/anava_dev"
+    # Database — database_url is what the running app connects as.
+    # IMPORTANT: as of this review, the deployed role is NOT a scoped
+    # NOBYPASSRLS role — it connects as a Postgres superuser and RLS
+    # policies (15_rls_policies.sql) are bypassed entirely. Nothing in this
+    # codebase verifies the connecting role's rolbypassrls at runtime, so
+    # ownership/scope checks in app/core/scoping.py are the ONLY real
+    # backstop for patient/clinic data access, not RLS. See scoping.py's
+    # module docstring. migration_database_url is what alembic connects as
+    # instead — needs DDL privileges (CREATE/ALTER/DROP), so it's the RDS
+    # master user in real environments. Defaults to database_url (unset
+    # locally — Docker dev has one role for everything, no split).
+    # No hardcoded fallback on purpose — a deploy with this unset should
+    # fail to boot, not silently connect to a nonexistent local Postgres.
+    database_url: str
     migration_database_url: str | None = None
     db_pool_size: int = 10
     db_max_overflow: int = 5
@@ -33,7 +41,10 @@ class Settings(BaseSettings):
     # In Stage 13 (real AWS cutover) these get replaced with the real Cognito
     # pool region/id/client-id and JWKS validation switches on automatically.
     auth_mode: str = "local"  # "local" | "cognito"
-    local_jwt_secret: str = "dev-only-insecure-secret-do-not-use-in-prod"
+    # No hardcoded fallback — required (validated below) only when
+    # auth_mode == "local", so a deploy that forgets to set it fails fast
+    # instead of silently signing tokens with a public placeholder secret.
+    local_jwt_secret: str | None = None
     cognito_region: str | None = None
     cognito_user_pool_id: str | None = None
     cognito_app_client_id: str | None = None
@@ -76,6 +87,12 @@ class Settings(BaseSettings):
     # org email — patients are exempt, always use their own. Enforced at
     # staff profile creation time (see staff/service.py).
     staff_allowed_email_domains: list[str] = ["anavaclinics.com", "manahealthsciences.com", "pcsdatai.com"]
+
+    @model_validator(mode="after")
+    def _require_local_jwt_secret_in_local_mode(self) -> "Settings":
+        if self.auth_mode == "local" and not self.local_jwt_secret:
+            raise ValueError("local_jwt_secret must be set when auth_mode='local'")
+        return self
 
 
 @lru_cache

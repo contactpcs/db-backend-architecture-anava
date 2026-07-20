@@ -6,6 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, NotFoundError
+from app.core.resolve import resolve_ca_profile_id as _resolve_ca_profile_id
+from app.core.resolve import resolve_doctor_profile_id as _resolve_doctor_profile_id
+from app.core.resolve import resolve_patient_profile_id as _resolve_patient_profile_id
 from app.modules.clinical.repository import (
     DoctorSessionNoteRepository,
     ProtocolRequestRepository,
@@ -14,37 +17,6 @@ from app.modules.clinical.repository import (
     TreatmentPlanRepository,
     TreatmentSessionRepository,
 )
-
-
-async def _resolve_patient_profile_id(session: AsyncSession, patient_id: UUID) -> UUID:
-    from app.modules.patients.repository import PatientRepository
-
-    patient = await PatientRepository(session).get(patient_id)
-    if not patient:
-        raise NotFoundError("Patient not found", code="PATIENT_NOT_FOUND")
-    return patient["profile_id"]
-
-
-async def _resolve_doctor_profile_id(session: AsyncSession, doctor_id: UUID) -> UUID:
-    from app.modules.staff.repository import DoctorRepository
-
-    doctor = await DoctorRepository(session).get(doctor_id)
-    if not doctor:
-        raise NotFoundError("Doctor not found", code="DOCTOR_NOT_FOUND")
-    return doctor["profile_id"]
-
-
-async def _resolve_ca_profile_id(session: AsyncSession, ca_id: UUID) -> UUID:
-    """Same pattern as doctor/patient resolution — treatment_sessions.ca_id
-    (like sessions.ca_id, treatment_cycles.ca_id) references profiles(id)
-    directly, not clinical_assistants.ca_id. API accepts clinical_assistants.ca_id
-    consistently; resolved here. Real bug hit during Stage 8 testing."""
-    from app.modules.staff.repository import ClinicalAssistantRepository
-
-    ca = await ClinicalAssistantRepository(session).get(ca_id)
-    if not ca:
-        raise NotFoundError("Clinical assistant not found", code="CA_NOT_FOUND")
-    return ca["profile_id"]
 
 
 class TreatmentCycleService:

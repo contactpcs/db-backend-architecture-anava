@@ -31,9 +31,11 @@ def get_migration_engine() -> AsyncEngine:
     (profiles, prs_diseases/scales/questions/options, admins, ...). Those
     policies require rls_user_role() = 'super_admin' (or similar), which is
     only ever set by AuthContextMiddleware inside a real HTTP request — a
-    bare script has no such context, and in real environments `engine` is
-    also the scoped anava_app role (NOBYPASSRLS), so the INSERT is rejected
-    outright regardless of context. Bootstrapping/seeding the very first
+    bare script has no such context. NOTE: as of this review, `engine`'s
+    connecting role is NOT actually a scoped NOBYPASSRLS role in the
+    deployed environment (see app/config.py's database_url comment and
+    app/core/scoping.py's docstring) — it bypasses RLS entirely, so this
+    INSERT would silently succeed rather than being rejected. Bootstrapping/seeding the very first
     data into a fresh system is inherently a privileged, one-time operation
     — use the master connection for it, the same one alembic uses for DDL.
     Discovered the hard way migrating to RDS: seed_dev_profile.py failed with

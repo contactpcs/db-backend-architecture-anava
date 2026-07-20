@@ -6,19 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
 from app.core.exceptions import NotFoundError
+from app.core.resolve import resolve_patient_profile_id as _resolve_profile_id
 from app.integrations import s3
 from app.modules.files.repository import EegFileRepository, MedicalHistoryFileRepository
-
-
-async def _resolve_profile_id(session: AsyncSession, patient_id: UUID) -> UUID:
-    """Same fix as anamnesis/prs/consent (Stage 6) — file tables reference
-    profiles(id), API accepts patients.patient_id."""
-    from app.modules.patients.repository import PatientRepository
-
-    patient = await PatientRepository(session).get(patient_id)
-    if not patient:
-        raise NotFoundError("Patient not found", code="PATIENT_NOT_FOUND")
-    return patient["profile_id"]
 
 
 class FileService:

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.db import RequestContext, get_db
 from app.core.permissions import require_role
-from app.core.scoping import assert_clinic_scope
+from app.core.scoping import assert_clinic_scope, assert_owns_profile
 from app.modules.store import schemas as s
 from app.modules.store.service import DeviceAssignmentService, ProductService, StoreOrderService
 
@@ -31,13 +31,17 @@ async def create_store_order(body: s.StoreOrderCreate, db=Depends(get_db), ctx: 
 
 
 @router.get("/store-orders", response_model=list[s.StoreOrderRead])
-async def list_store_orders(patient_id: UUID | None = None, clinic_id: UUID | None = None, status: str | None = None, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+async def list_store_orders(patient_id: UUID | None = None, clinic_id: UUID | None = None, status: str | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    if ctx.role == "patient":
+        patient_id = UUID(ctx.user_id)
     return await StoreOrderService(db).list(patient_id=patient_id, clinic_id=clinic_id, status=status)
 
 
 @router.get("/store-orders/{order_id}", response_model=s.StoreOrderRead)
-async def get_store_order(order_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
-    return await StoreOrderService(db).get(order_id)
+async def get_store_order(order_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    order = await StoreOrderService(db).get(order_id)
+    assert_owns_profile(ctx, order["patient_id"])
+    return order
 
 
 @router.patch("/store-orders/{order_id}/status", response_model=s.StoreOrderRead)

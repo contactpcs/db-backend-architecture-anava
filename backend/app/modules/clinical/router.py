@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.db import RequestContext, get_db
 from app.core.permissions import require_role
+from app.core.scoping import assert_owns_profile
 from app.modules.clinical import schemas as s
 from app.modules.clinical.service import (
     DoctorSessionNoteService,
@@ -26,13 +27,17 @@ async def create_cycle(body: s.TreatmentCycleCreate, db=Depends(get_db), _ctx: R
 
 
 @router.get("/treatment-cycles", response_model=list[s.TreatmentCycleRead])
-async def list_cycles(patient_id: UUID | None = None, clinic_id: UUID | None = None, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+async def list_cycles(patient_id: UUID | None = None, clinic_id: UUID | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    if ctx.role == "patient":
+        patient_id = UUID(ctx.user_id)
     return await TreatmentCycleService(db).list(patient_id=patient_id, clinic_id=clinic_id)
 
 
 @router.get("/treatment-cycles/{cycle_id}", response_model=s.TreatmentCycleRead)
-async def get_cycle(cycle_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
-    return await TreatmentCycleService(db).get(cycle_id)
+async def get_cycle(cycle_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    cycle = await TreatmentCycleService(db).get(cycle_id)
+    assert_owns_profile(ctx, cycle["patient_id"])
+    return cycle
 
 
 @router.patch("/treatment-cycles/{cycle_id}/status", response_model=s.TreatmentCycleRead)
@@ -68,13 +73,17 @@ async def create_session(body: s.SessionCreate, db=Depends(get_db), _ctx: Reques
 
 
 @router.get("/sessions", response_model=list[s.SessionRead])
-async def list_sessions(patient_id: UUID | None = None, cycle_id: UUID | None = None, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+async def list_sessions(patient_id: UUID | None = None, cycle_id: UUID | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    if ctx.role == "patient":
+        patient_id = UUID(ctx.user_id)
     return await SessionService(db).list(patient_id=patient_id, cycle_id=cycle_id)
 
 
 @router.get("/sessions/{session_id}", response_model=s.SessionRead)
-async def get_session(session_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
-    return await SessionService(db).get(session_id)
+async def get_session(session_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    record = await SessionService(db).get(session_id)
+    assert_owns_profile(ctx, record["patient_id"])
+    return record
 
 
 @router.patch("/sessions/{session_id}/status", response_model=s.SessionRead)
@@ -89,13 +98,17 @@ async def create_treatment_plan(body: s.TreatmentPlanCreate, db=Depends(get_db),
 
 
 @router.get("/treatment-plans", response_model=list[s.TreatmentPlanRead])
-async def list_treatment_plans(patient_id: UUID | None = None, cycle_id: UUID | None = None, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+async def list_treatment_plans(patient_id: UUID | None = None, cycle_id: UUID | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    if ctx.role == "patient":
+        patient_id = UUID(ctx.user_id)
     return await TreatmentPlanService(db).list(patient_id=patient_id, cycle_id=cycle_id)
 
 
 @router.get("/treatment-plans/{plan_id}", response_model=s.TreatmentPlanRead)
-async def get_treatment_plan(plan_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
-    return await TreatmentPlanService(db).get(plan_id)
+async def get_treatment_plan(plan_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    plan = await TreatmentPlanService(db).get(plan_id)
+    assert_owns_profile(ctx, plan["patient_id"])
+    return plan
 
 
 @router.patch("/treatment-plans/{plan_id}", response_model=s.TreatmentPlanRead)
@@ -110,7 +123,9 @@ async def create_treatment_session(body: s.TreatmentSessionCreate, db=Depends(ge
 
 
 @router.get("/treatment-sessions", response_model=list[s.TreatmentSessionRead])
-async def list_treatment_sessions(plan_id: UUID | None = None, patient_id: UUID | None = None, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+async def list_treatment_sessions(plan_id: UUID | None = None, patient_id: UUID | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    if ctx.role == "patient":
+        patient_id = UUID(ctx.user_id)
     return await TreatmentSessionService(db).list(plan_id=plan_id, patient_id=patient_id)
 
 

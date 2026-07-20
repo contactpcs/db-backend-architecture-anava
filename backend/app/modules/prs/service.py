@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
 from app.core.exceptions import NotFoundError
+from app.core.resolve import resolve_patient_profile_id as _resolve_profile_id
 from app.modules.prs.repository import (
     AssessmentInstanceRepository,
     PatientScaleAssignmentRepository,
@@ -43,17 +44,6 @@ def _is_skipped(q: dict, questions: list[dict], given_by_qid: dict[str, str]) ->
     return False
 
 
-async def _resolve_profile_id(session: AsyncSession, patient_id: UUID) -> UUID:
-    """Same fix as anamnesis/service.py — prs_assessment_instances.patient_id
-    (and patient_scale_assignments.patient_id) reference profiles(id), not
-    patients.patient_id. API accepts patients.patient_id consistently;
-    resolved here."""
-    from app.modules.patients.repository import PatientRepository
-
-    patient = await PatientRepository(session).get(patient_id)
-    if not patient:
-        raise NotFoundError("Patient not found", code="PATIENT_NOT_FOUND")
-    return patient["profile_id"]
 
 
 class PrsCatalogService:

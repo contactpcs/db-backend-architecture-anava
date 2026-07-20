@@ -1,5 +1,5 @@
 import structlog
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -57,6 +57,18 @@ async def anava_exception_handler(request: Request, exc: AnavaException) -> JSON
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": {"code": exc.code, "message": exc.message, "details": exc.details}},
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    """Safety net so a stray `raise HTTPException(...)` anywhere (framework
+    validation, a module that forgets to use the AnavaException hierarchy)
+    still returns the standard {"error": {...}} envelope instead of
+    Starlette's default {"detail": ...} shape."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": {"code": "HTTP_ERROR", "message": str(exc.detail), "details": []}},
     )
 
 

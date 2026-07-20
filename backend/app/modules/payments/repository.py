@@ -29,6 +29,26 @@ class PaymentRepository:
     async def get(self, payment_id: UUID) -> dict | None:
         return await fetch_optional(self.session, text("SELECT * FROM payments WHERE payment_id = :id"), {"id": str(payment_id)})
 
+    async def get_owner_profile_id(self, payment_id: UUID) -> str | None:
+        """A payment has no patient_id of its own — same two-hop join as
+        list_by_clinic, since it's for either a clinical session or a store
+        order, and both carry patient_id (already resolved to profiles.id
+        at creation time, see resolve_patient_profile_id). Used to enforce
+        assert_owns_profile on the single-payment read (no ownership check
+        existed at all here before the eng review — see get_payment)."""
+        row = await fetch_optional(
+            self.session,
+            text(
+                "SELECT COALESCE(sess.patient_id, so.patient_id) AS owner_profile_id "
+                "FROM payments p "
+                "LEFT JOIN sessions sess ON sess.session_id = p.session_id "
+                "LEFT JOIN store_orders so ON so.order_id = p.order_id "
+                "WHERE p.payment_id = :id"
+            ),
+            {"id": str(payment_id)},
+        )
+        return row["owner_profile_id"] if row else None
+
     async def get_for_session(self, session_id: UUID) -> dict | None:
         return await fetch_optional(self.session, text("SELECT * FROM payments WHERE session_id = :id ORDER BY created_at DESC LIMIT 1"), {"id": str(session_id)})
 

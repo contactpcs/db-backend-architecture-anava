@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request
 from app.core.db import RequestContext, get_db
 from app.core.exceptions import BusinessRuleError, PermissionError_
 from app.core.permissions import require_role
+from app.core.scoping import assert_owns_profile
 from app.modules.payments import schemas as s
 from app.modules.payments.service import PaymentService
 
@@ -29,8 +30,13 @@ async def list_payments(clinic_id: UUID | None = None, db=Depends(get_db), ctx: 
 
 
 @router.get("/payments/{payment_id}", response_model=s.PaymentRead)
-async def get_payment(payment_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
-    return await PaymentService(db).get(payment_id)
+async def get_payment(payment_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    service = PaymentService(db)
+    payment = await service.get(payment_id)
+    if ctx.role == "patient":
+        owner_profile_id = await service.repo.get_owner_profile_id(payment_id)
+        assert_owns_profile(ctx, owner_profile_id)
+    return payment
 
 
 @router.patch("/payments/{payment_id}/status", response_model=s.PaymentRead)
