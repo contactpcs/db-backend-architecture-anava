@@ -234,3 +234,117 @@ Flow Pivot tables (`treatment_cycles`, `sessions`, `appointments`,
 each — confirmed empty in source before migrating, so Blocker 1 (Flow Pivot
 model decision) was genuinely moot for this migration. It still must be
 resolved before any *new* data is written through either flow.
+
+## Layer 5 — Compliance schema, COMPLETE (2026-07-21)
+
+Built and verified against the 12 items in the Closure Schema Change
+Requirements doc (sourced from the compliance policy, treated as final per
+approval to proceed). Files: `20_layer5_compliance_tables.sql` through
+`24_layer5_grants.sql`, appended to `run_all.sql`.
+
+**6 new tables** (compliance schema): `erasure_requests`, `erasure_request_items`,
+`data_portability_requests`, `staff_termination_authorizations`,
+`compliance_incidents`, `manual_snapshots` — 18 RLS policies (3 per table),
+all `ENABLE + FORCE ROW LEVEL SECURITY`, FKs to `profiles(id)` throughout.
+
+**11 new columns**: `profiles.is_anonymized`/`anonymized_at`; `patients.retention_basis_cleared_at`,
+`legal_hold`, `closure_type`, `closure_reason`, `closed_at`, `rejoin_deadline`,
+`portal_access_mode`, `last_clinical_contact_at`; `doctors.legal_hold`;
+`consent_records.guardian_id`.
+
+**Requirement-by-requirement:**
+
+| # | Requirement | Status |
+|---|---|---|
+| 1 | erasure_requests + erasure_request_items | Built |
+| 2 | Retention/anonymisation columns | Built |
+| 3 | data_portability_requests | Built |
+| 4 | Patient closure-state columns | Built |
+| 5 | Scheduled purge/anonymisation worker | **Not built — Python application code, not SQL/DDL.** DB structure is ready to support it (retention columns, bucket classification on erasure_request_items). Follow-up work, separate from this schema build. |
+| 6 | Guardian consent linkage | Built (`consent_records.guardian_id`) |
+| 7 | Staff termination dual-authorization | Built |
+| 8 | compliance_incidents | Built |
+| 9 | Grievance Officer role | No DDL needed — `admins.admin_type` is unconstrained `TEXT` (matches the rest of the schema's status columns), so `'grievance_officer'` is already a valid value. Provisioning one requires setting `profiles.role='grievance_officer'` too (mirrors how `super_admin`/`regional_admin`/`clinic_admin` already work — verified: both columns hold identical values for every existing admin). |
+| 10 | De-identified analytics schema | Deliberately still deferred — `analytics` schema exists (Phase A) but empty; building aggregate tables ahead of an actual ETL consumer risks guessing the wrong shape, per the original P2 recommendation. |
+| 11 | manual_snapshots | Built |
+| 12 | `patients.is_active` naming reconciliation | No schema action — original recommendation was to fix the policy doc's Section 12 reference, not add a redundant column. |
+
+**10 of 12 fully implemented in schema. 1 (#5) is real application code, not
+database work. 1 (#10) deliberately deferred pending a consumer** — both
+judgment calls carried over from the original gap analysis, not silently
+dropped now.
+
+**Functional smoke test** (via `anava_app`, not `postgres`): patient filed
+their own erasure request successfully; `response_due_at` auto-computed to
+exactly 30 days out (Section 3.5's DPDP timeline); patient blocked by RLS from
+filing a request for a different patient; patient's `SELECT` correctly scoped
+to their own 1 row only. Test row insert verified — **the cleanup DELETE in
+that test silently no-op'd** (see the retention-worker section below for why
+and what it revealed); the stray row was found and removed later.
+
+## Retention & erasure worker — COMPLETE (2026-07-21)
+
+`app/workers/retention_purge.py` — item #5, the one requirement from the
+compliance doc that's genuine application code rather than schema. Built
+following the existing `event_relay.py` conventions (SQLAlchemy,
+`get_migration_engine()`, `structlog`, run-once/run-forever split). Config-driven
+like the rest of the app — connects via `DATABASE_URL`/`MIGRATION_DATABASE_URL`,
+so it targets whichever database the app is pointed at. It currently targets
+the old database (cutover, Phase G, hasn't happened) — tested against
+`Anava_App_v1` today by overriding those env vars for the test run only, not
+by hardcoding the new DB name into application code.
+
+**Two jobs:**
+1. **Erasure request processing** — classifies each open request's linked data
+   into delete_now / retain_locked / compliance_evidence (14-category registry
+   covering Section 12's mapping table), then hard-deletes delete_now items
+   once their 30-day grace window passes, advancing the request to `completed`.
+2. **Retention sweep** — recomputes each non-anonymised patient's retention
+   clock (`GREATEST` of last clinical contact + 7yr, last financial transaction
+   + 8yr — the *later* window, per Section 7.2) and anonymises the profile
+   once it's cleared and `legal_hold = false`. Also drops partitions on the 5
+   partitioned tables once their entire date range is past retention — a
+   `DROP`, not a row-by-row `DELETE`.
+
+**`last_clinical_contact_at`/`retention_basis_cleared_at` have no write-through
+from the app yet** (flagged as future work in the original design) — the
+worker computes both itself every run rather than assume they're already
+current, so it's correct standalone instead of silently no-op'ing on empty
+columns forever.
+
+**Cognito `AdminDeleteUser`** (Section 7.2, final step after anonymisation) is
+NOT called from this worker — logged as a structured event
+(`profile_anonymized_cognito_delete_pending`) so it's visible and traceable,
+not silently skipped. Needs an `app/integrations/cognito.py` hook before this
+is production-complete.
+
+### End-to-end test (synthetic data, not real patients, fully cleaned up)
+
+- **Scenario A** — synthetic patient with an 8-year-old completed appointment.
+  Worker correctly computed `last_clinical_contact_at` = that date,
+  `retention_basis_cleared_at` = +7 years (already past), anonymised the
+  profile (`is_anonymized=true`, name replaced with `ANON-<hash>`).
+- **Scenario B** — synthetic patient with 1 notification, filed their own
+  erasure request. First run classified it (`notifications` → `delete_now`);
+  after backdating the item's `created_at` past the 30-day grace, second run
+  hard-deleted the notification and advanced the request to `completed`.
+- **Bonus, unplanned but correct**: the same run dropped 6 already-empty
+  `notifications` partitions (Jan-Jun 2025) whose full date range had already
+  aged past the 1-year retention window — proof the partition-drop logic
+  works, not just designed.
+
+### A real finding, caught by this test — not a worker bug, a genuine gap
+
+Cleaning up Scenario B's synthetic erasure request via `anava_app` silently
+did nothing — **no `DELETE` RLS policy exists on `erasure_requests` or any of
+the 6 new Layer 5 tables.** With `FORCE ROW LEVEL SECURITY` and no policy for
+a given command, that command matches zero rows — not an error, a silent
+no-op. This is *probably the correct design*, not an oversight to fix:
+erasure/portability/incident/termination records are compliance evidence —
+Bucket 3 in the policy's own classification, meant to survive independently
+and never be deleted through the app layer. But it was never a stated design
+choice, and it's exactly what let last turn's smoke-test row and this
+session's Scenario B row both survive their intended cleanup silently. Worth
+a deliberate decision (keep as-is, matching Bucket 3 semantics) rather than
+leaving it as an accidental side effect nobody decided on purpose — flagging
+for confirmation, not changing it unilaterally.

@@ -24,3 +24,8 @@
 \i 17_rls_policies.sql
 \i 18_grants.sql
 \i 19_search_path.sql
+\i 20_layer5_compliance_tables.sql
+\i 21_layer5_columns.sql
+\i 22_layer5_constraints_indexes.sql
+\i 23_layer5_rls.sql
+\i 24_layer5_grants.sql
