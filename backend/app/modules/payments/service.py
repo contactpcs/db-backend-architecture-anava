@@ -40,6 +40,17 @@ class PaymentService:
         if not razorpay_client.verify_webhook_signature(payload=payload, signature=signature):
             raise BusinessRuleError("Invalid Razorpay webhook signature", code="INVALID_WEBHOOK_SIGNATURE")
 
+        # Server-to-server call, no logged-in user — get_db() never sets
+        # app.current_user_role for this request, so rls_user_role() would be
+        # NULL and the UPDATE below would silently match 0 rows (FORCE RLS,
+        # no policy for NULL). 'system', not 'super_admin' — this is an
+        # unattended write and the RLS/audit trail should say so honestly.
+        # app.current_user_id stays unset on purpose: changed_by should be
+        # NULL for a system-initiated change, not attributed to a person.
+        from app.core.db import text_set_local
+
+        await self.session.execute(text_set_local("app.current_user_role", "system"))
+
         rzp_order_id = body.get("payload", {}).get("payment", {}).get("entity", {}).get("order_id")
         rzp_payment_id = body.get("payload", {}).get("payment", {}).get("entity", {}).get("id")
         if not rzp_order_id:

@@ -29,3 +29,5 @@
 \i 22_layer5_constraints_indexes.sql
 \i 23_layer5_rls.sql
 \i 24_layer5_grants.sql
+\i 25_webhook_system_role_rls.sql
+\i 26_rls_lockout_fixes.sql

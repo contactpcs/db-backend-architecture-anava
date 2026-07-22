@@ -348,3 +348,68 @@ session's Scenario B row both survive their intended cleanup silently. Worth
 a deliberate decision (keep as-is, matching Bucket 3 semantics) rather than
 leaving it as an accidental side effect nobody decided on purpose — flagging
 for confirmation, not changing it unilaterally.
+
+## Razorpay webhook RLS fix — COMPLETE (2026-07-22), plus a bigger cascading find
+
+Fixed the bug from the payments architecture review: the Razorpay webhook has
+no logged-in user, so `get_db()` never sets `app.current_user_role`, and
+`rls_payments_update`/`rls_payments_select` had no policy matching a `NULL`
+role — the webhook's own writes silently matched 0 rows. Chose Option A
+(explicit `'system'` role value inside the RLS-scoped session) over Option B
+(bypass via `postgres`/`get_migration_engine()`, what `event_relay.py` uses)
+— a payment webhook is externally-triggered, attacker-reachable surface;
+keeping it inside real RLS policies means a bug in the handler can only touch
+what those policies allow, not everything `postgres` can. `25_webhook_system_role_rls.sql`:
+added `'system'` to `rls_payments_select` and `rls_payments_update`, plus
+`treatment_sessions`' `rls_ts_update` (the downstream propagation step hits
+the identical gap one level in). `payments/service.py`'s `handle_webhook()`
+now calls `text_set_local("app.current_user_role", "system")` before any
+write — reused the existing helper from `app/core/db.py` rather than
+duplicating it. `app.current_user_id` deliberately stays unset — `changed_by`
+on the audit trail should read `NULL` for an unattended system write, not get
+attributed to a person.
+
+**Testing this surfaced a bigger, unrelated bug — `16_rls_enable.sql` blanket-enabled
+`FORCE ROW LEVEL SECURITY` on all 61 `SCHEMA_MAP` tables without checking which
+ones source deliberately left RLS *off* for.** Four tables ended up with RLS
+forced and **zero policies** — completely locked out for `anava_app` (only
+`postgres`/bypass could touch them, which is exactly why the earlier data
+migration into these tables succeeded despite this: it ran as `postgres`,
+never as `anava_app`):
+
+- **`outbox_events`** — the entire event-bus system every module writes
+  through via `emit_event()`. Found because the webhook's fixed `handle_webhook()`
+  called `emit_event()` internally and hit this next. Would have silently
+  broken every event-driven write across the whole app post-cutover, not just payments.
+- **`prs_option_translations` / `prs_question_translations`** — i18n catalogue
+  data would have been completely invisible to the app (source had RLS off for
+  these two specifically; their non-translation siblings `prs_options`/`prs_questions`
+  correctly have RLS + a public-read policy).
+- **`ca_doctor_assignments`** — this was a *stated* design decision earlier in
+  this build ("gets RLS here... uses the same policy pattern as
+  `clinic_staff_assignments`/`doctor_patient_assignments`") that only got
+  half-done: RLS was enabled but the actual policies were never written.
+
+Fixed in `26_rls_lockout_fixes.sql`: `outbox_events` gets a permissive
+INSERT (`rls_user_role() IS NOT NULL` — this table isn't patient-sensitive,
+every module writes to it on behalf of whichever actor is currently acting,
+including `'system'` now) and a narrow SELECT (`super_admin`/`system`). The
+two translation tables mirror their siblings exactly — public read,
+`super_admin`-only write. `ca_doctor_assignments` mirrors
+`doctor_patient_assignments`'s shape (closest sibling), finally implementing
+the design decision stated but not built earlier. `alembic_version`/
+`schema_migrations` hit the same pattern but are unused in `Anava_App_v1`
+(alembic history excluded from migration) — not fixed, not a real gap.
+
+**Full end-to-end verification**, real code path, not a mock: created a
+payment as `clinic_admin` → confirmed raw UPDATE with no RLS context affects
+0 rows (bug reproduced) → called the actual `PaymentService.handle_webhook()`
+→ status became `paid`, `razorpay_payment_id` set, `paid_at` set, the
+`outbox_events` write succeeded → verified via an independent `super_admin`
+read → cleaned up (via `postgres`, since `payments` has no `DELETE` policy
+either — same Bucket-3-style pattern as the Layer 5 tables).
+
+**Not yet done**: the separate webhook-secret fix (currently HMAC-verifies
+against the API key secret, not a dedicated Razorpay webhook secret) and the
+Flow Pivot dependency for the `treatment_sessions`/`appointments` gating
+question — both still open, unrelated to this fix.
