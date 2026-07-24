@@ -52,14 +52,18 @@ async def _ensure_clinic_ready_for_staff(session: AsyncSession, clinic_id) -> No
     regional_admin; clinic_admin is always the first clinic-level staff
     member, nobody else can be assigned before them)."""
     clinic = (
-        await session.execute(
-            text(
-                "SELECT c.clinic_admin_id, c.status, r.regional_admin_id "
-                "FROM clinics c JOIN regions r ON r.region_id = c.region_id WHERE c.clinic_id = :id"
-            ),
-            {"id": str(clinic_id)},
+        (
+            await session.execute(
+                text(
+                    "SELECT c.clinic_admin_id, c.status, r.regional_admin_id "
+                    "FROM clinics c JOIN regions r ON r.region_id = c.region_id WHERE c.clinic_id = :id"
+                ),
+                {"id": str(clinic_id)},
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     if clinic is None:
         raise NotFoundError("Clinic not found", code="CLINIC_NOT_FOUND")
     if clinic["regional_admin_id"] is None:
@@ -76,15 +80,18 @@ async def _ensure_clinic_ready_for_staff(session: AsyncSession, clinic_id) -> No
         raise BusinessRuleError("Cannot assign staff to a clinic that is closing/closed", code="CLINIC_NOT_OPEN")
 
 
-
 def _merge_profile(row: dict, profile: dict) -> dict:
     """create_profile() already has first_name/last_name/email/phone/is_active
     in hand — merge them into the just-created role row so the create
     response matches what list()/get() return (both joined to profiles),
     instead of a second round-trip query."""
     return {
-        **row, "first_name": profile["first_name"], "last_name": profile["last_name"],
-        "email": profile["email"], "phone": profile["phone"], "profile_is_active": profile["is_active"],
+        **row,
+        "first_name": profile["first_name"],
+        "last_name": profile["last_name"],
+        "email": profile["email"],
+        "phone": profile["phone"],
+        "profile_is_active": profile["is_active"],
     }
 
 
@@ -148,22 +155,38 @@ class DoctorService:
         _assert_staff_email_domain(data["email"])
         await _ensure_clinic_ready_for_staff(self.session, data["clinic_id"])
         staff_request = await _resolve_staff_request(
-            self.session, data.get("staff_request_id"), expected_role="doctor", clinic_id=data["clinic_id"],
+            self.session,
+            data.get("staff_request_id"),
+            expected_role="doctor",
+            clinic_id=data["clinic_id"],
         )
         try:
             profile = await create_profile(
-                self.session, email=data["email"], first_name=data["first_name"],
-                last_name=data["last_name"], phone=data.get("phone"), role="doctor", is_active=False, consent_signed=False,
-                gender=data.get("gender"), dob=data.get("dob"), address=data.get("address"),
-                city=data.get("city"), state=data.get("state"), country=data.get("country"),
+                self.session,
+                email=data["email"],
+                first_name=data["first_name"],
+                last_name=data["last_name"],
+                phone=data.get("phone"),
+                role="doctor",
+                is_active=False,
+                consent_signed=False,
+                gender=data.get("gender"),
+                dob=data.get("dob"),
+                address=data.get("address"),
+                city=data.get("city"),
+                state=data.get("state"),
+                country=data.get("country"),
                 pincode=data.get("pincode"),
             )
         except IntegrityError as exc:
             raise ConflictError(f"Email {data['email']!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
 
         doctor = await self.repo.create(
-            profile_id=profile["id"], clinic_id=data["clinic_id"], specialization=data.get("specialization"),
-            license_number=data.get("license_number"), hospital_affiliation=data.get("hospital_affiliation"),
+            profile_id=profile["id"],
+            clinic_id=data["clinic_id"],
+            specialization=data.get("specialization"),
+            license_number=data.get("license_number"),
+            hospital_affiliation=data.get("hospital_affiliation"),
             max_patient_count=data.get("max_patient_count", 30),
         )
         await self.assignments.create(clinic_id=data["clinic_id"], profile_id=profile["id"], staff_role="doctor")
@@ -173,8 +196,11 @@ class DoctorService:
         if staff_request:
             await StaffRequestRepository(self.session).fulfill(staff_request["request_id"], profile_id=profile["id"])
         await emit_event(
-            self.session, aggregate_type="doctor", aggregate_id=doctor["doctor_id"],
-            event_type="doctor_onboarded", payload={"doctor_id": str(doctor["doctor_id"]), "clinic_id": str(data["clinic_id"])},
+            self.session,
+            aggregate_type="doctor",
+            aggregate_id=doctor["doctor_id"],
+            event_type="doctor_onboarded",
+            payload={"doctor_id": str(doctor["doctor_id"]), "clinic_id": str(data["clinic_id"])},
         )
         return _merge_profile(doctor, profile)
 
@@ -195,7 +221,10 @@ class DoctorService:
         if role_fields:
             await self.repo.update(doctor_id, role_fields)
         await emit_event(
-            self.session, aggregate_type="doctor", aggregate_id=doctor_id, event_type="doctor_updated",
+            self.session,
+            aggregate_type="doctor",
+            aggregate_id=doctor_id,
+            event_type="doctor_updated",
             payload={"doctor_id": str(doctor_id), "updated_by": str(updated_by), "changed_fields": sorted(profile_fields | role_fields)},
         )
         return await self.get(doctor_id)  # re-fetch via the joined query — UPDATE...RETURNING * has no profile columns
@@ -228,14 +257,27 @@ class ClinicalAssistantService:
         _assert_staff_email_domain(data["email"])
         await _ensure_clinic_ready_for_staff(self.session, data["clinic_id"])
         staff_request = await _resolve_staff_request(
-            self.session, data.get("staff_request_id"), expected_role="clinical_assistant", clinic_id=data["clinic_id"],
+            self.session,
+            data.get("staff_request_id"),
+            expected_role="clinical_assistant",
+            clinic_id=data["clinic_id"],
         )
         try:
             profile = await create_profile(
-                self.session, email=data["email"], first_name=data["first_name"],
-                last_name=data["last_name"], phone=data.get("phone"), role="clinical_assistant", is_active=False, consent_signed=False,
-                gender=data.get("gender"), dob=data.get("dob"), address=data.get("address"),
-                city=data.get("city"), state=data.get("state"), country=data.get("country"),
+                self.session,
+                email=data["email"],
+                first_name=data["first_name"],
+                last_name=data["last_name"],
+                phone=data.get("phone"),
+                role="clinical_assistant",
+                is_active=False,
+                consent_signed=False,
+                gender=data.get("gender"),
+                dob=data.get("dob"),
+                address=data.get("address"),
+                city=data.get("city"),
+                state=data.get("state"),
+                country=data.get("country"),
                 pincode=data.get("pincode"),
             )
         except IntegrityError as exc:
@@ -249,8 +291,11 @@ class ClinicalAssistantService:
         if staff_request:
             await StaffRequestRepository(self.session).fulfill(staff_request["request_id"], profile_id=profile["id"])
         await emit_event(
-            self.session, aggregate_type="clinical_assistant", aggregate_id=ca["ca_id"],
-            event_type="staff_onboarded", payload={"ca_id": str(ca["ca_id"]), "clinic_id": str(data["clinic_id"])},
+            self.session,
+            aggregate_type="clinical_assistant",
+            aggregate_id=ca["ca_id"],
+            event_type="staff_onboarded",
+            payload={"ca_id": str(ca["ca_id"]), "clinic_id": str(data["clinic_id"])},
         )
         return _merge_profile(ca, profile)
 
@@ -271,7 +316,10 @@ class ClinicalAssistantService:
         if role_fields:
             await self.repo.update(ca_id, role_fields)
         await emit_event(
-            self.session, aggregate_type="clinical_assistant", aggregate_id=ca_id, event_type="staff_updated",
+            self.session,
+            aggregate_type="clinical_assistant",
+            aggregate_id=ca_id,
+            event_type="staff_updated",
             payload={"ca_id": str(ca_id), "updated_by": str(updated_by), "changed_fields": sorted(profile_fields | role_fields)},
         )
         return await self.get(ca_id)
@@ -292,14 +340,27 @@ class ReceptionistService:
         _assert_staff_email_domain(data["email"])
         await _ensure_clinic_ready_for_staff(self.session, data["clinic_id"])
         staff_request = await _resolve_staff_request(
-            self.session, data.get("staff_request_id"), expected_role="receptionist", clinic_id=data["clinic_id"],
+            self.session,
+            data.get("staff_request_id"),
+            expected_role="receptionist",
+            clinic_id=data["clinic_id"],
         )
         try:
             profile = await create_profile(
-                self.session, email=data["email"], first_name=data["first_name"],
-                last_name=data["last_name"], phone=data.get("phone"), role="receptionist", is_active=False, consent_signed=False,
-                gender=data.get("gender"), dob=data.get("dob"), address=data.get("address"),
-                city=data.get("city"), state=data.get("state"), country=data.get("country"),
+                self.session,
+                email=data["email"],
+                first_name=data["first_name"],
+                last_name=data["last_name"],
+                phone=data.get("phone"),
+                role="receptionist",
+                is_active=False,
+                consent_signed=False,
+                gender=data.get("gender"),
+                dob=data.get("dob"),
+                address=data.get("address"),
+                city=data.get("city"),
+                state=data.get("state"),
+                country=data.get("country"),
                 pincode=data.get("pincode"),
             )
         except IntegrityError as exc:
@@ -313,7 +374,9 @@ class ReceptionistService:
         if staff_request:
             await StaffRequestRepository(self.session).fulfill(staff_request["request_id"], profile_id=profile["id"])
         await emit_event(
-            self.session, aggregate_type="receptionist", aggregate_id=receptionist["receptionist_id"],
+            self.session,
+            aggregate_type="receptionist",
+            aggregate_id=receptionist["receptionist_id"],
             event_type="staff_onboarded",
             payload={"receptionist_id": str(receptionist["receptionist_id"]), "clinic_id": str(data["clinic_id"])},
         )
@@ -336,7 +399,10 @@ class ReceptionistService:
         if role_fields:
             await self.repo.update(receptionist_id, role_fields)
         await emit_event(
-            self.session, aggregate_type="receptionist", aggregate_id=receptionist_id, event_type="staff_updated",
+            self.session,
+            aggregate_type="receptionist",
+            aggregate_id=receptionist_id,
+            event_type="staff_updated",
             payload={
                 "receptionist_id": str(receptionist_id),
                 "updated_by": str(updated_by),
@@ -379,8 +445,11 @@ class StaffRequestService:
         }
         req = await self.repo.create(payload)
         await emit_event(
-            self.session, aggregate_type="staff_request", aggregate_id=req["request_id"],
-            event_type="staff_request_submitted", payload={"request_id": str(req["request_id"])},
+            self.session,
+            aggregate_type="staff_request",
+            aggregate_id=req["request_id"],
+            event_type="staff_request_submitted",
+            payload={"request_id": str(req["request_id"])},
         )
         return req
 
@@ -410,7 +479,10 @@ class StaffRequestService:
         updated = await self.repo.decide(request_id, status=decision, reviewed_by=reviewed_by, review_notes=review_notes)
 
         await emit_event(
-            self.session, aggregate_type="staff_request", aggregate_id=request_id,
-            event_type="staff_request_decided", payload={"request_id": str(request_id), "decision": decision},
+            self.session,
+            aggregate_type="staff_request",
+            aggregate_id=request_id,
+            event_type="staff_request_decided",
+            payload={"request_id": str(request_id), "decision": decision},
         )
         return updated  # type: ignore[return-value]

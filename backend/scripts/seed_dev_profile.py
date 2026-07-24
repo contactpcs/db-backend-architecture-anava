@@ -1,4 +1,3 @@
-
 """Dev-only: seeds one super_admin profile so local auth+RLS can be verified
 end-to-end without a Cognito account. Idempotent (ON CONFLICT DO NOTHING).
 

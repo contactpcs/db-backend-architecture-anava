@@ -104,10 +104,7 @@ def _split_statements(sql_text: str) -> list[str]:
         statements.append(tail)
 
     def is_only_comments(chunk: str) -> bool:
-        return all(
-            (not line.strip()) or line.strip().startswith("--")
-            for line in chunk.splitlines()
-        )
+        return all((not line.strip()) or line.strip().startswith("--") for line in chunk.splitlines())
 
     return [s for s in statements if s.strip() and not is_only_comments(s)]
 

@@ -50,7 +50,9 @@ async def list_scale_assignments(
 
 @router.get("/patients/{patient_id}/prs-instances", response_model=list[s.AssessmentInstanceRead])
 async def list_patient_prs_instances(
-    patient_id: UUID, assessment_stage: str | None = None, db=Depends(get_db),
+    patient_id: UUID,
+    assessment_stage: str | None = None,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     await assert_patient_self(ctx, db, patient_id)
@@ -66,16 +68,22 @@ async def start_assessment(
     await assert_patient_self(ctx, db, body.patient_id)
     initiated_by = "doctor_on_behalf" if ctx.role != "patient" else "patient"
     return await PrsAssessmentService(db).start(
-        patient_id=body.patient_id, disease_id=body.disease_id, assessment_stage=body.assessment_stage,
-        session_id=body.session_id, cycle_id=body.cycle_id,
-        administered_by=UUID(ctx.user_id) if ctx.role != "patient" else None, initiated_by=initiated_by,
+        patient_id=body.patient_id,
+        disease_id=body.disease_id,
+        assessment_stage=body.assessment_stage,
+        session_id=body.session_id,
+        cycle_id=body.cycle_id,
+        administered_by=UUID(ctx.user_id) if ctx.role != "patient" else None,
+        initiated_by=initiated_by,
         language_code=body.language_code,
     )
 
 
 @router.patch("/prs-assessment-instances/{instance_id}/language", response_model=s.AssessmentStartRead)
 async def set_assessment_language(
-    instance_id: str, body: s.InstanceLanguageUpdate, db=Depends(get_db),
+    instance_id: str,
+    body: s.InstanceLanguageUpdate,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     # Language dropdown after "Start Assessment" — updates the instance's
@@ -95,7 +103,9 @@ async def get_assessment(instance_id: str, db=Depends(get_db), ctx: RequestConte
 
 @router.get("/prs-assessment-instances/{instance_id}/responses", response_model=list[s.ResponseRead])
 async def list_responses(
-    instance_id: str, language: str | None = None, db=Depends(get_db),
+    instance_id: str,
+    language: str | None = None,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     # language=<code> — doctor/staff view: translates question_text/response_label
@@ -108,7 +118,9 @@ async def list_responses(
 
 @router.get("/prs-assessment-instances/{instance_id}/responses-by-scale", response_model=list[s.ScaleResponsesRead])
 async def list_responses_by_scale(
-    instance_id: str, language: str = "en", db=Depends(get_db),
+    instance_id: str,
+    language: str = "en",
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     # Detailed report view — grouped by scale, every question the patient was
@@ -129,9 +141,7 @@ async def submit_responses(
     instance = await PrsAssessmentService(db).get(instance_id)
     assert_owns_profile(ctx, instance["patient_id"])
     items = [item.model_dump() for item in body.responses]
-    return await PrsAssessmentService(db).submit_responses(
-        instance_id, items=items, finalize_scale_id=body.finalize_scale_id
-    )
+    return await PrsAssessmentService(db).submit_responses(instance_id, items=items, finalize_scale_id=body.finalize_scale_id)
 
 
 @router.get("/prs-assessment-instances/{instance_id}/results")

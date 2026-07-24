@@ -19,9 +19,7 @@ def _no_real_env(monkeypatch):
 
 
 def _base_kwargs(**overrides):
-    kwargs = dict(
-        database_url="postgresql+asyncpg://u:p@localhost:5432/db", auth_mode="local", local_jwt_secret="s3cr3t", _env_file=None
-    )
+    kwargs = dict(database_url="postgresql+asyncpg://u:p@localhost:5432/db", auth_mode="local", local_jwt_secret="s3cr3t", _env_file=None)
     kwargs.update(overrides)
     return kwargs
 

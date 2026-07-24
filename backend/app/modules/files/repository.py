@@ -12,9 +12,19 @@ class EegFileRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, *, patient_id: UUID, clinic_id: UUID, performed_by: UUID, eeg_type: str | None,
-                      duration_minutes, raw_data_s3_key: str, raw_file_name: str, raw_file_size: int,
-                      raw_checksum: str) -> dict:
+    async def create(
+        self,
+        *,
+        patient_id: UUID,
+        clinic_id: UUID,
+        performed_by: UUID,
+        eeg_type: str | None,
+        duration_minutes,
+        raw_data_s3_key: str,
+        raw_file_name: str,
+        raw_file_size: int,
+        raw_checksum: str,
+    ) -> dict:
         return await fetch_one(
             self.session,
             text(
@@ -24,9 +34,15 @@ class EegFileRepository:
                 "RETURNING *"
             ),
             {
-                "patient_id": str(patient_id), "clinic_id": str(clinic_id), "performed_by": str(performed_by),
-                "eeg_type": eeg_type or "resting_state", "duration_minutes": duration_minutes,
-                "key": raw_data_s3_key, "name": raw_file_name, "size": raw_file_size, "checksum": raw_checksum,
+                "patient_id": str(patient_id),
+                "clinic_id": str(clinic_id),
+                "performed_by": str(performed_by),
+                "eeg_type": eeg_type or "resting_state",
+                "duration_minutes": duration_minutes,
+                "key": raw_data_s3_key,
+                "name": raw_file_name,
+                "size": raw_file_size,
+                "checksum": raw_checksum,
             },
         )
 
@@ -35,11 +51,15 @@ class EegFileRepository:
 
     async def list_for_patient(self, patient_id: UUID) -> list[dict]:
         rows = (
-            await self.session.execute(
-                text("SELECT * FROM patient_eeg_files WHERE patient_id = :pid ORDER BY created_at DESC"),
-                {"pid": str(patient_id)},
+            (
+                await self.session.execute(
+                    text("SELECT * FROM patient_eeg_files WHERE patient_id = :pid ORDER BY created_at DESC"),
+                    {"pid": str(patient_id)},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
     async def review(self, eeg_id: UUID, *, reviewed_by: UUID, clinical_findings, is_abnormal, status: str) -> dict | None:
@@ -63,9 +83,21 @@ class MedicalHistoryFileRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, *, patient_id: UUID, clinic_id: UUID, uploaded_by: UUID, document_type: str | None,
-                      s3_key: str, file_name: str, file_size: int, checksum: str,
-                      document_date, source_provider, description) -> dict:
+    async def create(
+        self,
+        *,
+        patient_id: UUID,
+        clinic_id: UUID,
+        uploaded_by: UUID,
+        document_type: str | None,
+        s3_key: str,
+        file_name: str,
+        file_size: int,
+        checksum: str,
+        document_date,
+        source_provider,
+        description,
+    ) -> dict:
         return await fetch_one(
             self.session,
             text(
@@ -75,9 +107,17 @@ class MedicalHistoryFileRepository:
                 "RETURNING *"
             ),
             {
-                "patient_id": str(patient_id), "clinic_id": str(clinic_id), "uploaded_by": str(uploaded_by),
-                "doc_type": document_type or "other", "key": s3_key, "name": file_name, "size": file_size,
-                "checksum": checksum, "doc_date": document_date, "source": source_provider, "description": description,
+                "patient_id": str(patient_id),
+                "clinic_id": str(clinic_id),
+                "uploaded_by": str(uploaded_by),
+                "doc_type": document_type or "other",
+                "key": s3_key,
+                "name": file_name,
+                "size": file_size,
+                "checksum": checksum,
+                "doc_date": document_date,
+                "source": source_provider,
+                "description": description,
             },
         )
 
@@ -90,11 +130,18 @@ class MedicalHistoryFileRepository:
 
     async def list_for_patient(self, patient_id: UUID) -> list[dict]:
         rows = (
-            await self.session.execute(
-                text("SELECT * FROM patient_medical_history_files WHERE patient_id = :pid AND is_deleted = FALSE ORDER BY created_at DESC"),
-                {"pid": str(patient_id)},
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT * FROM patient_medical_history_files WHERE patient_id = :pid "
+                        "AND is_deleted = FALSE ORDER BY created_at DESC"
+                    ),
+                    {"pid": str(patient_id)},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
     async def soft_delete(self, mhf_id: UUID, *, deleted_by: UUID) -> dict | None:

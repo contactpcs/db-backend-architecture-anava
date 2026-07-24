@@ -49,8 +49,11 @@ async def update_payment_status(
     if body.status == "waived" and ctx.role not in ("clinic_admin", "super_admin"):
         raise PermissionError_("Only a Clinic Admin can waive a payment", code="WAIVER_NOT_PERMITTED")
     return await PaymentService(db).update_status(
-        payment_id, status=body.status, payment_method=body.payment_method,
-        waived_by=UUID(ctx.user_id) if body.status == "waived" else None, waived_reason=body.waived_reason,
+        payment_id,
+        status=body.status,
+        payment_method=body.payment_method,
+        waived_by=UUID(ctx.user_id) if body.status == "waived" else None,
+        waived_reason=body.waived_reason,
     )
 
 

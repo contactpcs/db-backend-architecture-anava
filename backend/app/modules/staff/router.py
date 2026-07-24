@@ -55,7 +55,10 @@ async def get_doctor(doctor_id: UUID, db=Depends(get_db), _ctx: RequestContext =
 
 @router.patch("/doctors/{doctor_id}", response_model=s.DoctorRead)
 async def update_doctor(
-    doctor_id: UUID, body: s.DoctorUpdate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES, "doctor")),
+    doctor_id: UUID,
+    body: s.DoctorUpdate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES, "doctor")),
 ):
     existing = await DoctorService(db).get(doctor_id)
     await assert_clinic_scope(ctx, db, existing["clinic_id"])
@@ -92,7 +95,9 @@ async def get_ca(ca_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends
 
 @router.patch("/clinical-assistants/{ca_id}", response_model=s.ClinicalAssistantRead)
 async def update_ca(
-    ca_id: UUID, body: s.ClinicalAssistantUpdate, db=Depends(get_db),
+    ca_id: UUID,
+    body: s.ClinicalAssistantUpdate,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES, "clinical_assistant")),
 ):
     existing = await ClinicalAssistantService(db).get(ca_id)
@@ -110,7 +115,9 @@ async def delete_ca(ca_id: UUID, db=Depends(get_db), ctx: RequestContext = Depen
 # ------------------------------------------------------------- receptionists --
 @router.post("/receptionists", response_model=s.ReceptionistRead, status_code=201)
 async def create_receptionist(
-    body: s.ReceptionistCreate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_STAFF_CREATE_ROLES)),
+    body: s.ReceptionistCreate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_STAFF_CREATE_ROLES)),
 ):
     data = body.model_dump()
     data["clinic_id"] = str(data["clinic_id"])
@@ -120,7 +127,9 @@ async def create_receptionist(
 
 @router.get("/receptionists", response_model=list[s.ReceptionistRead])
 async def list_receptionists(
-    clinic_id: UUID | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_STAFF_READ_ROLES)),
+    clinic_id: UUID | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_STAFF_READ_ROLES)),
 ):
     if clinic_id is None and ctx.role == "clinic_admin":
         clinic_id = UUID(ctx.clinic_id)
@@ -134,7 +143,9 @@ async def get_receptionist(receptionist_id: UUID, db=Depends(get_db), _ctx: Requ
 
 @router.patch("/receptionists/{receptionist_id}", response_model=s.ReceptionistRead)
 async def update_receptionist(
-    receptionist_id: UUID, body: s.ReceptionistUpdate, db=Depends(get_db),
+    receptionist_id: UUID,
+    body: s.ReceptionistUpdate,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES, "receptionist")),
 ):
     existing = await ReceptionistService(db).get(receptionist_id)
@@ -152,14 +163,18 @@ async def delete_receptionist(receptionist_id: UUID, db=Depends(get_db), ctx: Re
 # -------------------------------------------------- CA <-> doctor assignments --
 @router.post("/ca-doctor-assignments", response_model=s.CaDoctorAssignmentRead, status_code=201)
 async def create_ca_doctor_assignment(
-    body: s.CaDoctorAssignmentCreate, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES)),
+    body: s.CaDoctorAssignmentCreate,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES)),
 ):
     return await CaDoctorAssignmentService(db).create(**body.model_dump())
 
 
 @router.get("/ca-doctor-assignments", response_model=list[s.CaDoctorAssignmentRead])
 async def list_ca_doctor_assignments(
-    ca_id: UUID | None = None, doctor_id: UUID | None = None, db=Depends(get_db),
+    ca_id: UUID | None = None,
+    doctor_id: UUID | None = None,
+    db=Depends(get_db),
     _ctx: RequestContext = Depends(require_role(*_STAFF_READ_ROLES)),
 ):
     return await CaDoctorAssignmentService(db).list(ca_id=ca_id, doctor_id=doctor_id)
@@ -172,7 +187,9 @@ async def list_ca_doctor_assignments(
 # Regional Admin approves.
 @router.post("/staff-requests", response_model=s.StaffRequestRead, status_code=201)
 async def create_staff_request(
-    body: s.StaffRequestCreate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES)),
+    body: s.StaffRequestCreate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES)),
 ):
     data = body.model_dump()
     data["clinic_id"] = str(data["clinic_id"])
@@ -191,7 +208,9 @@ async def create_staff_request(
 
 @router.get("/staff-requests", response_model=list[s.StaffRequestRead])
 async def list_staff_requests(
-    clinic_id: UUID | None = None, status: str | None = None, db=Depends(get_db),
+    clinic_id: UUID | None = None,
+    status: str | None = None,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES)),
 ):
     if ctx.role == "clinic_admin":
@@ -214,7 +233,9 @@ async def list_staff_requests(
 
 @router.patch("/staff-requests/{request_id}/decision", response_model=s.StaffRequestRead)
 async def decide_staff_request(
-    request_id: UUID, body: s.StaffRequestDecision, db=Depends(get_db),
+    request_id: UUID,
+    body: s.StaffRequestDecision,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role("super_admin", "regional_admin")),
 ):
     if ctx.role == "regional_admin":
@@ -223,5 +244,8 @@ async def decide_staff_request(
         if region_id != ctx.region_id:
             raise PermissionError_("You can only decide on staff requests for clinics in your own region", code="REGION_SCOPE_MISMATCH")
     return await StaffRequestService(db).decide(
-        request_id, decision=body.decision, reviewed_by=UUID(ctx.user_id), review_notes=body.review_notes,
+        request_id,
+        decision=body.decision,
+        reviewed_by=UUID(ctx.user_id),
+        review_notes=body.review_notes,
     )

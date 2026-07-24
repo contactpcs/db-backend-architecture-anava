@@ -45,7 +45,8 @@ class ConsentRecordRepository:
                 "VALUES (:consent_type, :template_id, :patient_id, :staff_id, :clinic_id, :region_id) RETURNING *"
             ),
             {
-                "consent_type": consent_type, "template_id": str(template_id),
+                "consent_type": consent_type,
+                "template_id": str(template_id),
                 "patient_id": str(patient_id) if patient_id else None,
                 "staff_id": str(staff_id) if staff_id else None,
                 "clinic_id": str(clinic_id) if clinic_id else None,
@@ -69,12 +70,13 @@ class ConsentRecordRepository:
             params["clinic_id"] = str(clinic_id)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = (
-            await self.session.execute(text(f"SELECT * FROM consent_records {where} ORDER BY created_at DESC"), params)
-        ).mappings().all()
+            (await self.session.execute(text(f"SELECT * FROM consent_records {where} ORDER BY created_at DESC"), params)).mappings().all()
+        )
         return [dict(r) for r in rows]
 
-    async def sign(self, consent_id: UUID, *, signed_by: UUID, witness_id, signature_data: str,
-                    ip_address, content_hash_at_signing: str | None) -> dict | None:
+    async def sign(
+        self, consent_id: UUID, *, signed_by: UUID, witness_id, signature_data: str, ip_address, content_hash_at_signing: str | None
+    ) -> dict | None:
         return await fetch_optional(
             self.session,
             text(
@@ -83,8 +85,11 @@ class ConsentRecordRepository:
                 "content_hash_at_signing = :hash WHERE consent_id = :id AND status = 'pending' RETURNING *"
             ),
             {
-                "signed_by": str(signed_by), "witness_id": str(witness_id) if witness_id else None,
-                "signature_data": signature_data, "ip_address": ip_address, "hash": content_hash_at_signing,
+                "signed_by": str(signed_by),
+                "witness_id": str(witness_id) if witness_id else None,
+                "signature_data": signature_data,
+                "ip_address": ip_address,
+                "hash": content_hash_at_signing,
                 "id": str(consent_id),
             },
         )

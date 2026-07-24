@@ -22,7 +22,8 @@ _ALL_STAFF = ("super_admin", "regional_admin", "clinic_admin", "doctor", "clinic
 
 @router.post("/patients", response_model=s.PatientRead, status_code=201)
 async def register_patient(
-    body: s.PatientRegister, db=Depends(get_db),
+    body: s.PatientRegister,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin", "receptionist")),
 ):
     data = body.model_dump()
@@ -36,6 +37,7 @@ async def register_patient(
     cognito_sub = None
     if settings.auth_mode == "cognito":
         from app.core.cognito import provision_staff_user
+
         cognito_sub = provision_staff_user(
             email=data["email"], first_name=data["first_name"], last_name=data["last_name"], phone=data.get("phone")
         )
@@ -44,8 +46,11 @@ async def register_patient(
 
 @router.get("/patients", response_model=list[s.PatientRead])
 async def list_patients(
-    registration_status: str | None = None, approval_status: str | None = None, clinic_id: UUID | None = None,
-    db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+    registration_status: str | None = None,
+    approval_status: str | None = None,
+    clinic_id: UUID | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     # "patient" is allowed here so patients.service.ts's getDashboard()/
     # getMyAnamnesis() (which call this same "RLS-scoped to own record"
@@ -72,7 +77,9 @@ async def get_patient(patient_id: UUID, db=Depends(get_db), ctx: RequestContext 
 
 @router.patch("/patients/{patient_id}", response_model=s.PatientRead)
 async def update_patient(
-    patient_id: UUID, body: s.PatientUpdate, db=Depends(get_db),
+    patient_id: UUID,
+    body: s.PatientUpdate,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin")),
 ):
     existing = await PatientService(db).get(patient_id)
@@ -82,7 +89,8 @@ async def update_patient(
 
 @router.delete("/patients/{patient_id}", status_code=204)
 async def delete_patient(
-    patient_id: UUID, db=Depends(get_db),
+    patient_id: UUID,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin")),
 ):
     existing = await PatientService(db).get(patient_id)
@@ -92,7 +100,9 @@ async def delete_patient(
 
 @router.patch("/patients/{patient_id}/approval", response_model=s.PatientRead)
 async def decide_patient_approval(
-    patient_id: UUID, body: s.PatientApprovalDecision, db=Depends(get_db),
+    patient_id: UUID,
+    body: s.PatientApprovalDecision,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin", "receptionist", "clinical_assistant")),
 ):
     existing = await PatientService(db).get(patient_id)
@@ -104,7 +114,9 @@ async def decide_patient_approval(
 
 @router.patch("/patients/{patient_id}/allocate-doctor", response_model=s.PatientRead)
 async def allocate_doctor(
-    patient_id: UUID, body: s.DoctorAllocation, db=Depends(get_db),
+    patient_id: UUID,
+    body: s.DoctorAllocation,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin", "receptionist")),
 ):
     existing = await PatientService(db).get(patient_id)
@@ -120,12 +132,17 @@ async def list_disease_selection(patient_id: UUID, db=Depends(get_db), ctx: Requ
 
 @router.post("/patients/{patient_id}/disease-selection", response_model=s.DiseaseSelectionRead, status_code=201)
 async def select_disease(
-    patient_id: UUID, body: s.DiseaseSelectionCreate, db=Depends(get_db),
+    patient_id: UUID,
+    body: s.DiseaseSelectionCreate,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     await assert_patient_self(ctx, db, patient_id)
     return await PatientService(db).select_disease(
-        patient_id, disease_id=body.disease_id, disease_unknown=body.disease_unknown, is_primary=body.is_primary,
+        patient_id,
+        disease_id=body.disease_id,
+        disease_unknown=body.disease_unknown,
+        is_primary=body.is_primary,
         assigned_by=UUID(ctx.user_id),
     )
 

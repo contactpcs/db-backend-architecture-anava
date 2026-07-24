@@ -71,10 +71,7 @@ async def _fetch_cognito_jwks() -> list[dict]:
         if cached and (time.time() - cached[0]) < _JWKS_TTL_SECONDS:
             return cached[1]
 
-        url = (
-            f"https://cognito-idp.{settings.cognito_region}.amazonaws.com/"
-            f"{settings.cognito_user_pool_id}/.well-known/jwks.json"
-        )
+        url = f"https://cognito-idp.{settings.cognito_region}.amazonaws.com/{settings.cognito_user_pool_id}/.well-known/jwks.json"
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(url)
         resp.raise_for_status()

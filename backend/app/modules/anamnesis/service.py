@@ -35,8 +35,11 @@ class AnamnesisService:
             patient_id=profile_id, submitted_by=submitted_by, taken_by=taken_by, cycle_id=cycle_id, version=next_version
         )
         await emit_event(
-            self.session, aggregate_type="anamnesis_assessment", aggregate_id=assessment["anamnesis_id"],
-            event_type="anamnesis_started", payload={"anamnesis_id": assessment["anamnesis_id"], "patient_id": str(patient_id)},
+            self.session,
+            aggregate_type="anamnesis_assessment",
+            aggregate_id=assessment["anamnesis_id"],
+            event_type="anamnesis_started",
+            payload={"anamnesis_id": assessment["anamnesis_id"], "patient_id": str(patient_id)},
         )
         return assessment
 
@@ -66,8 +69,10 @@ class AnamnesisService:
 
         for item in items:
             await self.responses.upsert(
-                anamnesis_id=anamnesis_id, question_id=item["question_id"],
-                response_value=item.get("response_value"), response_values=item.get("response_values"),
+                anamnesis_id=anamnesis_id,
+                question_id=item["question_id"],
+                response_value=item.get("response_value"),
+                response_values=item.get("response_values"),
             )
 
         if complete:
@@ -76,8 +81,11 @@ class AnamnesisService:
                 raise NotFoundError("Anamnesis assessment not found", code="ANAMNESIS_NOT_FOUND")
             assessment = completed
             await emit_event(
-                self.session, aggregate_type="anamnesis_assessment", aggregate_id=anamnesis_id,
-                event_type="anamnesis_completed", payload={"anamnesis_id": anamnesis_id, "patient_id": str(assessment["patient_id"])},
+                self.session,
+                aggregate_type="anamnesis_assessment",
+                aggregate_id=anamnesis_id,
+                event_type="anamnesis_completed",
+                payload={"anamnesis_id": anamnesis_id, "patient_id": str(assessment["patient_id"])},
             )
             from app.modules.patients.repository import PatientRepository
             from app.modules.patients.service import PatientService

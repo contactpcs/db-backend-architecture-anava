@@ -69,8 +69,13 @@ async def seed_diseases(conn) -> int:
                 "VALUES (:disease_id, :disease_code, :disease_name, :version, :status) "
                 "ON CONFLICT (disease_id) DO NOTHING"
             ),
-            {"disease_id": r["disease_id"], "disease_code": r["disease_code"],
-             "disease_name": r["disease_name"], "version": r["version"], "status": as_bool(r["status"])},
+            {
+                "disease_id": r["disease_id"],
+                "disease_code": r["disease_code"],
+                "disease_name": r["disease_name"],
+                "version": r["version"],
+                "status": as_bool(r["status"]),
+            },
         )
     return len(rows)
 
@@ -89,8 +94,13 @@ async def seed_scales(conn) -> int:
                 "VALUES (:scale_id, :scale_code, :scale_name, :is_common, :num_diseases) "
                 "ON CONFLICT (scale_id) DO NOTHING"
             ),
-            {"scale_id": r["scale_id"], "scale_code": r["scale_code"], "scale_name": r["scale_name"],
-             "is_common": as_bool(r["is_common_scale"]), "num_diseases": as_int(r["num_diseases_used"])},
+            {
+                "scale_id": r["scale_id"],
+                "scale_code": r["scale_code"],
+                "scale_name": r["scale_name"],
+                "is_common": as_bool(r["is_common_scale"]),
+                "num_diseases": as_int(r["num_diseases_used"]),
+            },
         )
     return len(rows)
 
@@ -115,8 +125,13 @@ async def seed_disease_scale_map(conn) -> int:
                 "VALUES (:id, :disease_id, :scale_id, :order, :required) "
                 "ON CONFLICT (disease_id, scale_id) DO UPDATE SET ds_map_id = EXCLUDED.ds_map_id"
             ),
-            {"id": r["ds_map_id"], "disease_id": r["disease_id"], "scale_id": r["scale_id"],
-             "order": as_int(r["display_order"]), "required": as_bool(r["is_required"])},
+            {
+                "id": r["ds_map_id"],
+                "disease_id": r["disease_id"],
+                "scale_id": r["scale_id"],
+                "order": as_int(r["display_order"]),
+                "required": as_bool(r["is_required"]),
+            },
         )
     return len(rows)
 
@@ -134,12 +149,18 @@ async def seed_questions(conn) -> int:
                 "ON CONFLICT (question_id) DO NOTHING"
             ),
             {
-                "question_id": r["question_id"], "question_code": r["question_code"],
-                "disease_id": as_text_or_none(r["disease_id"]), "scale_id": as_text_or_none(r["scale_id"]),
-                "ds_map_id": as_text_or_none(r["ds_map_id"]), "question_text": r["question_text"],
-                "answer_type": r["answer_type"], "min_value": as_decimal_or_none(r["min_value"]),
-                "max_value": as_decimal_or_none(r["max_value"]), "is_required": as_bool(r["is_required"]),
-                "skip_logic": as_text_or_none(r["skip_logic"]), "display_order": as_int(r["display_order"]),
+                "question_id": r["question_id"],
+                "question_code": r["question_code"],
+                "disease_id": as_text_or_none(r["disease_id"]),
+                "scale_id": as_text_or_none(r["scale_id"]),
+                "ds_map_id": as_text_or_none(r["ds_map_id"]),
+                "question_text": r["question_text"],
+                "answer_type": r["answer_type"],
+                "min_value": as_decimal_or_none(r["min_value"]),
+                "max_value": as_decimal_or_none(r["max_value"]),
+                "is_required": as_bool(r["is_required"]),
+                "skip_logic": as_text_or_none(r["skip_logic"]),
+                "display_order": as_int(r["display_order"]),
                 "is_common_scale": as_bool(r["is_common_scale"]),
             },
         )
@@ -155,9 +176,15 @@ async def seed_options(conn) -> int:
                 "display_order, status) VALUES (:id, :qid, :label, :value, :points, :order, :status) "
                 "ON CONFLICT (option_id) DO NOTHING"
             ),
-            {"id": r["option_id"], "qid": r["question_id"], "label": r["option_label"],
-             "value": r["option_value"], "points": as_decimal_or_none(r["points"]) or Decimal(0),
-             "order": as_int(r["display_order"]), "status": as_bool(r["status"])},
+            {
+                "id": r["option_id"],
+                "qid": r["question_id"],
+                "label": r["option_label"],
+                "value": r["option_value"],
+                "points": as_decimal_or_none(r["points"]) or Decimal(0),
+                "order": as_int(r["display_order"]),
+                "status": as_bool(r["status"]),
+            },
         )
     return len(rows)
 
@@ -170,8 +197,7 @@ async def seed_disease_question_map(conn) -> int:
                 "INSERT INTO prs_disease_question_map (dq_map_id, disease_id, question_id, display_order) "
                 "VALUES (:id, :disease_id, :qid, :order) ON CONFLICT (dq_map_id) DO NOTHING"
             ),
-            {"id": r["dq_map_id"], "disease_id": r["disease_id"], "qid": r["question_id"],
-             "order": as_int(r["display_order"])},
+            {"id": r["dq_map_id"], "disease_id": r["disease_id"], "qid": r["question_id"], "order": as_int(r["display_order"])},
         )
     return len(rows)
 
@@ -184,8 +210,7 @@ async def seed_scale_question_map(conn) -> int:
                 "INSERT INTO prs_scale_question_map (sq_map_id, scale_id, question_id, display_order) "
                 "VALUES (:id, :scale_id, :qid, :order) ON CONFLICT (sq_map_id) DO NOTHING"
             ),
-            {"id": r["sq_map_id"], "scale_id": r["scale_id"], "qid": r["question_id"],
-             "order": as_int(r["display_order"])},
+            {"id": r["sq_map_id"], "scale_id": r["scale_id"], "qid": r["question_id"], "order": as_int(r["display_order"])},
         )
     return len(rows)
 
@@ -204,11 +229,17 @@ async def seed_anamnesis_questions(conn) -> int:
                 "section_title = EXCLUDED.section_title, display_order = EXCLUDED.display_order"
             ),
             {
-                "id": r["question_id"], "section_number": as_int(r["section_number"]),
-                "section_title": r["section_title"], "code": r["question_code"], "text": r["question_text"],
-                "answer_type": r["answer_type"], "required": as_bool(r["is_required"]),
-                "order": as_int(r["display_order"]), "depends_id": as_text_or_none(r["depends_on_question_id"]),
-                "depends_value": as_text_or_none(r["depends_on_value"]), "helper": as_text_or_none(r["helper_text"]),
+                "id": r["question_id"],
+                "section_number": as_int(r["section_number"]),
+                "section_title": r["section_title"],
+                "code": r["question_code"],
+                "text": r["question_text"],
+                "answer_type": r["answer_type"],
+                "required": as_bool(r["is_required"]),
+                "order": as_int(r["display_order"]),
+                "depends_id": as_text_or_none(r["depends_on_question_id"]),
+                "depends_value": as_text_or_none(r["depends_on_value"]),
+                "helper": as_text_or_none(r["helper_text"]),
                 "status": as_bool(r["status"]),
             },
         )
@@ -223,8 +254,13 @@ async def seed_anamnesis_options(conn) -> int:
                 "INSERT INTO anamnesis_options (option_id, question_id, option_label, option_value, display_order) "
                 "VALUES (:id, :qid, :label, :value, :order) ON CONFLICT (option_id) DO NOTHING"
             ),
-            {"id": r["option_id"], "qid": r["question_id"], "label": r["option_label"],
-             "value": r["option_value"], "order": as_int(r["display_order"])},
+            {
+                "id": r["option_id"],
+                "qid": r["question_id"],
+                "label": r["option_label"],
+                "value": r["option_value"],
+                "order": as_int(r["display_order"]),
+            },
         )
     return len(rows)
 

@@ -64,7 +64,9 @@ class StoreOrderService:
             items_with_price.append({**item, "unit_price": product["price"]})
 
         payload = {
-            "patient_id": str(patient_profile_id), "clinic_id": str(data["clinic_id"]), "initiated_by": str(initiated_by),
+            "patient_id": str(patient_profile_id),
+            "clinic_id": str(data["clinic_id"]),
+            "initiated_by": str(initiated_by),
             "order_type": data["order_type"],
             "status": "pending_doctor_approval" if data["order_type"] == "device" else "pending_dispatch",
             "total_amount": total,
@@ -77,8 +79,11 @@ class StoreOrderService:
             )
 
         await emit_event(
-            self.session, aggregate_type="store_order", aggregate_id=order["order_id"],
-            event_type="order_created", payload={"order_id": str(order["order_id"]), "order_type": data["order_type"]},
+            self.session,
+            aggregate_type="store_order",
+            aggregate_id=order["order_id"],
+            event_type="order_created",
+            payload={"order_id": str(order["order_id"]), "order_type": data["order_type"]},
         )
         return order
 
@@ -99,12 +104,17 @@ class StoreOrderService:
         )
 
         event_map = {
-            "doctor_approved": "device_order_approved", "dispatched_to_clinic": "stock_dispatched",
-            "collected_by_patient": "order_collected", "cancelled": "order_cancelled",
+            "doctor_approved": "device_order_approved",
+            "dispatched_to_clinic": "stock_dispatched",
+            "collected_by_patient": "order_collected",
+            "cancelled": "order_cancelled",
         }
         await emit_event(
-            self.session, aggregate_type="store_order", aggregate_id=order_id,
-            event_type=event_map.get(status, "order_status_changed"), payload={"order_id": str(order_id), "status": status},
+            self.session,
+            aggregate_type="store_order",
+            aggregate_id=order_id,
+            event_type=event_map.get(status, "order_status_changed"),
+            payload={"order_id": str(order_id), "status": status},
         )
 
         # Keep device_assignments.purchase_status in sync with the order lifecycle.
@@ -123,12 +133,20 @@ class DeviceAssignmentService:
 
     async def prompt_purchase(self, *, patient_id: UUID, clinic_id: UUID, plan_id: UUID, device_type: str, assigned_by: UUID) -> dict:
         patient_profile_id = await _resolve_patient_profile_id(self.session, patient_id)
-        da = await self.repo.create({
-            "patient_id": str(patient_profile_id), "clinic_id": str(clinic_id), "plan_id": str(plan_id),
-            "assigned_by": str(assigned_by), "device_type": device_type,
-        })
+        da = await self.repo.create(
+            {
+                "patient_id": str(patient_profile_id),
+                "clinic_id": str(clinic_id),
+                "plan_id": str(plan_id),
+                "assigned_by": str(assigned_by),
+                "device_type": device_type,
+            }
+        )
         await emit_event(
-            self.session, aggregate_type="device_assignment", aggregate_id=da["da_id"],
-            event_type="device_purchase_prompted", payload={"da_id": str(da["da_id"]), "patient_id": str(patient_id)},
+            self.session,
+            aggregate_type="device_assignment",
+            aggregate_id=da["da_id"],
+            event_type="device_purchase_prompted",
+            payload={"da_id": str(da["da_id"]), "patient_id": str(patient_id)},
         )
         return da

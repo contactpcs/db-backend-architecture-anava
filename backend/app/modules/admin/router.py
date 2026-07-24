@@ -21,23 +21,28 @@ router = APIRouter()
 
 # ---------------------------------------------------------------- regions --
 @router.post("/regions", response_model=s.RegionRead, status_code=201)
-async def create_region(
-    body: s.RegionCreate, db=Depends(get_db), _ctx: RequestContext = Depends(require_role("super_admin"))
-):
+async def create_region(body: s.RegionCreate, db=Depends(get_db), _ctx: RequestContext = Depends(require_role("super_admin"))):
     return await RegionService(db).create(**body.model_dump())
 
 
 @router.get("/regions", response_model=list[s.RegionRead])
-async def list_regions(db=Depends(get_db), _ctx: RequestContext = Depends(require_role(
-    "super_admin", "regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist"
-))):
+async def list_regions(
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(
+        require_role("super_admin", "regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist")
+    ),
+):
     return await RegionService(db).list()
 
 
 @router.get("/regions/{region_id}", response_model=s.RegionRead)
-async def get_region(region_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(
-    "super_admin", "regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist"
-))):
+async def get_region(
+    region_id: UUID,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(
+        require_role("super_admin", "regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist")
+    ),
+):
     return await RegionService(db).get(region_id)
 
 
@@ -52,9 +57,7 @@ async def update_region(
 
 
 @router.delete("/regions/{region_id}", status_code=204)
-async def delete_region(
-    region_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role("super_admin"))
-):
+async def delete_region(region_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role("super_admin"))):
     await RegionService(db).delete(region_id)
 
 
@@ -133,17 +136,21 @@ async def list_clinics(
     region_id: UUID | None = None,
     status: str | None = None,
     db=Depends(get_db),
-    _ctx: RequestContext = Depends(require_role(
-        "super_admin", "regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist"
-    )),
+    _ctx: RequestContext = Depends(
+        require_role("super_admin", "regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist")
+    ),
 ):
     return await ClinicService(db).list(region_id=region_id, status=status)
 
 
 @router.get("/clinics/{clinic_id}", response_model=s.ClinicRead)
-async def get_clinic(clinic_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(
-    "super_admin", "regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist"
-))):
+async def get_clinic(
+    clinic_id: UUID,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(
+        require_role("super_admin", "regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist")
+    ),
+):
     return await ClinicService(db).get(clinic_id)
 
 
@@ -172,9 +179,7 @@ async def change_clinic_status(
 
 
 @router.delete("/clinics/{clinic_id}", status_code=204)
-async def delete_clinic(
-    clinic_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role("super_admin", "regional_admin"))
-):
+async def delete_clinic(clinic_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role("super_admin", "regional_admin"))):
     await ClinicService(db).delete(clinic_id)
 
 

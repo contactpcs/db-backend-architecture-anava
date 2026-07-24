@@ -20,7 +20,9 @@ async def list_anamnesis_catalog(db=Depends(get_db), _ctx: RequestContext = Depe
 
 @router.post("/patients/{patient_id}/anamnesis", response_model=s.AnamnesisAssessmentRead, status_code=201)
 async def start_anamnesis(
-    patient_id: UUID, body: s.AnamnesisStart, db=Depends(get_db),
+    patient_id: UUID,
+    body: s.AnamnesisStart,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     await assert_patient_self(ctx, db, patient_id)
@@ -44,7 +46,9 @@ async def get_anamnesis_responses(
 
 @router.patch("/anamnesis/{anamnesis_id}", response_model=s.AnamnesisAssessmentRead)
 async def submit_anamnesis_responses(
-    anamnesis_id: str, body: s.AnamnesisResponsesSubmit, db=Depends(get_db),
+    anamnesis_id: str,
+    body: s.AnamnesisResponsesSubmit,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     assessment = await AnamnesisService(db).get_by_id(anamnesis_id)

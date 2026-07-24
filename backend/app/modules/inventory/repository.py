@@ -58,8 +58,8 @@ class StockTransferRepository:
             params["status"] = status
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = (
-            await self.session.execute(text(f"SELECT * FROM stock_transfers {where} ORDER BY created_at DESC"), params)
-        ).mappings().all()
+            (await self.session.execute(text(f"SELECT * FROM stock_transfers {where} ORDER BY created_at DESC"), params)).mappings().all()
+        )
         return [dict(r) for r in rows]
 
     async def set_status(self, st_id: UUID, *, status: str, received_by=None) -> dict | None:

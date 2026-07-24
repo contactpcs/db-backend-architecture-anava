@@ -22,9 +22,7 @@ _ALL_STAFF = ("super_admin", "regional_admin", "clinic_admin", "doctor", "clinic
 
 # --------------------------------------------------------------- cycles --
 @router.post("/treatment-cycles", response_model=s.TreatmentCycleRead, status_code=201)
-async def create_cycle(
-    body: s.TreatmentCycleCreate, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF))
-):
+async def create_cycle(body: s.TreatmentCycleCreate, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
     return await TreatmentCycleService(db).create(body.model_dump())
 
 
@@ -41,9 +39,7 @@ async def list_cycles(
 
 
 @router.get("/treatment-cycles/{cycle_id}", response_model=s.TreatmentCycleRead)
-async def get_cycle(
-    cycle_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))
-):
+async def get_cycle(cycle_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
     cycle = await TreatmentCycleService(db).get(cycle_id)
     assert_owns_profile(ctx, cycle["patient_id"])
     return cycle
@@ -80,9 +76,7 @@ async def list_protocol_requests(
 
 
 @router.get("/assessment-protocol-requests/{request_id}", response_model=s.ProtocolRequestRead)
-async def get_protocol_request(
-    request_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF))
-):
+async def get_protocol_request(request_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
     return await ProtocolRequestService(db).get(request_id)
 
 
@@ -98,9 +92,7 @@ async def decide_protocol_request(
 
 # --------------------------------------------------------------- sessions --
 @router.post("/sessions", response_model=s.SessionRead, status_code=201)
-async def create_session(
-    body: s.SessionCreate, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF))
-):
+async def create_session(body: s.SessionCreate, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
     return await SessionService(db).create(body.model_dump())
 
 
@@ -117,9 +109,7 @@ async def list_sessions(
 
 
 @router.get("/sessions/{session_id}", response_model=s.SessionRead)
-async def get_session(
-    session_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))
-):
+async def get_session(session_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
     record = await SessionService(db).get(session_id)
     assert_owns_profile(ctx, record["patient_id"])
     return record
@@ -158,9 +148,7 @@ async def list_treatment_plans(
 
 
 @router.get("/treatment-plans/{plan_id}", response_model=s.TreatmentPlanRead)
-async def get_treatment_plan(
-    plan_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))
-):
+async def get_treatment_plan(plan_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
     plan = await TreatmentPlanService(db).get(plan_id)
     assert_owns_profile(ctx, plan["patient_id"])
     return plan
@@ -221,7 +209,5 @@ async def create_doctor_session_note(
 
 
 @router.get("/doctor-session-notes/{note_id}")
-async def get_doctor_session_note(
-    note_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role("doctor", "super_admin"))
-):
+async def get_doctor_session_note(note_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role("doctor", "super_admin"))):
     return await DoctorSessionNoteService(db).get(note_id)

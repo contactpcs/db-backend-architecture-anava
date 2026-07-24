@@ -29,17 +29,14 @@ class TreatmentCycleRepository:
             params["cid"] = str(clinic_id)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = (
-            await self.session.execute(text(f"SELECT * FROM treatment_cycles {where} ORDER BY created_at DESC"), params)
-        ).mappings().all()
+            (await self.session.execute(text(f"SELECT * FROM treatment_cycles {where} ORDER BY created_at DESC"), params)).mappings().all()
+        )
         return [dict(r) for r in rows]
 
     async def get_active_for_patient(self, patient_id: UUID) -> dict | None:
         return await fetch_optional(
             self.session,
-            text(
-                "SELECT * FROM treatment_cycles WHERE patient_id = :pid AND status = 'in_progress' "
-                "ORDER BY cycle_number DESC LIMIT 1"
-            ),
+            text("SELECT * FROM treatment_cycles WHERE patient_id = :pid AND status = 'in_progress' ORDER BY cycle_number DESC LIMIT 1"),
             {"pid": str(patient_id)},
         )
 
@@ -76,10 +73,10 @@ class ProtocolRequestRepository:
             params["status"] = status
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = (
-            await self.session.execute(
-                text(f"SELECT * FROM assessment_protocol_requests {where} ORDER BY submitted_at DESC"), params
-            )
-        ).mappings().all()
+            (await self.session.execute(text(f"SELECT * FROM assessment_protocol_requests {where} ORDER BY submitted_at DESC"), params))
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
     async def decide(self, request_id: UUID, *, status: str, doctor_notes: str | None) -> dict | None:
@@ -153,8 +150,8 @@ class TreatmentPlanRepository:
             params["cid"] = str(cycle_id)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = (
-            await self.session.execute(text(f"SELECT * FROM treatment_plans {where} ORDER BY created_at DESC"), params)
-        ).mappings().all()
+            (await self.session.execute(text(f"SELECT * FROM treatment_plans {where} ORDER BY created_at DESC"), params)).mappings().all()
+        )
         return [dict(r) for r in rows]
 
     async def update(self, plan_id: UUID, fields: dict) -> dict | None:
@@ -192,8 +189,8 @@ class TreatmentSessionRepository:
             params["ptid"] = str(patient_id)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = (
-            await self.session.execute(text(f"SELECT * FROM treatment_sessions {where} ORDER BY session_number"), params)
-        ).mappings().all()
+            (await self.session.execute(text(f"SELECT * FROM treatment_sessions {where} ORDER BY session_number"), params)).mappings().all()
+        )
         return [dict(r) for r in rows]
 
     async def update_status(self, ts_id: UUID, *, status: str, session_notes, patient_feedback) -> dict | None:

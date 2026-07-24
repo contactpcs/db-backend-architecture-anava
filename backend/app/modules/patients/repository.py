@@ -12,12 +12,27 @@ class PatientRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create_profile_and_patient(self, *, email: str, first_name: str, last_name: str, phone,
-                                           gender, dob, address, primary_clinic_id: UUID,
-                                           emergency_contact_name, emergency_contact_phone,
-                                           city=None, state=None, country=None, pincode=None,
-                                           self_registered: bool = False, approval_status: str = "not_required",
-                                           cognito_sub: str | None = None) -> dict:
+    async def create_profile_and_patient(
+        self,
+        *,
+        email: str,
+        first_name: str,
+        last_name: str,
+        phone,
+        gender,
+        dob,
+        address,
+        primary_clinic_id: UUID,
+        emergency_contact_name,
+        emergency_contact_phone,
+        city=None,
+        state=None,
+        country=None,
+        pincode=None,
+        self_registered: bool = False,
+        approval_status: str = "not_required",
+        cognito_sub: str | None = None,
+    ) -> dict:
         # is_active = FALSE — gated until the patient signs the
         # patient_onboarding consent (see consent/service.py ConsentRecordService.sign),
         # or (self-registered) until a receptionist approves (patients.approval_status).
@@ -45,10 +60,20 @@ class PatientRepository:
                 "VALUES (COALESCE(:cognito_sub, 'pending-' || gen_random_uuid()::TEXT), :email, :first_name, :last_name, :phone, "
                 "'patient', :gender, :dob, :address, :city, :state, :country, :pincode, FALSE, FALSE) RETURNING *"
             ),
-            {"cognito_sub": cognito_sub,
-             "email": email, "first_name": first_name, "last_name": last_name, "phone": phone,
-             "gender": gender, "dob": dob, "address": address,
-             "city": city, "state": state, "country": country, "pincode": pincode},
+            {
+                "cognito_sub": cognito_sub,
+                "email": email,
+                "first_name": first_name,
+                "last_name": last_name,
+                "phone": phone,
+                "gender": gender,
+                "dob": dob,
+                "address": address,
+                "city": city,
+                "state": state,
+                "country": country,
+                "pincode": pincode,
+            },
         )
         # Same reason, for the patients insert's own RETURNING (rls_patients_
         # select's `profile_id = rls_user_id()` clause) and for
@@ -64,18 +89,29 @@ class PatientRepository:
                 "self_registered, approval_status) "
                 "VALUES (:profile_id, :clinic_id, :ec_name, :ec_phone, :self_registered, :approval_status) RETURNING *"
             ),
-            {"profile_id": profile["id"], "clinic_id": str(primary_clinic_id),
-             "ec_name": emergency_contact_name, "ec_phone": emergency_contact_phone,
-             "self_registered": self_registered, "approval_status": approval_status},
+            {
+                "profile_id": profile["id"],
+                "clinic_id": str(primary_clinic_id),
+                "ec_name": emergency_contact_name,
+                "ec_phone": emergency_contact_phone,
+                "self_registered": self_registered,
+                "approval_status": approval_status,
+            },
         )
         # Merge in the profile fields we already have in hand — avoids a
         # second round-trip just to get what create() already fetched.
         # cognito_sub included so callers (e.g. the public self-registration
         # endpoint) can mint a login token immediately without a re-query.
         return {
-            **patient, "first_name": profile["first_name"], "last_name": profile["last_name"],
-            "email": profile["email"], "phone": profile["phone"], "gender": profile["gender"],
-            "dob": profile["dob"], "address": profile["address"], "profile_is_active": profile["is_active"],
+            **patient,
+            "first_name": profile["first_name"],
+            "last_name": profile["last_name"],
+            "email": profile["email"],
+            "phone": profile["phone"],
+            "gender": profile["gender"],
+            "dob": profile["dob"],
+            "address": profile["address"],
+            "profile_is_active": profile["is_active"],
             "cognito_sub": profile["cognito_sub"],
         }
 
@@ -92,17 +128,19 @@ class PatientRepository:
     )
 
     async def get(self, patient_id: UUID) -> dict | None:
-        return await fetch_optional(
-            self.session, text(f"{self._SELECT_WITH_PROFILE} WHERE pt.patient_id = :id"), {"id": str(patient_id)}
-        )
+        return await fetch_optional(self.session, text(f"{self._SELECT_WITH_PROFILE} WHERE pt.patient_id = :id"), {"id": str(patient_id)})
 
     async def get_by_profile_id(self, profile_id: UUID) -> dict | None:
-        return await fetch_optional(
-            self.session, text(f"{self._SELECT_WITH_PROFILE} WHERE pt.profile_id = :pid"), {"pid": str(profile_id)}
-        )
+        return await fetch_optional(self.session, text(f"{self._SELECT_WITH_PROFILE} WHERE pt.profile_id = :pid"), {"pid": str(profile_id)})
 
-    async def list(self, *, registration_status: str | None = None, approval_status: str | None = None,
-                    clinic_id: UUID | None = None, profile_id: UUID | None = None) -> list[dict]:
+    async def list(
+        self,
+        *,
+        registration_status: str | None = None,
+        approval_status: str | None = None,
+        clinic_id: UUID | None = None,
+        profile_id: UUID | None = None,
+    ) -> list[dict]:
         # pt.deleted_at IS NULL — soft-deleted patients (see delete() below)
         # never show up in the active list, but the row is never removed.
         clauses, params = ["pt.deleted_at IS NULL"], {}
@@ -120,8 +158,8 @@ class PatientRepository:
             params["profile_id"] = str(profile_id)
         where = f"WHERE {' AND '.join(clauses)}"
         rows = (
-            await self.session.execute(text(f"{self._SELECT_WITH_PROFILE} {where} ORDER BY pt.created_at DESC"), params)
-        ).mappings().all()
+            (await self.session.execute(text(f"{self._SELECT_WITH_PROFILE} {where} ORDER BY pt.created_at DESC"), params)).mappings().all()
+        )
         return [dict(r) for r in rows]
 
     async def update(self, patient_id: UUID, *, profile_fields: dict, patient_fields: dict) -> dict | None:
@@ -167,16 +205,21 @@ class PatientRepository:
             {"status": status, "id": str(patient_id)},
         )
 
-    async def set_approval(self, patient_id: UUID, *, approval_status: str, approved_by: UUID | None,
-                            rejection_reason: str | None) -> dict | None:
+    async def set_approval(
+        self, patient_id: UUID, *, approval_status: str, approved_by: UUID | None, rejection_reason: str | None
+    ) -> dict | None:
         return await fetch_optional(
             self.session,
             text(
                 "UPDATE patients SET approval_status = :status, approved_by = :approved_by, "
                 "approved_at = NOW(), rejection_reason = :reason WHERE patient_id = :id RETURNING *"
             ),
-            {"status": approval_status, "approved_by": str(approved_by) if approved_by else None,
-             "reason": rejection_reason, "id": str(patient_id)},
+            {
+                "status": approval_status,
+                "approved_by": str(approved_by) if approved_by else None,
+                "reason": rejection_reason,
+                "id": str(patient_id),
+            },
         )
 
     async def complete_registration(self, patient_id: UUID, doctor_id: UUID | None) -> dict | None:
@@ -202,16 +245,19 @@ class DiseaseSelectionRepository:
                 "INSERT INTO patient_disease_selection (patient_id, disease_id, disease_unknown, is_primary) "
                 "VALUES (:patient_id, :disease_id, :disease_unknown, :is_primary) RETURNING *"
             ),
-            {"patient_id": str(patient_profile_id), "disease_id": disease_id,
-             "disease_unknown": disease_unknown, "is_primary": is_primary},
+            {"patient_id": str(patient_profile_id), "disease_id": disease_id, "disease_unknown": disease_unknown, "is_primary": is_primary},
         )
 
     async def list_for_patient(self, patient_profile_id: UUID) -> list[dict]:
         rows = (
-            await self.session.execute(
-                text("SELECT * FROM patient_disease_selection WHERE patient_id = :pid"), {"pid": str(patient_profile_id)}
+            (
+                await self.session.execute(
+                    text("SELECT * FROM patient_disease_selection WHERE patient_id = :pid"), {"pid": str(patient_profile_id)}
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
 
@@ -266,6 +312,10 @@ class PatientTransferRepository:
                 "to_doctor_id = COALESCE(:to_doctor_id, to_doctor_id), consent_id = COALESCE(:consent_id, consent_id) "
                 "WHERE pct_id = :id RETURNING *"
             ),
-            {"status": status, "to_doctor_id": str(to_doctor_id) if to_doctor_id else None,
-             "consent_id": str(consent_id) if consent_id else None, "id": str(pct_id)},
+            {
+                "status": status,
+                "to_doctor_id": str(to_doctor_id) if to_doctor_id else None,
+                "consent_id": str(consent_id) if consent_id else None,
+                "id": str(pct_id),
+            },
         )

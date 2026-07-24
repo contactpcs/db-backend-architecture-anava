@@ -14,9 +14,7 @@ from app.core.exceptions import PermissionError_
 
 
 async def clinic_region_id(session: AsyncSession, clinic_id) -> str | None:
-    row = (
-        await session.execute(text("SELECT region_id FROM clinics WHERE clinic_id = :id"), {"id": str(clinic_id)})
-    ).mappings().first()
+    row = (await session.execute(text("SELECT region_id FROM clinics WHERE clinic_id = :id"), {"id": str(clinic_id)})).mappings().first()
     return str(row["region_id"]) if row and row["region_id"] else None
 
 
@@ -45,8 +43,8 @@ async def assert_patient_self(ctx: RequestContext, session: AsyncSession, patien
     if ctx.role != "patient":
         return
     row = (
-        await session.execute(text("SELECT profile_id FROM patients WHERE patient_id = :id"), {"id": str(patient_id)})
-    ).mappings().first()
+        (await session.execute(text("SELECT profile_id FROM patients WHERE patient_id = :id"), {"id": str(patient_id)})).mappings().first()
+    )
     if not row or str(row["profile_id"]) != ctx.user_id:
         raise PermissionError_("You can only access your own patient record", code="PATIENT_SCOPE_MISMATCH")
 

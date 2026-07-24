@@ -46,8 +46,10 @@ def _client():
         # keys needed here at all.
         return boto3.Session(profile_name=settings.aws_profile).client("cognito-idp", region_name=settings.cognito_region)
     return boto3.client(
-        "cognito-idp", region_name=settings.cognito_region,
-        aws_access_key_id=settings.aws_access_key_id, aws_secret_access_key=settings.aws_secret_access_key,
+        "cognito-idp",
+        region_name=settings.cognito_region,
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
     )
 
 
@@ -57,20 +59,17 @@ def _secret_hash(username: str) -> str:
     assert settings.cognito_app_client_id is not None
     assert settings.cognito_app_client_secret is not None
     msg = username + settings.cognito_app_client_id
-    digest = hmac.new(
-        settings.cognito_app_client_secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256
-    ).digest()
+    digest = hmac.new(settings.cognito_app_client_secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).digest()
     return base64.b64encode(digest).decode("utf-8")
 
 
 def _require_cognito_mode() -> None:
     if settings.auth_mode != "cognito":
-        raise BusinessRuleError(
-            "Cognito is not configured for this environment (auth_mode != 'cognito')", code="COGNITO_NOT_CONFIGURED"
-        )
+        raise BusinessRuleError("Cognito is not configured for this environment (auth_mode != 'cognito')", code="COGNITO_NOT_CONFIGURED")
 
 
 # ─── Staff provisioning (unchanged — AdminCreateUser, temp password emailed) ──
+
 
 def provision_staff_user(*, email: str, first_name: str, last_name: str, phone: str | None) -> str:
     """Cognito auto-generates + emails the temp password — nothing to pass in."""
@@ -86,7 +85,9 @@ def provision_staff_user(*, email: str, first_name: str, last_name: str, phone: 
         attrs.append({"Name": "phone_number_verified", "Value": "true"})
     try:
         resp = _client().admin_create_user(
-            UserPoolId=settings.cognito_user_pool_id, Username=email, UserAttributes=attrs,
+            UserPoolId=settings.cognito_user_pool_id,
+            Username=email,
+            UserAttributes=attrs,
             DesiredDeliveryMediums=["EMAIL"],
         )
         return next(a["Value"] for a in resp["User"]["Attributes"] if a["Name"] == "sub")
@@ -96,8 +97,8 @@ def provision_staff_user(*, email: str, first_name: str, last_name: str, phone: 
 
 # ─── Patient signup wizard (SignUp/ConfirmSignUp — real OTP delivery) ─────────
 
-def sign_up_patient(*, username: str, first_name: str, last_name: str,
-                     dob: str | None, gender: str | None) -> None:
+
+def sign_up_patient(*, username: str, first_name: str, last_name: str, dob: str | None, gender: str | None) -> None:
     """username is the patient's chosen signup identifier — an email address
     or an E.164 phone number ("+91XXXXXXXXXX"), whichever field they filled
     in. Cognito auto-sends the OTP to that same channel; nothing further to
@@ -116,8 +117,11 @@ def sign_up_patient(*, username: str, first_name: str, last_name: str,
     throwaway_password = secrets.token_urlsafe(24) + "aA1!"
     try:
         _client().sign_up(
-            ClientId=settings.cognito_app_client_id, SecretHash=_secret_hash(username),
-            Username=username, Password=throwaway_password, UserAttributes=attrs,
+            ClientId=settings.cognito_app_client_id,
+            SecretHash=_secret_hash(username),
+            Username=username,
+            Password=throwaway_password,
+            UserAttributes=attrs,
         )
     except _client().exceptions.UsernameExistsException as exc:
         # Cognito raises this even for an abandoned signup (OTP never
@@ -140,7 +144,9 @@ def resend_confirmation_code(username: str) -> None:
     _require_cognito_mode()
     try:
         _client().resend_confirmation_code(
-            ClientId=settings.cognito_app_client_id, SecretHash=_secret_hash(username), Username=username,
+            ClientId=settings.cognito_app_client_id,
+            SecretHash=_secret_hash(username),
+            Username=username,
         )
     except ClientError as exc:
         raise BusinessRuleError(f"Could not resend code: {exc}", code="COGNITO_RESEND_FAILED") from exc
@@ -150,8 +156,10 @@ def confirm_sign_up(*, username: str, code: str) -> None:
     _require_cognito_mode()
     try:
         _client().confirm_sign_up(
-            ClientId=settings.cognito_app_client_id, SecretHash=_secret_hash(username),
-            Username=username, ConfirmationCode=code,
+            ClientId=settings.cognito_app_client_id,
+            SecretHash=_secret_hash(username),
+            Username=username,
+            ConfirmationCode=code,
         )
     except _client().exceptions.CodeMismatchException as exc:
         raise PermissionError_("Incorrect verification code", code="INVALID_OTP") from exc
@@ -170,7 +178,10 @@ def set_patient_password(*, username: str, password: str) -> str:
     _require_cognito_mode()
     try:
         _client().admin_set_user_password(
-            UserPoolId=settings.cognito_user_pool_id, Username=username, Password=password, Permanent=True,
+            UserPoolId=settings.cognito_user_pool_id,
+            Username=username,
+            Password=password,
+            Permanent=True,
         )
         resp = _client().admin_get_user(UserPoolId=settings.cognito_user_pool_id, Username=username)
         return next(a["Value"] for a in resp["UserAttributes"] if a["Name"] == "sub")
@@ -191,7 +202,8 @@ def add_and_verify_channel_start(*, access_token: str, attribute: str, value: st
     _require_cognito_mode()
     try:
         _client().update_user_attributes(
-            AccessToken=access_token, UserAttributes=[{"Name": attribute, "Value": value}],
+            AccessToken=access_token,
+            UserAttributes=[{"Name": attribute, "Value": value}],
         )
     except ClientError as exc:
         raise BusinessRuleError(f"Could not send verification code: {exc}", code="COGNITO_VERIFY_CODE_FAILED") from exc
@@ -210,6 +222,7 @@ def verify_attribute(*, access_token: str, attribute: str, code: str) -> None:
 
 
 # ─── Login (works for staff and patients alike, email or phone alias) ────────
+
 
 def initiate_auth(*, username: str, password: str) -> dict:
     """USER_PASSWORD_AUTH — username is email or phone, either works once
@@ -235,7 +248,8 @@ def initiate_auth(*, username: str, password: str) -> dict:
 
     if "ChallengeName" in resp:
         raise BusinessRuleError(
-            f"Password change required ({resp['ChallengeName']})", code="NEW_PASSWORD_REQUIRED",
+            f"Password change required ({resp['ChallengeName']})",
+            code="NEW_PASSWORD_REQUIRED",
             details=[{"session": resp["Session"]}],
         )
     return resp["AuthenticationResult"]

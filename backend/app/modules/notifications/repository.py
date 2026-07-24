@@ -19,20 +19,28 @@ class NotificationRepository:
     async def list_for_recipient(self, recipient_id: UUID, *, unread_only: bool = False) -> list[dict]:
         clause = "recipient_id = :rid" + (" AND is_read = FALSE" if unread_only else "")
         rows = (
-            await self.session.execute(
-                text(f"SELECT * FROM notifications WHERE {clause} ORDER BY created_at DESC LIMIT 100"),
-                {"rid": str(recipient_id)},
+            (
+                await self.session.execute(
+                    text(f"SELECT * FROM notifications WHERE {clause} ORDER BY created_at DESC LIMIT 100"),
+                    {"rid": str(recipient_id)},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
     async def unread_count(self, recipient_id: UUID) -> int:
         row = (
-            await self.session.execute(
-                text("SELECT COUNT(*) AS n FROM notifications WHERE recipient_id = :rid AND is_read = FALSE"),
-                {"rid": str(recipient_id)},
+            (
+                await self.session.execute(
+                    text("SELECT COUNT(*) AS n FROM notifications WHERE recipient_id = :rid AND is_read = FALSE"),
+                    {"rid": str(recipient_id)},
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
         return row["n"]
 
     async def mark_read(self, recipient_id: UUID, notification_ids: list[UUID] | None) -> int:

@@ -58,9 +58,7 @@ class DoctorUpdate(StaffProfileUpdate):
     license_number: str | None = None
     hospital_affiliation: str | None = None
     max_patient_count: int | None = None
-    availability_status: str | None = Field(
-        default=None, pattern="^(available|at_capacity|on_leave|inactive)$"
-    )
+    availability_status: str | None = Field(default=None, pattern="^(available|at_capacity|on_leave|inactive)$")
 
 
 class DoctorRead(BaseModel):

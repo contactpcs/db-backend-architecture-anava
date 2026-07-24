@@ -31,18 +31,22 @@ class TreatmentCycleService:
         # One active block per patient at a time (Architecture Section 6 / Master Doc)
         existing = await self.repo.get_active_for_patient(patient_profile_id)
         if existing:
-            raise BusinessRuleError(
-                "Patient already has an active treatment cycle", code="ACTIVE_CYCLE_EXISTS"
-            )
+            raise BusinessRuleError("Patient already has an active treatment cycle", code="ACTIVE_CYCLE_EXISTS")
 
         payload = {
-            "patient_id": str(patient_profile_id), "doctor_id": str(doctor_profile_id),
-            "clinic_id": str(data["clinic_id"]), "cycle_type": data["cycle_type"], "cycle_number": data.get("cycle_number", 1),
+            "patient_id": str(patient_profile_id),
+            "doctor_id": str(doctor_profile_id),
+            "clinic_id": str(data["clinic_id"]),
+            "cycle_type": data["cycle_type"],
+            "cycle_number": data.get("cycle_number", 1),
         }
         cycle = await self.repo.create(payload)
         await emit_event(
-            self.session, aggregate_type="treatment_cycle", aggregate_id=cycle["cycle_id"],
-            event_type="treatment_cycle_created", payload={"cycle_id": str(cycle["cycle_id"]), "patient_id": str(data["patient_id"])},
+            self.session,
+            aggregate_type="treatment_cycle",
+            aggregate_id=cycle["cycle_id"],
+            event_type="treatment_cycle_created",
+            payload={"cycle_id": str(cycle["cycle_id"]), "patient_id": str(data["patient_id"])},
         )
         return cycle
 
@@ -70,15 +74,20 @@ class ProtocolRequestService:
         patient_profile_id = await _resolve_patient_profile_id(self.session, data["patient_id"])
         doctor_profile_id = await _resolve_doctor_profile_id(self.session, data["doctor_id"])
         payload = {
-            "patient_id": str(patient_profile_id), "clinical_assistant_id": str(clinical_assistant_id),
-            "doctor_id": str(doctor_profile_id), "clinic_id": str(data["clinic_id"]) if data.get("clinic_id") else None,
+            "patient_id": str(patient_profile_id),
+            "clinical_assistant_id": str(clinical_assistant_id),
+            "doctor_id": str(doctor_profile_id),
+            "clinic_id": str(data["clinic_id"]) if data.get("clinic_id") else None,
             "cycle_id": str(data["cycle_id"]) if data.get("cycle_id") else None,
             "protocol_details": data.get("protocol_details", {}),
         }
         request = await self.repo.create(payload)
         await emit_event(
-            self.session, aggregate_type="assessment_protocol_request", aggregate_id=request["request_id"],
-            event_type="protocol_submitted", payload={"request_id": str(request["request_id"])},
+            self.session,
+            aggregate_type="assessment_protocol_request",
+            aggregate_id=request["request_id"],
+            event_type="protocol_submitted",
+            payload={"request_id": str(request["request_id"])},
         )
         return request
 
@@ -125,12 +134,18 @@ class ProtocolRequestService:
                         assignment_service = PatientScaleAssignmentService(self.session)
                         for scale_id in scale_ids:
                             await assignment_service.create(
-                                patient_id=patient["patient_id"], scale_id=scale_id, disease_id=primary["disease_id"],
-                                assessment_stage="main_clinical", assigned_by=req["doctor_id"], assignment_reason="ca_selected",
+                                patient_id=patient["patient_id"],
+                                scale_id=scale_id,
+                                disease_id=primary["disease_id"],
+                                assessment_stage="main_clinical",
+                                assigned_by=req["doctor_id"],
+                                assignment_reason="ca_selected",
                             )
 
         await emit_event(
-            self.session, aggregate_type="assessment_protocol_request", aggregate_id=request_id,
+            self.session,
+            aggregate_type="assessment_protocol_request",
+            aggregate_id=request_id,
             event_type="protocol_authorized" if decision == "approved" else "protocol_decision",
             payload={"request_id": str(request_id), "decision": decision},
         )
@@ -166,7 +181,8 @@ class SessionService:
         payload = {
             "patient_id": str(patient_profile_id),
             "doctor_id": str(doctor_profile_id) if doctor_profile_id else None,
-            "session_date": data["session_date"], "session_type": data.get("session_type", "in_person"),
+            "session_date": data["session_date"],
+            "session_type": data.get("session_type", "in_person"),
             "cycle_id": str(data["cycle_id"]) if data.get("cycle_id") else None,
             "clinic_id": str(data["clinic_id"]) if data.get("clinic_id") else None,
             "ca_id": str(ca_profile_id) if ca_profile_id else None,
@@ -175,8 +191,11 @@ class SessionService:
         }
         record = await self.repo.create(payload)
         await emit_event(
-            self.session, aggregate_type="session", aggregate_id=record["session_id"],
-            event_type="session_created", payload={"session_id": str(record["session_id"]), "phase": record["session_phase"]},
+            self.session,
+            aggregate_type="session",
+            aggregate_id=record["session_id"],
+            event_type="session_created",
+            payload={"session_id": str(record["session_id"]), "phase": record["session_phase"]},
         )
         return record
 
@@ -193,7 +212,9 @@ class SessionService:
         await self.get(session_id)
         updated = await self.repo.update_status(session_id, status=status, outcome=outcome)
         await emit_event(
-            self.session, aggregate_type="session", aggregate_id=session_id,
+            self.session,
+            aggregate_type="session",
+            aggregate_id=session_id,
             event_type="session_completed" if status == "completed" else "session_status_changed",
             payload={"session_id": str(session_id), "status": status, "outcome": outcome},
         )
@@ -215,8 +236,10 @@ class TreatmentPlanService:
             await _TPR(self.session).supersede(data["parent_plan_id"])
 
         payload = {
-            "patient_id": str(patient_profile_id), "doctor_id": str(doctor_profile_id),
-            "cycle_id": str(data["cycle_id"]), "device_type": data["device_type"],
+            "patient_id": str(patient_profile_id),
+            "doctor_id": str(doctor_profile_id),
+            "cycle_id": str(data["cycle_id"]),
+            "device_type": data["device_type"],
             "protocol_details": data.get("protocol_details", {}),
             "sessions_prescribed": data.get("sessions_prescribed", 5),
             "standard_sessions": data.get("standard_sessions", 5),
@@ -224,8 +247,11 @@ class TreatmentPlanService:
         }
         plan = await self.repo.create(payload)
         await emit_event(
-            self.session, aggregate_type="treatment_plan", aggregate_id=plan["plan_id"],
-            event_type="treatment_plan_created", payload={"plan_id": str(plan["plan_id"]), "extended_sessions": plan["extended_sessions"]},
+            self.session,
+            aggregate_type="treatment_plan",
+            aggregate_id=plan["plan_id"],
+            event_type="treatment_plan_created",
+            payload={"plan_id": str(plan["plan_id"]), "extended_sessions": plan["extended_sessions"]},
         )
         return plan
 
@@ -254,9 +280,12 @@ class TreatmentSessionService:
         patient_profile_id = await _resolve_patient_profile_id(self.session, data["patient_id"])
         ca_profile_id = await _resolve_ca_profile_id(self.session, data["ca_id"])
         payload = {
-            "plan_id": str(data["plan_id"]), "session_id": str(data["session_id"]),
-            "patient_id": str(patient_profile_id), "ca_id": str(ca_profile_id),
-            "session_number": data["session_number"], "billing_type": data["billing_type"],
+            "plan_id": str(data["plan_id"]),
+            "session_id": str(data["session_id"]),
+            "patient_id": str(patient_profile_id),
+            "ca_id": str(ca_profile_id),
+            "session_number": data["session_number"],
+            "billing_type": data["billing_type"],
             # Extended sessions require payment before they can start (Master
             # Doc Section 7.8 / 13.2) — standard sessions follow clinic config,
             # not gated here (that's the payments module's concern once billed).
@@ -264,8 +293,11 @@ class TreatmentSessionService:
         }
         ts = await self.repo.create(payload)
         await emit_event(
-            self.session, aggregate_type="treatment_session", aggregate_id=ts["ts_id"],
-            event_type="treatment_session_created", payload={"ts_id": str(ts["ts_id"]), "billing_type": ts["billing_type"]},
+            self.session,
+            aggregate_type="treatment_session",
+            aggregate_id=ts["ts_id"],
+            event_type="treatment_session_created",
+            payload={"ts_id": str(ts["ts_id"]), "billing_type": ts["billing_type"]},
         )
         return ts
 
@@ -281,12 +313,12 @@ class TreatmentSessionService:
     async def update_status(self, ts_id: UUID, *, status: str, session_notes, patient_feedback) -> dict:
         ts = await self.get(ts_id)
         if status == "in_progress" and ts["billing_type"] == "extended" and ts["payment_status"] not in ("paid", "waived"):
-            raise BusinessRuleError(
-                "Extended treatment session cannot start until payment is paid or waived", code="PAYMENT_REQUIRED"
-            )
+            raise BusinessRuleError("Extended treatment session cannot start until payment is paid or waived", code="PAYMENT_REQUIRED")
         updated = await self.repo.update_status(ts_id, status=status, session_notes=session_notes, patient_feedback=patient_feedback)
         await emit_event(
-            self.session, aggregate_type="treatment_session", aggregate_id=ts_id,
+            self.session,
+            aggregate_type="treatment_session",
+            aggregate_id=ts_id,
             event_type="treatment_session_completed" if status == "completed" else "treatment_session_status_changed",
             payload={"ts_id": str(ts_id), "status": status},
         )

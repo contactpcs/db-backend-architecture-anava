@@ -53,11 +53,16 @@ async def _handle_appointment_booked(session, payload: dict[str, Any]) -> list[d
     doctor_id = payload.get("doctor_id")
     if not doctor_id:
         return []
-    return [{
-        "recipient_id": doctor_id, "type": "appointment", "title": "New appointment booked",
-        "body": f"Appointment {payload.get('appointment_id')} was booked on your calendar.",
-        "entity_type": "appointment", "entity_id": payload.get("appointment_id"),
-    }]
+    return [
+        {
+            "recipient_id": doctor_id,
+            "type": "appointment",
+            "title": "New appointment booked",
+            "body": f"Appointment {payload.get('appointment_id')} was booked on your calendar.",
+            "entity_type": "appointment",
+            "entity_id": payload.get("appointment_id"),
+        }
+    ]
 
 
 async def _handle_registration_completed(session, payload: dict[str, Any]) -> list[dict]:
@@ -66,21 +71,27 @@ async def _handle_registration_completed(session, payload: dict[str, Any]) -> li
     new approval request is waiting (staff-registered patients skip approval
     entirely, so they'd have nothing to act on)."""
     row = (
-        await session.execute(
-            text(
-                "SELECT profile_id, self_registered, approval_status, primary_clinic_id "
-                "FROM patients WHERE patient_id = :id"
-            ),
-            {"id": payload["patient_id"]},
+        (
+            await session.execute(
+                text("SELECT profile_id, self_registered, approval_status, primary_clinic_id FROM patients WHERE patient_id = :id"),
+                {"id": payload["patient_id"]},
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     if not row:
         return []
-    notifications = [{
-        "recipient_id": str(row["profile_id"]), "type": "clinical", "title": "Registration complete",
-        "body": "Your registration is complete — a doctor has been assigned to your care.",
-        "entity_type": "patient", "entity_id": payload["patient_id"],
-    }]
+    notifications = [
+        {
+            "recipient_id": str(row["profile_id"]),
+            "type": "clinical",
+            "title": "Registration complete",
+            "body": "Your registration is complete — a doctor has been assigned to your care.",
+            "entity_type": "patient",
+            "entity_id": payload["patient_id"],
+        }
+    ]
     if row["self_registered"] and row["approval_status"] == "pending":
         receptionists = (
             await session.execute(
@@ -91,32 +102,48 @@ async def _handle_registration_completed(session, payload: dict[str, Any]) -> li
                 {"cid": row["primary_clinic_id"]},
             )
         ).all()
-        notifications.extend({
-            # notifications.type is a fixed enum (SQL/12b_notifications.sql)
-            # with no 'patient_approval' value — 'admin' is the closest fit.
-            "recipient_id": str(r.profile_id), "type": "admin", "title": "New patient awaiting approval",
-            "body": "A self-registered patient has completed registration and needs review.",
-            "entity_type": "patient", "entity_id": payload["patient_id"],
-        } for r in receptionists)
+        notifications.extend(
+            {
+                # notifications.type is a fixed enum (SQL/12b_notifications.sql)
+                # with no 'patient_approval' value — 'admin' is the closest fit.
+                "recipient_id": str(r.profile_id),
+                "type": "admin",
+                "title": "New patient awaiting approval",
+                "body": "A self-registered patient has completed registration and needs review.",
+                "entity_type": "patient",
+                "entity_id": payload["patient_id"],
+            }
+            for r in receptionists
+        )
     return notifications
 
 
 async def _handle_appointment_cancelled(session, payload: dict[str, Any]) -> list[dict]:
     """Notifies whichever side didn't do the cancelling."""
     appt = (
-        await session.execute(
-            text("SELECT patient_id, doctor_id, cancellation_reason FROM appointments WHERE appointment_id = :id"),
-            {"id": payload["appointment_id"]},
+        (
+            await session.execute(
+                text("SELECT patient_id, doctor_id, cancellation_reason FROM appointments WHERE appointment_id = :id"),
+                {"id": payload["appointment_id"]},
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     if not appt:
         return []
     cancelled_by_role = payload.get("changed_by_role")
     recipient = appt["doctor_id"] if cancelled_by_role == "patient" else appt["patient_id"]
-    return [{
-        "recipient_id": str(recipient), "type": "appointment", "title": "Appointment cancelled",
-        "body": appt["cancellation_reason"], "entity_type": "appointment", "entity_id": payload["appointment_id"],
-    }]
+    return [
+        {
+            "recipient_id": str(recipient),
+            "type": "appointment",
+            "title": "Appointment cancelled",
+            "body": appt["cancellation_reason"],
+            "entity_type": "appointment",
+            "entity_id": payload["appointment_id"],
+        }
+    ]
 
 
 _STATUS_TITLES = {"confirmed": "Your appointment is confirmed", "completed": "Your appointment is complete"}
@@ -129,39 +156,59 @@ async def _handle_appointment_status_changed(session, payload: dict[str, Any]) -
     if not title:
         return []
     row = (
-        await session.execute(text("SELECT patient_id FROM appointments WHERE appointment_id = :id"), {"id": payload["appointment_id"]})
-    ).mappings().first()
+        (await session.execute(text("SELECT patient_id FROM appointments WHERE appointment_id = :id"), {"id": payload["appointment_id"]}))
+        .mappings()
+        .first()
+    )
     if not row:
         return []
-    return [{
-        "recipient_id": str(row["patient_id"]), "type": "appointment", "title": title,
-        "entity_type": "appointment", "entity_id": payload["appointment_id"],
-    }]
+    return [
+        {
+            "recipient_id": str(row["patient_id"]),
+            "type": "appointment",
+            "title": title,
+            "entity_type": "appointment",
+            "entity_id": payload["appointment_id"],
+        }
+    ]
 
 
 async def _handle_appointment_rescheduled(session, payload: dict[str, Any]) -> list[dict]:
     row = (
-        await session.execute(
-            text("SELECT patient_id, appointment_date, start_time FROM appointments WHERE appointment_id = :id"),
-            {"id": payload["new_appointment_id"]},
+        (
+            await session.execute(
+                text("SELECT patient_id, appointment_date, start_time FROM appointments WHERE appointment_id = :id"),
+                {"id": payload["new_appointment_id"]},
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     if not row:
         return []
-    return [{
-        "recipient_id": str(row["patient_id"]), "type": "appointment", "title": "Your appointment was rescheduled",
-        "body": f"New time: {row['appointment_date']} at {row['start_time']}.",
-        "entity_type": "appointment", "entity_id": payload["new_appointment_id"],
-    }]
+    return [
+        {
+            "recipient_id": str(row["patient_id"]),
+            "type": "appointment",
+            "title": "Your appointment was rescheduled",
+            "body": f"New time: {row['appointment_date']} at {row['start_time']}.",
+            "entity_type": "appointment",
+            "entity_id": payload["new_appointment_id"],
+        }
+    ]
 
 
 async def _handle_appointment_request_submitted(session, payload: dict[str, Any]) -> list[dict]:
     """Notifies every active receptionist at the request's clinic."""
     req = (
-        await session.execute(
-            text("SELECT clinic_id, request_type FROM appointment_requests WHERE request_id = :id"), {"id": payload["request_id"]}
+        (
+            await session.execute(
+                text("SELECT clinic_id, request_type FROM appointment_requests WHERE request_id = :id"), {"id": payload["request_id"]}
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     if not req:
         return []
     receptionists = (
@@ -175,9 +222,12 @@ async def _handle_appointment_request_submitted(session, payload: dict[str, Any]
     ).all()
     return [
         {
-            "recipient_id": str(r.profile_id), "type": "appointment", "title": "New appointment request",
+            "recipient_id": str(r.profile_id),
+            "type": "appointment",
+            "title": "New appointment request",
             "body": f"A patient submitted a {req['request_type']} appointment request.",
-            "entity_type": "appointment_request", "entity_id": payload["request_id"],
+            "entity_type": "appointment_request",
+            "entity_id": payload["request_id"],
         }
         for r in receptionists
     ]
@@ -185,17 +235,26 @@ async def _handle_appointment_request_submitted(session, payload: dict[str, Any]
 
 async def _handle_appointment_request_decided(session, payload: dict[str, Any]) -> list[dict]:
     req = (
-        await session.execute(
-            text("SELECT patient_id, review_notes FROM appointment_requests WHERE request_id = :id"), {"id": payload["request_id"]}
+        (
+            await session.execute(
+                text("SELECT patient_id, review_notes FROM appointment_requests WHERE request_id = :id"), {"id": payload["request_id"]}
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     if not req:
         return []
-    return [{
-        "recipient_id": str(req["patient_id"]), "type": "appointment",
-        "title": f"Your appointment request was {payload['decision']}",
-        "body": req["review_notes"], "entity_type": "appointment_request", "entity_id": payload["request_id"],
-    }]
+    return [
+        {
+            "recipient_id": str(req["patient_id"]),
+            "type": "appointment",
+            "title": f"Your appointment request was {payload['decision']}",
+            "body": req["review_notes"],
+            "entity_type": "appointment_request",
+            "entity_id": payload["request_id"],
+        }
+    ]
 
 
 async def _handle_staff_request_submitted(session, payload: dict[str, Any]) -> list[dict]:
@@ -203,51 +262,73 @@ async def _handle_staff_request_submitted(session, payload: dict[str, Any]) -> l
     when set (the normal case, bound at region/clinic setup); falls back to
     resolving the clinic's region's regional_admin for older rows without it."""
     req = (
-        await session.execute(
-            text("SELECT clinic_id, regional_admin_id, position_role FROM staff_requests WHERE request_id = :id"),
-            {"id": payload["request_id"]},
+        (
+            await session.execute(
+                text("SELECT clinic_id, regional_admin_id, position_role FROM staff_requests WHERE request_id = :id"),
+                {"id": payload["request_id"]},
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     if not req:
         return []
     recipient_id = req["regional_admin_id"]
     if not recipient_id:
         row = (
-            await session.execute(
-                text(
-                    "SELECT a.profile_id FROM clinics c "
-                    "JOIN admins a ON a.region_id = c.region_id AND a.admin_type = 'regional_admin' "
-                    "WHERE c.clinic_id = :cid"
-                ),
-                {"cid": req["clinic_id"]},
+            (
+                await session.execute(
+                    text(
+                        "SELECT a.profile_id FROM clinics c "
+                        "JOIN admins a ON a.region_id = c.region_id AND a.admin_type = 'regional_admin' "
+                        "WHERE c.clinic_id = :cid"
+                    ),
+                    {"cid": req["clinic_id"]},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         recipient_id = row["profile_id"] if row else None
     if not recipient_id:
         return []
-    return [{
-        # notifications.type is a fixed enum (SQL/12b_notifications.sql) with
-        # no 'staff_request' value — 'admin' is the closest existing fit.
-        "recipient_id": str(recipient_id), "type": "admin", "title": "New staff request",
-        "body": f"A new {req['position_role']} request was submitted.",
-        "entity_type": "staff_request", "entity_id": payload["request_id"],
-    }]
+    return [
+        {
+            # notifications.type is a fixed enum (SQL/12b_notifications.sql) with
+            # no 'staff_request' value — 'admin' is the closest existing fit.
+            "recipient_id": str(recipient_id),
+            "type": "admin",
+            "title": "New staff request",
+            "body": f"A new {req['position_role']} request was submitted.",
+            "entity_type": "staff_request",
+            "entity_id": payload["request_id"],
+        }
+    ]
 
 
 async def _handle_staff_request_decided(session, payload: dict[str, Any]) -> list[dict]:
     """Notifies the clinic_admin who originally submitted/referred it."""
     req = (
-        await session.execute(
-            text("SELECT submitted_by, review_notes FROM staff_requests WHERE request_id = :id"), {"id": payload["request_id"]}
+        (
+            await session.execute(
+                text("SELECT submitted_by, review_notes FROM staff_requests WHERE request_id = :id"), {"id": payload["request_id"]}
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     if not req:
         return []
-    return [{
-        "recipient_id": str(req["submitted_by"]), "type": "admin",
-        "title": f"Your staff request was {payload['decision']}",
-        "body": req["review_notes"], "entity_type": "staff_request", "entity_id": payload["request_id"],
-    }]
+    return [
+        {
+            "recipient_id": str(req["submitted_by"]),
+            "type": "admin",
+            "title": f"Your staff request was {payload['decision']}",
+            "body": req["review_notes"],
+            "entity_type": "staff_request",
+            "entity_id": payload["request_id"],
+        }
+    ]
 
 
 EVENT_HANDLERS = {
@@ -272,10 +353,17 @@ async def _process_event(session, event: dict) -> None:
     repo = NotificationRepository(session)
     for note in notifications:
         record = await repo.create(note)
-        await publish_to_user(note["recipient_id"], json.dumps({
-            "type": record["type"], "title": record["title"], "body": record["body"],
-            "notification_id": str(record["notification_id"]),
-        }))
+        await publish_to_user(
+            note["recipient_id"],
+            json.dumps(
+                {
+                    "type": record["type"],
+                    "title": record["title"],
+                    "body": record["body"],
+                    "notification_id": str(record["notification_id"]),
+                }
+            ),
+        )
 
 
 async def drain_outbox() -> int:
@@ -291,10 +379,10 @@ async def drain_outbox() -> int:
     async with _relay_session_factory() as session:
         async with session.begin():
             outbox_rows = (
-                await session.execute(
-                    text("SELECT * FROM outbox_events WHERE published_at IS NULL ORDER BY created_at LIMIT 100")
-                )
-            ).mappings().all()
+                (await session.execute(text("SELECT * FROM outbox_events WHERE published_at IS NULL ORDER BY created_at LIMIT 100")))
+                .mappings()
+                .all()
+            )
             rows = [dict(r) for r in outbox_rows]
 
     processed = 0

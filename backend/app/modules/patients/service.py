@@ -19,8 +19,12 @@ from app.modules.staff.service import DoctorService
 
 # Registration status machine (Master Doc Section 6.2 / SQL/04_patient_tables.sql CHECK constraint)
 _REGISTRATION_STEPS = [
-    "demographics_complete", "disease_selected", "consent_signed",
-    "anamnesis_complete", "general_prs_complete", "registration_complete",
+    "demographics_complete",
+    "disease_selected",
+    "consent_signed",
+    "anamnesis_complete",
+    "general_prs_complete",
+    "registration_complete",
 ]
 
 
@@ -33,14 +37,18 @@ class PatientService:
 
     async def register(self, data: dict, *, self_registered: bool = False, cognito_sub: str | None = None) -> dict:
         clinic = (
-            await self.session.execute(
-                text(
-                    "SELECT c.clinic_admin_id, c.status, r.regional_admin_id "
-                    "FROM clinics c JOIN regions r ON r.region_id = c.region_id WHERE c.clinic_id = :id"
-                ),
-                {"id": str(data["primary_clinic_id"])},
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT c.clinic_admin_id, c.status, r.regional_admin_id "
+                        "FROM clinics c JOIN regions r ON r.region_id = c.region_id WHERE c.clinic_id = :id"
+                    ),
+                    {"id": str(data["primary_clinic_id"])},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if clinic is None:
             raise NotFoundError("Clinic not found", code="CLINIC_NOT_FOUND")
         if clinic["regional_admin_id"] is None:
@@ -57,13 +65,22 @@ class PatientService:
             raise BusinessRuleError("Cannot register a patient at a clinic that is closing/closed", code="CLINIC_NOT_OPEN")
         try:
             patient = await self.repo.create_profile_and_patient(
-                email=data["email"], first_name=data["first_name"], last_name=data["last_name"],
-                phone=data.get("phone"), gender=data.get("gender"), dob=data.get("dob"),
-                address=data.get("address"), primary_clinic_id=data["primary_clinic_id"],
+                email=data["email"],
+                first_name=data["first_name"],
+                last_name=data["last_name"],
+                phone=data.get("phone"),
+                gender=data.get("gender"),
+                dob=data.get("dob"),
+                address=data.get("address"),
+                primary_clinic_id=data["primary_clinic_id"],
                 emergency_contact_name=data.get("emergency_contact_name"),
                 emergency_contact_phone=data.get("emergency_contact_phone"),
-                city=data.get("city"), state=data.get("state"), country=data.get("country"), pincode=data.get("pincode"),
-                self_registered=self_registered, approval_status="pending" if self_registered else "not_required",
+                city=data.get("city"),
+                state=data.get("state"),
+                country=data.get("country"),
+                pincode=data.get("pincode"),
+                self_registered=self_registered,
+                approval_status="pending" if self_registered else "not_required",
                 cognito_sub=cognito_sub,
             )
         except IntegrityError as exc:
@@ -73,11 +90,17 @@ class PatientService:
         from app.modules.consent.service import create_onboarding_consent
 
         await create_onboarding_consent(
-            self.session, role="patient", profile_id=patient["patient_id"], clinic_id=patient["primary_clinic_id"],
+            self.session,
+            role="patient",
+            profile_id=patient["patient_id"],
+            clinic_id=patient["primary_clinic_id"],
         )
         await emit_event(
-            self.session, aggregate_type="patient", aggregate_id=patient["patient_id"],
-            event_type="patient_registered", payload={"patient_id": str(patient["patient_id"]), "mrn": patient["mrn"]},
+            self.session,
+            aggregate_type="patient",
+            aggregate_id=patient["patient_id"],
+            event_type="patient_registered",
+            payload={"patient_id": str(patient["patient_id"]), "mrn": patient["mrn"]},
         )
         return patient
 
@@ -103,8 +126,7 @@ class PatientService:
             raise ConflictError(f"Email {profile_fields.get('email')!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
         return updated  # type: ignore[return-value]
 
-    async def decide_approval(self, patient_id: UUID, *, decision: str, decided_by: UUID,
-                               rejection_reason: str | None) -> dict:
+    async def decide_approval(self, patient_id: UUID, *, decision: str, decided_by: UUID, rejection_reason: str | None) -> dict:
         """Receptionist review gate for self-registered patients — only
         reachable once the patient has finished the whole 6-step wizard
         themselves (Master Doc per this feature's design: receptionist only
@@ -116,15 +138,19 @@ class PatientService:
             raise BusinessRuleError(f"Approval already {patient['approval_status']}", code="APPROVAL_ALREADY_DECIDED")
 
         await self.repo.set_approval(
-            patient_id, approval_status=decision, approved_by=decided_by, rejection_reason=rejection_reason,
+            patient_id,
+            approval_status=decision,
+            approved_by=decided_by,
+            rejection_reason=rejection_reason,
         )
         if decision == "approved":
-            await self.session.execute(
-                text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(patient["profile_id"])}
-            )
+            await self.session.execute(text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(patient["profile_id"])})
         await emit_event(
-            self.session, aggregate_type="patient", aggregate_id=patient_id,
-            event_type="patient_registration_decided", payload={"patient_id": str(patient_id), "decision": decision},
+            self.session,
+            aggregate_type="patient",
+            aggregate_id=patient_id,
+            event_type="patient_registration_decided",
+            payload={"patient_id": str(patient_id), "decision": decision},
         )
         return await self.get(patient_id)
 
@@ -148,7 +174,9 @@ class PatientService:
         )
         await self.repo.update(patient_id, profile_fields={}, patient_fields={"primary_doctor_id": str(doctor["profile_id"])})
         await emit_event(
-            self.session, aggregate_type="patient", aggregate_id=patient_id,
+            self.session,
+            aggregate_type="patient",
+            aggregate_id=patient_id,
             event_type="doctor_allocated",
             payload={
                 "patient_id": str(patient_id),
@@ -162,18 +190,24 @@ class PatientService:
         await self.get(patient_id)  # 404 if missing
         await self.repo.soft_delete(patient_id, deleted_by=deleted_by)
         await emit_event(
-            self.session, aggregate_type="patient", aggregate_id=patient_id,
-            event_type="patient_deleted", payload={"patient_id": str(patient_id)},
+            self.session,
+            aggregate_type="patient",
+            aggregate_id=patient_id,
+            event_type="patient_deleted",
+            payload={"patient_id": str(patient_id)},
         )
 
-    async def select_disease(self, patient_id: UUID, *, disease_id, disease_unknown: bool, is_primary: bool,
-                              assigned_by: UUID | None = None) -> dict:
+    async def select_disease(
+        self, patient_id: UUID, *, disease_id, disease_unknown: bool, is_primary: bool, assigned_by: UUID | None = None
+    ) -> dict:
         patient = await self.get(patient_id)
         if not disease_id and not disease_unknown:
             raise BusinessRuleError("Either disease_id or disease_unknown must be set", code="DISEASE_SELECTION_REQUIRED")
         selection = await self.disease_repo.create(
-            patient_profile_id=patient["profile_id"], disease_id=disease_id,
-            disease_unknown=disease_unknown, is_primary=is_primary,
+            patient_profile_id=patient["profile_id"],
+            disease_id=disease_id,
+            disease_unknown=disease_unknown,
+            is_primary=is_primary,
         )
         # Master Doc Section 9.3 — scales auto-assign off disease_selection at
         # registration. PatientScaleAssignmentService.auto_assign_for_disease
@@ -184,11 +218,17 @@ class PatientService:
             from app.modules.prs.service import PatientScaleAssignmentService
 
             await PatientScaleAssignmentService(self.session).auto_assign_for_disease(
-                patient_id, disease_id, "general_registration", assigned_by,
+                patient_id,
+                disease_id,
+                "general_registration",
+                assigned_by,
             )
         await emit_event(
-            self.session, aggregate_type="patient", aggregate_id=patient_id,
-            event_type="disease_selected", payload={"patient_id": str(patient_id), "disease_id": disease_id},
+            self.session,
+            aggregate_type="patient",
+            aggregate_id=patient_id,
+            event_type="disease_selected",
+            payload={"patient_id": str(patient_id), "disease_id": disease_id},
         )
         await self.advance_registration_status(patient_id)
         return selection
@@ -255,9 +295,7 @@ class PatientService:
         doctors = DoctorService(self.session)
         doctor = await doctors.pick_least_loaded(patient["primary_clinic_id"])
         if not doctor:
-            raise BusinessRuleError(
-                "No available doctor at this clinic to auto-allocate", code="NO_AVAILABLE_DOCTOR"
-            )
+            raise BusinessRuleError("No available doctor at this clinic to auto-allocate", code="NO_AVAILABLE_DOCTOR")
         # doctors.profile_id, not doctors.doctor_id — every FK to "doctor"
         # elsewhere in the schema (patients.primary_doctor_id,
         # doctor_patient_assignments.doctor_id) points at profiles(id) via
@@ -275,17 +313,21 @@ class PatientService:
         # Self-registered patients (approval_status='pending') stay inactive
         # here; decide_approval() is what activates them.
         if patient["approval_status"] == "not_required":
-            await self.session.execute(
-                text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(patient["profile_id"])}
-            )
+            await self.session.execute(text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(patient["profile_id"])})
         updated = await self.repo.get(patient_id)
         await emit_event(
-            self.session, aggregate_type="patient", aggregate_id=patient_id,
-            event_type="registration_completed", payload={"patient_id": str(patient_id)},
+            self.session,
+            aggregate_type="patient",
+            aggregate_id=patient_id,
+            event_type="registration_completed",
+            payload={"patient_id": str(patient_id)},
         )
         await emit_event(
-            self.session, aggregate_type="patient", aggregate_id=patient_id,
-            event_type="doctor_auto_allocated", payload={"patient_id": str(patient_id), "doctor_id": str(doctor["doctor_id"])},
+            self.session,
+            aggregate_type="patient",
+            aggregate_id=patient_id,
+            event_type="doctor_auto_allocated",
+            payload={"patient_id": str(patient_id), "doctor_id": str(doctor["doctor_id"])},
         )
         return updated  # type: ignore[return-value]
 
@@ -326,13 +368,21 @@ class FollowUpService:
             if doctor_arg is None:
                 raise BusinessRuleError("No doctor_id provided and patient has no primary doctor on file", code="DOCTOR_REQUIRED")
 
-        cycle = await TreatmentCycleService(self.session).create({
-            "patient_id": patient_id, "doctor_id": doctor_arg, "clinic_id": patient["primary_clinic_id"],
-            "cycle_type": "followup", "cycle_number": next_number,
-        })
+        cycle = await TreatmentCycleService(self.session).create(
+            {
+                "patient_id": patient_id,
+                "doctor_id": doctor_arg,
+                "clinic_id": patient["primary_clinic_id"],
+                "cycle_type": "followup",
+                "cycle_number": next_number,
+            }
+        )
         await emit_event(
-            self.session, aggregate_type="treatment_cycle", aggregate_id=cycle["cycle_id"],
-            event_type="followup_block_created", payload={"cycle_id": str(cycle["cycle_id"]), "patient_id": str(patient_id)},
+            self.session,
+            aggregate_type="treatment_cycle",
+            aggregate_id=cycle["cycle_id"],
+            event_type="followup_block_created",
+            payload={"cycle_id": str(cycle["cycle_id"]), "patient_id": str(patient_id)},
         )
         return cycle
 
@@ -340,8 +390,10 @@ class FollowUpService:
         from sqlalchemy import text as _text
 
         row = (
-            await self.session.execute(_text("SELECT * FROM doctors WHERE profile_id = :pid"), {"pid": str(profile_id)})
-        ).mappings().first()
+            (await self.session.execute(_text("SELECT * FROM doctors WHERE profile_id = :pid"), {"pid": str(profile_id)}))
+            .mappings()
+            .first()
+        )
         return dict(row) if row else None
 
 
@@ -366,16 +418,20 @@ class PatientTransferService:
         active_cycle = await TreatmentCycleRepository(self.session).get_active_for_patient(patient["profile_id"])
 
         payload = {
-            "patient_id": str(patient["profile_id"]), "from_clinic_id": str(patient["primary_clinic_id"]),
+            "patient_id": str(patient["profile_id"]),
+            "from_clinic_id": str(patient["primary_clinic_id"]),
             "to_clinic_id": str(data["to_clinic_id"]),
             "from_doctor_id": str(patient["primary_doctor_id"]) if patient["primary_doctor_id"] else None,
             "transfer_reason": data["transfer_reason"],
             "active_cycle_id": str(active_cycle["cycle_id"]) if active_cycle else None,
-            "initiated_by": str(initiated_by), "notes": data.get("notes"),
+            "initiated_by": str(initiated_by),
+            "notes": data.get("notes"),
         }
         transfer = await self.repo.create(payload)
         await emit_event(
-            self.session, aggregate_type="patient_clinic_transfer", aggregate_id=transfer["pct_id"],
+            self.session,
+            aggregate_type="patient_clinic_transfer",
+            aggregate_id=transfer["pct_id"],
             event_type="relocation_initiated" if data["transfer_reason"] == "patient_relocation" else "patient_transfer_initiated",
             payload={"pct_id": str(transfer["pct_id"]), "patient_id": str(patient_id)},
         )
@@ -398,10 +454,10 @@ class PatientTransferService:
         from sqlalchemy import text as _text
 
         consent = (
-            await self.session.execute(
-                _text("SELECT * FROM consent_records WHERE consent_id = :id"), {"id": str(consent_id)}
-            )
-        ).mappings().first()
+            (await self.session.execute(_text("SELECT * FROM consent_records WHERE consent_id = :id"), {"id": str(consent_id)}))
+            .mappings()
+            .first()
+        )
         if not consent or consent["status"] != "signed":
             raise BusinessRuleError("Transfer requires a signed consent record", code="CONSENT_NOT_SIGNED")
 
@@ -427,8 +483,11 @@ class PatientTransferService:
 
         updated = await self.repo.set_status(pct_id, status="completed", to_doctor_id=doctor["profile_id"], consent_id=consent_id)
         await emit_event(
-            self.session, aggregate_type="patient_clinic_transfer", aggregate_id=pct_id,
-            event_type="relocation_completed", payload={"pct_id": str(pct_id), "new_doctor_id": str(doctor["profile_id"])},
+            self.session,
+            aggregate_type="patient_clinic_transfer",
+            aggregate_id=pct_id,
+            event_type="relocation_completed",
+            payload={"pct_id": str(pct_id), "new_doctor_id": str(doctor["profile_id"])},
         )
         return updated  # type: ignore[return-value]
 
@@ -452,10 +511,10 @@ class PatientExitService:
         from sqlalchemy import text as _text
 
         consent = (
-            await self.session.execute(
-                _text("SELECT * FROM consent_records WHERE consent_id = :id"), {"id": str(consent_id)}
-            )
-        ).mappings().first()
+            (await self.session.execute(_text("SELECT * FROM consent_records WHERE consent_id = :id"), {"id": str(consent_id)}))
+            .mappings()
+            .first()
+        )
         if not consent or consent["status"] != "signed" or consent["consent_type"] != "patient_clinic_exit":
             raise BusinessRuleError("Exit requires a signed patient_clinic_exit consent", code="EXIT_CONSENT_REQUIRED")
 
@@ -467,7 +526,10 @@ class PatientExitService:
             await cycle_repo.set_status(active_cycle["cycle_id"], "completed")
 
         await emit_event(
-            self.session, aggregate_type="patient", aggregate_id=patient_id,
-            event_type="patient_exited", payload={"patient_id": str(patient_id), "consent_id": str(consent_id)},
+            self.session,
+            aggregate_type="patient",
+            aggregate_id=patient_id,
+            event_type="patient_exited",
+            payload={"patient_id": str(patient_id), "consent_id": str(consent_id)},
         )
         return {"patient_id": str(patient_id), "status": "exited", "consent_id": str(consent_id)}

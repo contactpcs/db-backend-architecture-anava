@@ -45,8 +45,6 @@ def _is_skipped(q: dict, questions: list[dict], given_by_qid: dict[str, str]) ->
     return False
 
 
-
-
 class PrsCatalogService:
     def __init__(self, session: AsyncSession):
         self.repo = PrsCatalogRepository(session)
@@ -81,8 +79,12 @@ class PatientScaleAssignmentService:
     ) -> dict:
         profile_id = await _resolve_profile_id(self.repo.session, patient_id)
         return await self.repo.create(
-            patient_id=profile_id, scale_id=scale_id, disease_id=disease_id, assessment_stage=assessment_stage,
-            assigned_by=assigned_by, assignment_reason=assignment_reason,
+            patient_id=profile_id,
+            scale_id=scale_id,
+            disease_id=disease_id,
+            assessment_stage=assessment_stage,
+            assigned_by=assigned_by,
+            assignment_reason=assignment_reason,
         )
 
     async def list(self, patient_id: UUID, *, assessment_stage: str | None = None) -> builtins.list[dict]:
@@ -102,8 +104,12 @@ class PatientScaleAssignmentService:
         for scale in scales:
             assigned.append(
                 await self.repo.create(
-                    patient_id=profile_id, scale_id=scale["scale_id"], disease_id=disease_id, assessment_stage=assessment_stage,
-                    assigned_by=assigned_by, assignment_reason="auto_disease_match",
+                    patient_id=profile_id,
+                    scale_id=scale["scale_id"],
+                    disease_id=disease_id,
+                    assessment_stage=assessment_stage,
+                    assigned_by=assigned_by,
+                    assignment_reason="auto_disease_match",
                 )
             )
         return assigned
@@ -154,18 +160,24 @@ class PrsAssessmentService:
                 label = None
                 if given is not None:
                     label = next((o["label"] for o in q["options"] if o["value"] == given["given_response"]), given["given_response"])
-                questions_out.append({
-                    "question_id": q["question_id"],
-                    "question_text": q["question_text"],
-                    "given_response": given["given_response"] if given else None,
-                    "response_label": label,
-                    "is_answered": given is not None,
-                    "is_skipped": _is_skipped(q, scale["questions"], raw_given),
-                })
-            result.append({
-                "scale_id": scale["scale_id"], "scale_code": scale["scale_code"], "scale_name": scale["scale_name"],
-                "questions": questions_out,
-            })
+                questions_out.append(
+                    {
+                        "question_id": q["question_id"],
+                        "question_text": q["question_text"],
+                        "given_response": given["given_response"] if given else None,
+                        "response_label": label,
+                        "is_answered": given is not None,
+                        "is_skipped": _is_skipped(q, scale["questions"], raw_given),
+                    }
+                )
+            result.append(
+                {
+                    "scale_id": scale["scale_id"],
+                    "scale_code": scale["scale_code"],
+                    "scale_name": scale["scale_name"],
+                    "questions": questions_out,
+                }
+            )
         return result
 
     async def _compose_scales(self, instance: dict, *, language_code: str) -> list[dict]:
@@ -192,10 +204,15 @@ class PrsAssessmentService:
             if not meta:
                 continue
             questions = await self.catalog.questions_for_scale(scale_id, language=language_code)
-            scales.append({
-                "scale_id": scale_id, "scale_code": meta["scale_code"], "scale_name": meta["scale_name"],
-                "is_completed": scale_id in completed_scale_ids, "questions": questions,
-            })
+            scales.append(
+                {
+                    "scale_id": scale_id,
+                    "scale_code": meta["scale_code"],
+                    "scale_name": meta["scale_name"],
+                    "is_completed": scale_id in completed_scale_ids,
+                    "questions": questions,
+                }
+            )
         return scales
 
     async def set_language(self, instance_id: str, language_code: str) -> dict:
@@ -208,8 +225,18 @@ class PrsAssessmentService:
         scales = await self._compose_scales(instance, language_code=language_code)
         return {"instance_id": instance["instance_id"], "is_resumed": True, "scales": scales}
 
-    async def start(self, *, patient_id: UUID, disease_id: str, assessment_stage: str, session_id, cycle_id,
-                     administered_by=None, initiated_by: str = "patient", language_code: str = "en") -> dict:
+    async def start(
+        self,
+        *,
+        patient_id: UUID,
+        disease_id: str,
+        assessment_stage: str,
+        session_id,
+        cycle_id,
+        administered_by=None,
+        initiated_by: str = "patient",
+        language_code: str = "en",
+    ) -> dict:
         """Composed in one round trip: resumes an in-progress instance for
         this patient/disease/stage instead of creating a duplicate, then
         loads every scale actually assigned to this patient (patient_scale_
@@ -226,13 +253,21 @@ class PrsAssessmentService:
             instance = existing
         else:
             instance = await self.instances.create(
-                disease_id=disease_id, patient_id=profile_id, session_id=session_id, cycle_id=cycle_id,
-                initiated_by=initiated_by, administered_by=administered_by, assessment_stage=assessment_stage,
+                disease_id=disease_id,
+                patient_id=profile_id,
+                session_id=session_id,
+                cycle_id=cycle_id,
+                initiated_by=initiated_by,
+                administered_by=administered_by,
+                assessment_stage=assessment_stage,
                 language_code=language_code,
             )
             await emit_event(
-                self.session, aggregate_type="prs_assessment_instance", aggregate_id=instance["instance_id"],
-                event_type="prs_started", payload={"instance_id": instance["instance_id"], "patient_id": str(patient_id)},
+                self.session,
+                aggregate_type="prs_assessment_instance",
+                aggregate_id=instance["instance_id"],
+                event_type="prs_started",
+                payload={"instance_id": instance["instance_id"], "patient_id": str(patient_id)},
             )
 
         # Resumed instance keeps whatever language it was already set to
@@ -252,16 +287,21 @@ class PrsAssessmentService:
         for item in items:
             points = await self.catalog.option_points(item["question_id"], item["given_response"])
             await self.responses.upsert(
-                instance_id=instance_id, question_id=item["question_id"],
-                given_response=item["given_response"], response_value=points,
+                instance_id=instance_id,
+                question_id=item["question_id"],
+                given_response=item["given_response"],
+                response_value=points,
                 language_code=item.get("language_code") or instance["language_code"],
             )
 
         if finalize_scale_id:
             await self._finalize_scale(instance_id, finalize_scale_id)
             await emit_event(
-                self.session, aggregate_type="prs_assessment_instance", aggregate_id=instance_id,
-                event_type="prs_scale_scored", payload={"instance_id": instance_id, "scale_id": finalize_scale_id},
+                self.session,
+                aggregate_type="prs_assessment_instance",
+                aggregate_id=instance_id,
+                event_type="prs_scale_scored",
+                payload={"instance_id": instance_id, "scale_id": finalize_scale_id},
             )
             # recalculate_final_result is a DEFERRABLE INITIALLY DEFERRED constraint
             # trigger (SQL/07_prs_tables.sql) — it only fires at COMMIT, which hasn't
@@ -275,8 +315,11 @@ class PrsAssessmentService:
             instance = await self.get(instance_id)  # re-fetch — the trigger has now run
             if instance["status"] == "completed" and instance["assessment_stage"] == "general_registration":
                 await emit_event(
-                    self.session, aggregate_type="prs_assessment_instance", aggregate_id=instance_id,
-                    event_type="prs_completed", payload={"instance_id": instance_id, "patient_id": str(instance["patient_id"])},
+                    self.session,
+                    aggregate_type="prs_assessment_instance",
+                    aggregate_id=instance_id,
+                    event_type="prs_completed",
+                    payload={"instance_id": instance_id, "patient_id": str(instance["patient_id"])},
                 )
                 from app.modules.patients.repository import PatientRepository
                 from app.modules.patients.service import PatientService

@@ -23,10 +23,14 @@ class ProductRepository:
     async def list(self, *, category: str | None = None) -> list[dict]:
         params = {"cat": category} if category else {}
         rows = (
-            await self.session.execute(
-                text(f"SELECT * FROM products WHERE is_active = TRUE {'AND category = :cat' if category else ''}"), params
+            (
+                await self.session.execute(
+                    text(f"SELECT * FROM products WHERE is_active = TRUE {'AND category = :cat' if category else ''}"), params
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
 

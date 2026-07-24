@@ -80,11 +80,7 @@ async def _compute_retention_clock(session, patient_profile_id: str) -> dict:
 
     last_financial = (
         await session.execute(
-            text(
-                "SELECT max(p.paid_at) FROM payments p "
-                "JOIN sessions s ON s.session_id = p.session_id "
-                "WHERE s.patient_id = :pid"
-            ),
+            text("SELECT max(p.paid_at) FROM payments p JOIN sessions s ON s.session_id = p.session_id WHERE s.patient_id = :pid"),
             {"pid": patient_profile_id},
         )
     ).scalar()
@@ -95,10 +91,7 @@ async def _compute_retention_clock(session, patient_profile_id: str) -> dict:
     retention_basis_cleared_at = max(candidates) if candidates else None
 
     await session.execute(
-        text(
-            "UPDATE patients SET last_clinical_contact_at = :lca, retention_basis_cleared_at = :rbc "
-            "WHERE profile_id = :pid"
-        ),
+        text("UPDATE patients SET last_clinical_contact_at = :lca, retention_basis_cleared_at = :rbc WHERE profile_id = :pid"),
         {"lca": last_clinical, "rbc": retention_basis_cleared_at, "pid": patient_profile_id},
     )
     return {"last_clinical_contact_at": last_clinical, "retention_basis_cleared_at": retention_basis_cleared_at}
@@ -109,8 +102,8 @@ async def classify_erasure_requests(session) -> int:
     DATA_CATEGORIES and write one erasure_request_items row per category that
     has any data for that patient. Never deletes anything itself."""
     open_requests = (
-        await session.execute(text("SELECT request_id, patient_id FROM erasure_requests WHERE status = 'received'"))
-    ).mappings().all()
+        (await session.execute(text("SELECT request_id, patient_id FROM erasure_requests WHERE status = 'received'"))).mappings().all()
+    )
 
     classified = 0
     for req in open_requests:
@@ -118,10 +111,7 @@ async def classify_erasure_requests(session) -> int:
             if table == "payments":
                 exists = (
                     await session.execute(
-                        text(
-                            "SELECT 1 FROM payments p JOIN sessions s ON s.session_id = p.session_id "
-                            "WHERE s.patient_id = :pid LIMIT 1"
-                        ),
+                        text("SELECT 1 FROM payments p JOIN sessions s ON s.session_id = p.session_id WHERE s.patient_id = :pid LIMIT 1"),
                         {"pid": req["patient_id"]},
                     )
                 ).first()
@@ -166,15 +156,19 @@ async def execute_delete_now_items(session) -> int:
     Only notifications map to delete_now in DATA_CATEGORIES today."""
     cutoff = datetime.now(UTC) - ERASURE_DELETE_NOW_GRACE
     items = (
-        await session.execute(
-            text(
-                "SELECT ei.item_id, ei.data_category, er.patient_id "
-                "FROM erasure_request_items ei JOIN erasure_requests er ON er.request_id = ei.request_id "
-                "WHERE ei.bucket = 'delete_now' AND ei.deleted_at IS NULL AND ei.created_at < :cutoff"
-            ),
-            {"cutoff": cutoff},
+        (
+            await session.execute(
+                text(
+                    "SELECT ei.item_id, ei.data_category, er.patient_id "
+                    "FROM erasure_request_items ei JOIN erasure_requests er ON er.request_id = ei.request_id "
+                    "WHERE ei.bucket = 'delete_now' AND ei.deleted_at IS NULL AND ei.created_at < :cutoff"
+                ),
+                {"cutoff": cutoff},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     deleted = 0
     for item in items:
@@ -210,13 +204,17 @@ async def anonymize_expired_profiles(session) -> int:
     Cognito AdminDeleteUser (Section 7.2) is a follow-up AWS-SDK hook, not
     implemented here — logged so it isn't silently dropped."""
     patients = (
-        await session.execute(
-            text(
-                "SELECT p.profile_id FROM patients p JOIN profiles pr ON pr.id = p.profile_id "
-                "WHERE pr.is_anonymized = false AND p.legal_hold = false"
+        (
+            await session.execute(
+                text(
+                    "SELECT p.profile_id FROM patients p JOIN profiles pr ON pr.id = p.profile_id "
+                    "WHERE pr.is_anonymized = false AND p.legal_hold = false"
+                )
             )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     anonymized = 0
     for p in patients:
@@ -253,7 +251,7 @@ PARTITION_RETENTION = {
 
 
 def _partition_upper_bound(partition_name: str, parent: str) -> datetime | None:
-    suffix = partition_name[len(parent) + 1:]  # strip "<parent>_"
+    suffix = partition_name[len(parent) + 1 :]  # strip "<parent>_"
     if suffix == "default":
         return None
     if "m" in suffix:  # yYYYYmMM
@@ -270,16 +268,20 @@ async def drop_expired_partitions(session) -> list[str]:
     now = datetime.now(UTC)
     for parent, retention in PARTITION_RETENTION.items():
         rows = (
-            await session.execute(
-                text(
-                    "SELECT c.relname FROM pg_inherits i "
-                    "JOIN pg_class c ON i.inhrelid = c.oid "
-                    "JOIN pg_class p ON i.inhparent = p.oid "
-                    "WHERE p.relname = :parent"
-                ),
-                {"parent": parent},
+            (
+                await session.execute(
+                    text(
+                        "SELECT c.relname FROM pg_inherits i "
+                        "JOIN pg_class c ON i.inhrelid = c.oid "
+                        "JOIN pg_class p ON i.inhparent = p.oid "
+                        "WHERE p.relname = :parent"
+                    ),
+                    {"parent": parent},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         for r in rows:
             upper = _partition_upper_bound(r["relname"], parent)
             if upper is None:

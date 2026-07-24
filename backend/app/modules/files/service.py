@@ -34,26 +34,41 @@ class FileService:
 
         if data["doc_type"] == "eeg":
             record = await self.eeg.create(
-                patient_id=profile_id, clinic_id=data["clinic_id"], performed_by=uploaded_by,
-                eeg_type=data.get("eeg_type"), duration_minutes=data.get("duration_minutes"),
-                raw_data_s3_key=data["s3_key"], raw_file_name=data["file_name"], raw_file_size=size,
+                patient_id=profile_id,
+                clinic_id=data["clinic_id"],
+                performed_by=uploaded_by,
+                eeg_type=data.get("eeg_type"),
+                duration_minutes=data.get("duration_minutes"),
+                raw_data_s3_key=data["s3_key"],
+                raw_file_name=data["file_name"],
+                raw_file_size=size,
                 raw_checksum=_sha256(content),
             )
             event_type = "eeg_uploaded"
             file_id_key = "eeg_id"
         else:
             record = await self.mhf.create(
-                patient_id=profile_id, clinic_id=data["clinic_id"], uploaded_by=uploaded_by,
-                document_type=data.get("document_type"), s3_key=data["s3_key"], file_name=data["file_name"],
-                file_size=size, checksum=_sha256(content), document_date=data.get("document_date"),
-                source_provider=data.get("source_provider"), description=data.get("description"),
+                patient_id=profile_id,
+                clinic_id=data["clinic_id"],
+                uploaded_by=uploaded_by,
+                document_type=data.get("document_type"),
+                s3_key=data["s3_key"],
+                file_name=data["file_name"],
+                file_size=size,
+                checksum=_sha256(content),
+                document_date=data.get("document_date"),
+                source_provider=data.get("source_provider"),
+                description=data.get("description"),
             )
             event_type = "file_uploaded"
             file_id_key = "mhf_id"
 
         await emit_event(
-            self.session, aggregate_type="patient_file", aggregate_id=record[file_id_key],
-            event_type=event_type, payload={"file_id": str(record[file_id_key]), "patient_id": str(patient_id)},
+            self.session,
+            aggregate_type="patient_file",
+            aggregate_id=record[file_id_key],
+            event_type=event_type,
+            payload={"file_id": str(record[file_id_key]), "patient_id": str(patient_id)},
         )
         return {**record, "doc_type": data["doc_type"], "file_id": record[file_id_key]}
 
@@ -62,14 +77,16 @@ class FileService:
         results = []
         if doc_type in (None, "eeg"):
             for r in await self.eeg.list_for_patient(profile_id):
-                results.append({
-                    **r,
-                    "doc_type": "eeg",
-                    "file_id": r["eeg_id"],
-                    "file_name": r["raw_file_name"],
-                    "file_size": r["raw_file_size"],
-                    "checksum": r["raw_checksum"],
-                })
+                results.append(
+                    {
+                        **r,
+                        "doc_type": "eeg",
+                        "file_id": r["eeg_id"],
+                        "file_name": r["raw_file_name"],
+                        "file_size": r["raw_file_size"],
+                        "checksum": r["raw_checksum"],
+                    }
+                )
         if doc_type in (None, "medical_history"):
             for r in await self.mhf.list_for_patient(profile_id):
                 results.append({**r, "doc_type": "medical_history", "file_id": r["mhf_id"]})
@@ -95,8 +112,11 @@ class FileService:
         if not updated:
             raise NotFoundError("EEG file not found", code="FILE_NOT_FOUND")
         await emit_event(
-            self.session, aggregate_type="patient_file", aggregate_id=eeg_id,
-            event_type="eeg_reviewed", payload={"eeg_id": str(eeg_id), "is_abnormal": is_abnormal},
+            self.session,
+            aggregate_type="patient_file",
+            aggregate_id=eeg_id,
+            event_type="eeg_reviewed",
+            payload={"eeg_id": str(eeg_id), "is_abnormal": is_abnormal},
         )
         return updated
 

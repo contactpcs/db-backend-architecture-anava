@@ -38,7 +38,9 @@ async def _assert_own_key(ctx: RequestContext, db, s3_key: str) -> None:
 
 @router.post("/patients/{patient_id}/files/presign-upload", response_model=s.PresignUploadResponse)
 async def presign_upload(
-    patient_id: UUID, body: s.PresignUploadRequest, db=Depends(get_db),
+    patient_id: UUID,
+    body: s.PresignUploadRequest,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     await assert_patient_self(ctx, db, patient_id)
@@ -48,7 +50,9 @@ async def presign_upload(
 
 @router.put("/files/upload/{s3_key:path}")
 async def upload_file_bytes(
-    s3_key: str, request: Request, db=Depends(get_db),
+    s3_key: str,
+    request: Request,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     """Local-dev stand-in for a real presigned S3 PUT — the client uploads
@@ -70,7 +74,9 @@ async def download_file_bytes(s3_key: str, db=Depends(get_db), ctx: RequestConte
 
 @router.post("/patients/{patient_id}/files", status_code=201)
 async def confirm_file_upload(
-    patient_id: UUID, body: s.FileConfirmCreate, db=Depends(get_db),
+    patient_id: UUID,
+    body: s.FileConfirmCreate,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     await assert_patient_self(ctx, db, patient_id)
@@ -82,7 +88,9 @@ async def confirm_file_upload(
 
 @router.get("/patients/{patient_id}/files")
 async def list_patient_files(
-    patient_id: UUID, doc_type: str | None = None, db=Depends(get_db),
+    patient_id: UUID,
+    doc_type: str | None = None,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     await assert_patient_self(ctx, db, patient_id)
@@ -91,7 +99,9 @@ async def list_patient_files(
 
 @router.get("/files/{doc_type}/{file_id}/download-url")
 async def get_download_url(
-    doc_type: str, file_id: UUID, db=Depends(get_db),
+    doc_type: str,
+    file_id: UUID,
+    db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     caller_profile_id = UUID(ctx.user_id) if ctx.role == "patient" else None
@@ -106,6 +116,9 @@ async def review_eeg_file(
     ctx: RequestContext = Depends(require_role("super_admin", "doctor")),
 ):
     return await FileService(db).review_eeg(
-        eeg_id, reviewed_by=UUID(ctx.user_id), clinical_findings=body.clinical_findings,
-        is_abnormal=body.is_abnormal, status=body.status,
+        eeg_id,
+        reviewed_by=UUID(ctx.user_id),
+        clinical_findings=body.clinical_findings,
+        is_abnormal=body.is_abnormal,
+        status=body.status,
     )

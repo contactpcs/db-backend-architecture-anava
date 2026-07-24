@@ -12,11 +12,24 @@ from app.core.sql_helpers import fetch_one, fetch_optional, insert_returning
 settings = get_settings()
 
 
-async def create_profile(session: AsyncSession, *, email: str, first_name: str, last_name: str,
-                          phone: str | None, role: str, is_active: bool = True, consent_signed: bool = True,
-                          gender: str | None = None, dob=None, address: str | None = None,
-                          city: str | None = None, state: str | None = None, country: str | None = None,
-                          pincode: str | None = None) -> dict:
+async def create_profile(
+    session: AsyncSession,
+    *,
+    email: str,
+    first_name: str,
+    last_name: str,
+    phone: str | None,
+    role: str,
+    is_active: bool = True,
+    consent_signed: bool = True,
+    gender: str | None = None,
+    dob=None,
+    address: str | None = None,
+    city: str | None = None,
+    state: str | None = None,
+    country: str | None = None,
+    pincode: str | None = None,
+) -> dict:
     """Every staff/admin identity starts as a profiles row. cognito_sub is a
     placeholder ('pending-<uuid>') in local dev; in real Cognito mode this
     provisions the actual Cognito user first (temp password auto-emailed by
@@ -32,27 +45,43 @@ async def create_profile(session: AsyncSession, *, email: str, first_name: str, 
     SQL/28_consent_redesign.sql for why these are two separate columns)."""
     if settings.auth_mode == "cognito":
         from app.core.cognito import provision_staff_user
+
         cognito_sub = provision_staff_user(email=email, first_name=first_name, last_name=last_name, phone=phone)
     else:
         cognito_sub = None
 
     row = (
-        await session.execute(
-            text(
-                "INSERT INTO profiles (cognito_sub, email, first_name, last_name, phone, role, is_active, "
-                "consent_signed, gender, dob, address, city, state, country, pincode) "
-                "VALUES (COALESCE(:cognito_sub, 'pending-' || gen_random_uuid()::TEXT), :email, :first_name, "
-                ":last_name, :phone, :role, :is_active, :consent_signed, :gender, :dob, :address, :city, :state, "
-                ":country, :pincode) RETURNING *"
-            ),
-            {
-                "cognito_sub": cognito_sub,
-                "email": email, "first_name": first_name, "last_name": last_name, "phone": phone, "role": role,
-                "is_active": is_active, "consent_signed": consent_signed, "gender": gender, "dob": dob,
-                "address": address, "city": city, "state": state, "country": country, "pincode": pincode,
-            },
+        (
+            await session.execute(
+                text(
+                    "INSERT INTO profiles (cognito_sub, email, first_name, last_name, phone, role, is_active, "
+                    "consent_signed, gender, dob, address, city, state, country, pincode) "
+                    "VALUES (COALESCE(:cognito_sub, 'pending-' || gen_random_uuid()::TEXT), :email, :first_name, "
+                    ":last_name, :phone, :role, :is_active, :consent_signed, :gender, :dob, :address, :city, :state, "
+                    ":country, :pincode) RETURNING *"
+                ),
+                {
+                    "cognito_sub": cognito_sub,
+                    "email": email,
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "phone": phone,
+                    "role": role,
+                    "is_active": is_active,
+                    "consent_signed": consent_signed,
+                    "gender": gender,
+                    "dob": dob,
+                    "address": address,
+                    "city": city,
+                    "state": state,
+                    "country": country,
+                    "pincode": pincode,
+                },
+            )
         )
-    ).mappings().one()
+        .mappings()
+        .one()
+    )
     return dict(row)
 
 
@@ -79,38 +108,47 @@ class DoctorRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, *, profile_id: UUID, clinic_id: UUID, specialization, license_number, hospital_affiliation,
-                      max_patient_count: int) -> dict:
+    async def create(
+        self, *, profile_id: UUID, clinic_id: UUID, specialization, license_number, hospital_affiliation, max_patient_count: int
+    ) -> dict:
         row = (
-            await self.session.execute(
-                text(
-                    "INSERT INTO doctors (profile_id, clinic_id, specialization, license_number, "
-                    "hospital_affiliation, max_patient_count) VALUES "
-                    "(:profile_id, :clinic_id, :specialization, :license_number, :hospital_affiliation, :max_patient_count) "
-                    "RETURNING *"
-                ),
-                {
-                    "profile_id": str(profile_id),
-                    "clinic_id": str(clinic_id),
-                    "specialization": specialization,
-                    "license_number": license_number,
-                    "hospital_affiliation": hospital_affiliation,
-                    "max_patient_count": max_patient_count,
-                },
+            (
+                await self.session.execute(
+                    text(
+                        "INSERT INTO doctors (profile_id, clinic_id, specialization, license_number, "
+                        "hospital_affiliation, max_patient_count) VALUES "
+                        "(:profile_id, :clinic_id, :specialization, :license_number, :hospital_affiliation, :max_patient_count) "
+                        "RETURNING *"
+                    ),
+                    {
+                        "profile_id": str(profile_id),
+                        "clinic_id": str(clinic_id),
+                        "specialization": specialization,
+                        "license_number": license_number,
+                        "hospital_affiliation": hospital_affiliation,
+                        "max_patient_count": max_patient_count,
+                    },
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
         return dict(row)
 
     async def get(self, doctor_id: UUID) -> dict | None:
         row = (
-            await self.session.execute(
-                text(
-                    "SELECT d.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active "
-                    "FROM doctors d JOIN profiles p ON p.id = d.profile_id WHERE d.doctor_id = :id"
-                ),
-                {"id": str(doctor_id)},
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT d.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active "
+                        "FROM doctors d JOIN profiles p ON p.id = d.profile_id WHERE d.doctor_id = :id"
+                    ),
+                    {"id": str(doctor_id)},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         return dict(row) if row else None
 
     async def list(self, *, clinic_id: UUID | None = None) -> builtins.list[dict]:
@@ -125,8 +163,8 @@ class DoctorRepository:
         )
         if clinic_id:
             rows = (
-                await self.session.execute(text(f"{base} AND d.clinic_id = :clinic_id"), {"clinic_id": str(clinic_id)})
-            ).mappings().all()
+                (await self.session.execute(text(f"{base} AND d.clinic_id = :clinic_id"), {"clinic_id": str(clinic_id)})).mappings().all()
+            )
         else:
             rows = (await self.session.execute(text(base))).mappings().all()
         return [dict(r) for r in rows]
@@ -136,11 +174,15 @@ class DoctorRepository:
             return await self.get(doctor_id)
         set_clause = ", ".join(f"{k} = :{k}" for k in fields)
         row = (
-            await self.session.execute(
-                text(f"UPDATE doctors SET {set_clause} WHERE doctor_id = :id RETURNING *"),
-                {**fields, "id": str(doctor_id)},
+            (
+                await self.session.execute(
+                    text(f"UPDATE doctors SET {set_clause} WHERE doctor_id = :id RETURNING *"),
+                    {**fields, "id": str(doctor_id)},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         return dict(row) if row else None
 
     async def soft_delete(self, doctor_id: UUID, *, deleted_by: UUID) -> dict | None:
@@ -164,14 +206,15 @@ class DoctorRepository:
         if not doctor_ids:
             return {}
         rows = (
-            await self.session.execute(
-                text(
-                    "SELECT doctor_id, active_patient_count FROM v_doctor_active_patient_counts "
-                    "WHERE doctor_id = ANY(:ids)"
-                ),
-                {"ids": [str(d) for d in doctor_ids]},
+            (
+                await self.session.execute(
+                    text("SELECT doctor_id, active_patient_count FROM v_doctor_active_patient_counts WHERE doctor_id = ANY(:ids)"),
+                    {"ids": [str(d) for d in doctor_ids]},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return {str(r["doctor_id"]): r["active_patient_count"] for r in rows}
 
 
@@ -191,14 +234,18 @@ class ClinicalAssistantRepository:
 
     async def create(self, *, profile_id: UUID, clinic_id: UUID, qualification: str | None) -> dict:
         row = (
-            await self.session.execute(
-                text(
-                    "INSERT INTO clinical_assistants (profile_id, clinic_id, qualification) "
-                    "VALUES (:profile_id, :clinic_id, :qualification) RETURNING *"
-                ),
-                {"profile_id": str(profile_id), "clinic_id": str(clinic_id), "qualification": qualification},
+            (
+                await self.session.execute(
+                    text(
+                        "INSERT INTO clinical_assistants (profile_id, clinic_id, qualification) "
+                        "VALUES (:profile_id, :clinic_id, :qualification) RETURNING *"
+                    ),
+                    {"profile_id": str(profile_id), "clinic_id": str(clinic_id), "qualification": qualification},
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
         return dict(row)
 
     async def list(self, *, clinic_id: UUID | None = None) -> builtins.list[dict]:
@@ -208,8 +255,8 @@ class ClinicalAssistantRepository:
         )
         if clinic_id:
             rows = (
-                await self.session.execute(text(f"{base} AND ca.clinic_id = :clinic_id"), {"clinic_id": str(clinic_id)})
-            ).mappings().all()
+                (await self.session.execute(text(f"{base} AND ca.clinic_id = :clinic_id"), {"clinic_id": str(clinic_id)})).mappings().all()
+            )
         else:
             rows = (await self.session.execute(text(base))).mappings().all()
         return [dict(r) for r in rows]
@@ -219,11 +266,15 @@ class ClinicalAssistantRepository:
             return await self.get(ca_id)
         set_clause = ", ".join(f"{k} = :{k}" for k in fields)
         row = (
-            await self.session.execute(
-                text(f"UPDATE clinical_assistants SET {set_clause} WHERE ca_id = :id RETURNING *"),
-                {**fields, "id": str(ca_id)},
+            (
+                await self.session.execute(
+                    text(f"UPDATE clinical_assistants SET {set_clause} WHERE ca_id = :id RETURNING *"),
+                    {**fields, "id": str(ca_id)},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         return dict(row) if row else None
 
     async def soft_delete(self, ca_id: UUID, *, deleted_by: UUID) -> dict | None:
@@ -231,10 +282,7 @@ class ClinicalAssistantRepository:
         if not ca:
             return None
         await self.session.execute(
-            text(
-                "UPDATE clinical_assistants SET deleted_by = :by, deleted_at = NOW(), "
-                "is_active = FALSE WHERE ca_id = :id"
-            ),
+            text("UPDATE clinical_assistants SET deleted_by = :by, deleted_at = NOW(), is_active = FALSE WHERE ca_id = :id"),
             {"by": str(deleted_by), "id": str(ca_id)},
         )
         await self.session.execute(
@@ -253,14 +301,15 @@ class ReceptionistRepository:
 
     async def create(self, *, profile_id: UUID, clinic_id: UUID) -> dict:
         row = (
-            await self.session.execute(
-                text(
-                    "INSERT INTO receptionists (profile_id, clinic_id) VALUES (:profile_id, :clinic_id) "
-                    "RETURNING *"
-                ),
-                {"profile_id": str(profile_id), "clinic_id": str(clinic_id)},
+            (
+                await self.session.execute(
+                    text("INSERT INTO receptionists (profile_id, clinic_id) VALUES (:profile_id, :clinic_id) RETURNING *"),
+                    {"profile_id": str(profile_id), "clinic_id": str(clinic_id)},
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
         return dict(row)
 
     async def list(self, *, clinic_id: UUID | None = None) -> builtins.list[dict]:
@@ -270,8 +319,8 @@ class ReceptionistRepository:
         )
         if clinic_id:
             rows = (
-                await self.session.execute(text(f"{base} AND r.clinic_id = :clinic_id"), {"clinic_id": str(clinic_id)})
-            ).mappings().all()
+                (await self.session.execute(text(f"{base} AND r.clinic_id = :clinic_id"), {"clinic_id": str(clinic_id)})).mappings().all()
+            )
         else:
             rows = (await self.session.execute(text(base))).mappings().all()
         return [dict(r) for r in rows]
@@ -291,11 +340,15 @@ class ReceptionistRepository:
             return await self.get(receptionist_id)
         set_clause = ", ".join(f"{k} = :{k}" for k in fields)
         row = (
-            await self.session.execute(
-                text(f"UPDATE receptionists SET {set_clause} WHERE receptionist_id = :id RETURNING *"),
-                {**fields, "id": str(receptionist_id)},
+            (
+                await self.session.execute(
+                    text(f"UPDATE receptionists SET {set_clause} WHERE receptionist_id = :id RETURNING *"),
+                    {**fields, "id": str(receptionist_id)},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         return dict(row) if row else None
 
     async def soft_delete(self, receptionist_id: UUID, *, deleted_by: UUID) -> dict | None:
@@ -303,10 +356,7 @@ class ReceptionistRepository:
         if not receptionist:
             return None
         await self.session.execute(
-            text(
-                "UPDATE receptionists SET deleted_by = :by, deleted_at = NOW(), "
-                "is_active = FALSE WHERE receptionist_id = :id"
-            ),
+            text("UPDATE receptionists SET deleted_by = :by, deleted_at = NOW(), is_active = FALSE WHERE receptionist_id = :id"),
             {"by": str(deleted_by), "id": str(receptionist_id)},
         )
         await self.session.execute(
@@ -325,14 +375,18 @@ class CaDoctorAssignmentRepository:
 
     async def create(self, *, ca_id: UUID, doctor_id: UUID, clinic_id: UUID, is_primary: bool) -> dict:
         row = (
-            await self.session.execute(
-                text(
-                    "INSERT INTO ca_doctor_assignments (ca_id, doctor_id, clinic_id, is_primary) "
-                    "VALUES (:ca_id, :doctor_id, :clinic_id, :is_primary) RETURNING *"
-                ),
-                {"ca_id": str(ca_id), "doctor_id": str(doctor_id), "clinic_id": str(clinic_id), "is_primary": is_primary},
+            (
+                await self.session.execute(
+                    text(
+                        "INSERT INTO ca_doctor_assignments (ca_id, doctor_id, clinic_id, is_primary) "
+                        "VALUES (:ca_id, :doctor_id, :clinic_id, :is_primary) RETURNING *"
+                    ),
+                    {"ca_id": str(ca_id), "doctor_id": str(doctor_id), "clinic_id": str(clinic_id), "is_primary": is_primary},
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
         return dict(row)
 
     async def list(self, *, ca_id: UUID | None = None, doctor_id: UUID | None = None) -> builtins.list[dict]:
@@ -344,10 +398,10 @@ class CaDoctorAssignmentRepository:
             clauses.append("doctor_id = :doctor_id")
             params["doctor_id"] = str(doctor_id)
         rows = (
-            await self.session.execute(
-                text(f"SELECT * FROM ca_doctor_assignments WHERE {' AND '.join(clauses)}"), params
-            )
-        ).mappings().all()
+            (await self.session.execute(text(f"SELECT * FROM ca_doctor_assignments WHERE {' AND '.join(clauses)}"), params))
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
 
@@ -361,10 +415,10 @@ class StaffRequestRepository:
 
     async def get(self, request_id: UUID) -> dict | None:
         row = (
-            await self.session.execute(
-                text("SELECT * FROM staff_requests WHERE request_id = :id"), {"id": str(request_id)}
-            )
-        ).mappings().first()
+            (await self.session.execute(text("SELECT * FROM staff_requests WHERE request_id = :id"), {"id": str(request_id)}))
+            .mappings()
+            .first()
+        )
         return dict(row) if row else None
 
     async def list(self, *, clinic_id: UUID | None = None, status: str | None = None) -> builtins.list[dict]:
@@ -376,11 +430,7 @@ class StaffRequestRepository:
             clauses.append("status = :status")
             params["status"] = status
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        rows = (
-            await self.session.execute(
-                text(f"SELECT * FROM staff_requests {where} ORDER BY created_at DESC"), params
-            )
-        ).mappings().all()
+        rows = (await self.session.execute(text(f"SELECT * FROM staff_requests {where} ORDER BY created_at DESC"), params)).mappings().all()
         return [dict(r) for r in rows]
 
     async def list_by_region(self, region_id: str, *, status: str | None = None) -> builtins.list[dict]:
@@ -390,26 +440,34 @@ class StaffRequestRepository:
             params["status"] = status
         where = " AND ".join(clauses)
         rows = (
-            await self.session.execute(
-                text(
-                    f"SELECT sr.* FROM staff_requests sr JOIN clinics c ON c.clinic_id = sr.clinic_id "
-                    f"WHERE {where} ORDER BY sr.created_at DESC"
-                ),
-                params,
+            (
+                await self.session.execute(
+                    text(
+                        f"SELECT sr.* FROM staff_requests sr JOIN clinics c ON c.clinic_id = sr.clinic_id "
+                        f"WHERE {where} ORDER BY sr.created_at DESC"
+                    ),
+                    params,
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
     async def decide(self, request_id: UUID, *, status: str, reviewed_by: UUID, review_notes: str | None) -> dict | None:
         row = (
-            await self.session.execute(
-                text(
-                    "UPDATE staff_requests SET status = :status, reviewed_by = :reviewed_by, "
-                    "review_notes = :review_notes WHERE request_id = :id RETURNING *"
-                ),
-                {"status": status, "reviewed_by": str(reviewed_by), "review_notes": review_notes, "id": str(request_id)},
+            (
+                await self.session.execute(
+                    text(
+                        "UPDATE staff_requests SET status = :status, reviewed_by = :reviewed_by, "
+                        "review_notes = :review_notes WHERE request_id = :id RETURNING *"
+                    ),
+                    {"status": status, "reviewed_by": str(reviewed_by), "review_notes": review_notes, "id": str(request_id)},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         return dict(row) if row else None
 
     async def fulfill(self, request_id: UUID, *, profile_id: UUID) -> None:

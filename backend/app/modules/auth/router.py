@@ -46,13 +46,17 @@ async def list_public_clinics() -> list[dict]:
     (_ensure_clinic_ready_for_staff), not a stricter active-only rule."""
     async with engine.connect() as conn:
         rows = (
-            await conn.execute(
-                text(
-                    "SELECT clinic_id, clinic_name, city, state, address FROM clinics "
-                    "WHERE status NOT IN ('pending_closure', 'closed') ORDER BY clinic_name"
+            (
+                await conn.execute(
+                    text(
+                        "SELECT clinic_id, clinic_name, city, state, address FROM clinics "
+                        "WHERE status NOT IN ('pending_closure', 'closed') ORDER BY clinic_name"
+                    )
                 )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
     return [dict(r) for r in rows]
 
 
@@ -122,8 +126,11 @@ async def patient_signup_start(body: PatientSignupStart) -> None:
     from app.core.cognito import sign_up_patient
 
     sign_up_patient(
-        username=body.contact, first_name=body.first_name, last_name=body.last_name,
-        dob=body.dob.isoformat() if body.dob else None, gender=body.gender,
+        username=body.contact,
+        first_name=body.first_name,
+        last_name=body.last_name,
+        dob=body.dob.isoformat() if body.dob else None,
+        gender=body.gender,
     )
 
 
@@ -169,9 +176,15 @@ async def patient_signup_complete(body: PatientSignupComplete, db=Depends(get_db
     # placeholder holds the column until then, same pattern as cognito_sub's
     # own 'pending-<uuid>' placeholder elsewhere in this codebase.
     data = {
-        "first_name": body.first_name, "last_name": body.last_name, "dob": body.dob,
-        "gender": body.gender, "address": body.address, "city": body.city, "state": body.state,
-        "country": body.country, "pincode": body.pincode,
+        "first_name": body.first_name,
+        "last_name": body.last_name,
+        "dob": body.dob,
+        "gender": body.gender,
+        "address": body.address,
+        "city": body.city,
+        "state": body.state,
+        "country": body.country,
+        "pincode": body.pincode,
         "primary_clinic_id": str(body.primary_clinic_id),
         "email": body.contact if body.method == "email" else f"pending-{uuid4()}@no-email.local",
         "phone": body.contact if body.method == "mobile" else None,
@@ -188,8 +201,7 @@ async def patient_signup_complete(body: PatientSignupComplete, db=Depends(get_db
 
 
 @router.post("/patients/verify-channel/start", status_code=204)
-async def verify_channel_start(body: VerifyChannelStart, request: Request,
-                                _ctx: RequestContext = Depends(get_current_context)) -> None:
+async def verify_channel_start(body: VerifyChannelStart, request: Request, _ctx: RequestContext = Depends(get_current_context)) -> None:
     """Post-signup: adds the channel NOT used at signup (e.g. a
     mobile-signup patient's Cognito user has no email attribute at all yet)
     and triggers its verification code in one call. Authenticated — needs
@@ -204,8 +216,9 @@ async def verify_channel_start(body: VerifyChannelStart, request: Request,
 
 
 @router.post("/patients/verify-channel/confirm", status_code=204)
-async def verify_channel_confirm(body: VerifyChannelConfirm, request: Request, db=Depends(get_db),
-                                  ctx: RequestContext = Depends(get_current_context)) -> None:
+async def verify_channel_confirm(
+    body: VerifyChannelConfirm, request: Request, db=Depends(get_db), ctx: RequestContext = Depends(get_current_context)
+) -> None:
     """On success, overwrites our own profiles.email/phone with the real
     verified value too — email in particular may still be holding the
     'pending-<uuid>@no-email.local' placeholder from a mobile-only signup."""
@@ -248,8 +261,10 @@ async def local_login(body: LocalLoginRequest) -> TokenResponse:
             # SQL/33_fix_local_login_email_lookup_rls.sql.
             await conn.execute(text("SELECT set_config('app.current_email', :email, true)"), {"email": body.email})
             row = (
-                await conn.execute(text("SELECT cognito_sub FROM profiles WHERE email = :email"), {"email": body.email})
-            ).mappings().first()
+                (await conn.execute(text("SELECT cognito_sub FROM profiles WHERE email = :email"), {"email": body.email}))
+                .mappings()
+                .first()
+            )
         if not row:
             raise NotFoundError("No profile found for this email", code="PROFILE_NOT_FOUND")
         cognito_sub = row["cognito_sub"]
@@ -272,34 +287,44 @@ async def get_current_user(ctx: RequestContext = Depends(get_current_context), d
     SQL/31_fix_profile_bootstrap_lookup_rls.sql for the related middleware-
     side fix; this one didn't need a new policy, just the right session)."""
     row = (
-        await db.execute(
-            text("SELECT id, email, first_name, last_name, role, email_verified, phone_verified FROM profiles WHERE id = :id"),
-            {"id": ctx.user_id},
+        (
+            await db.execute(
+                text("SELECT id, email, first_name, last_name, role, email_verified, phone_verified FROM profiles WHERE id = :id"),
+                {"id": ctx.user_id},
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     if not row:
         raise NotFoundError("Profile not found", code="PROFILE_NOT_FOUND")
 
     patient_row = None
     if row["role"] == "patient":
         patient_row = (
-            await db.execute(
-                text(
-                    "SELECT patient_id, self_registered, registration_status FROM patients WHERE profile_id = :pid"
-                ),
-                {"pid": row["id"]},
+            (
+                await db.execute(
+                    text("SELECT patient_id, self_registered, registration_status FROM patients WHERE profile_id = :pid"),
+                    {"pid": row["id"]},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
 
     doctor_row = None
     if row["role"] == "doctor":
         doctor_row = (
-            await db.execute(text("SELECT doctor_id FROM doctors WHERE profile_id = :pid"), {"pid": row["id"]})
-        ).mappings().first()
+            (await db.execute(text("SELECT doctor_id FROM doctors WHERE profile_id = :pid"), {"pid": row["id"]})).mappings().first()
+        )
 
     return CurrentUserRead(
-        id=row["id"], email=row["email"], first_name=row["first_name"], last_name=row["last_name"],
-        role=row["role"], clinic_id=UUID(ctx.clinic_id) if ctx.clinic_id else None,
+        id=row["id"],
+        email=row["email"],
+        first_name=row["first_name"],
+        last_name=row["last_name"],
+        role=row["role"],
+        clinic_id=UUID(ctx.clinic_id) if ctx.clinic_id else None,
         region_id=UUID(ctx.region_id) if ctx.region_id else None,
         is_active=ctx.is_active,
         consent_signed=ctx.consent_signed,

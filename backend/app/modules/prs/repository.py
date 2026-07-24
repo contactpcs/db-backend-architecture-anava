@@ -72,26 +72,33 @@ class PrsCatalogRepository:
         # needs scale_ids/scales per disease to show "N scales" and preview
         # them before assigning; prs_diseases alone never carried this.
         disease_rows = (
-            await self.session.execute(text("SELECT * FROM prs_diseases WHERE status = TRUE ORDER BY disease_name"))
-        ).mappings().all()
+            (await self.session.execute(text("SELECT * FROM prs_diseases WHERE status = TRUE ORDER BY disease_name"))).mappings().all()
+        )
         scale_rows = (
-            await self.session.execute(
-                text(
-                    "SELECT m.disease_id, sc.scale_id, sc.scale_code, sc.scale_name, m.display_order "
-                    "FROM prs_disease_scale_map m JOIN prs_scales sc ON sc.scale_id = m.scale_id "
-                    "ORDER BY m.disease_id, m.display_order"
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT m.disease_id, sc.scale_id, sc.scale_code, sc.scale_name, m.display_order "
+                        "FROM prs_disease_scale_map m JOIN prs_scales sc ON sc.scale_id = m.scale_id "
+                        "ORDER BY m.disease_id, m.display_order"
+                    )
                 )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         scales_by_disease: dict[str, list[dict]] = {}
         for row in scale_rows:
             scales_by_disease.setdefault(row["disease_id"], []).append(
                 {
-                    "scale_id": row["scale_id"], "scale_code": row["scale_code"], "scale_name": row["scale_name"],
+                    "scale_id": row["scale_id"],
+                    "scale_code": row["scale_code"],
+                    "scale_name": row["scale_name"],
                     # aliases matching the frontend's Scale type (prs.types.ts) — prs_scales has
                     # no category/estimated_minutes columns, that part of the type predates this
                     # table and was never backed by real data; full_name/short_name are real.
-                    "full_name": row["scale_name"], "short_name": row["scale_code"],
+                    "full_name": row["scale_name"],
+                    "short_name": row["scale_code"],
                 }
             )
         result = []
@@ -106,21 +113,25 @@ class PrsCatalogRepository:
         if not scale_ids:
             return []
         rows = (
-            await self.session.execute(text("SELECT * FROM prs_scales WHERE scale_id = ANY(:ids)"), {"ids": scale_ids})
-        ).mappings().all()
+            (await self.session.execute(text("SELECT * FROM prs_scales WHERE scale_id = ANY(:ids)"), {"ids": scale_ids})).mappings().all()
+        )
         return [dict(r) for r in rows]
 
     async def scales_for_disease(self, disease_id: str, applicable_for: list[str]) -> list[dict]:
         rows = (
-            await self.session.execute(
-                text(
-                    "SELECT sc.* FROM prs_scales sc "
-                    "JOIN prs_disease_scale_map m ON m.scale_id = sc.scale_id "
-                    "WHERE m.disease_id = :disease_id AND sc.applicable_for = ANY(:applicable_for)"
-                ),
-                {"disease_id": disease_id, "applicable_for": applicable_for},
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT sc.* FROM prs_scales sc "
+                        "JOIN prs_disease_scale_map m ON m.scale_id = sc.scale_id "
+                        "WHERE m.disease_id = :disease_id AND sc.applicable_for = ANY(:applicable_for)"
+                    ),
+                    {"disease_id": disease_id, "applicable_for": applicable_for},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
     async def questions_for_scale(self, scale_id: str, language: str = "en") -> list[dict]:
@@ -136,41 +147,52 @@ class PrsCatalogRepository:
         # question/option missing a translation row for the requested
         # language silently falls back to English rather than 404ing.
         question_rows = (
-            await self.session.execute(
-                text(
-                    "SELECT q.question_id, q.question_code, q.disease_id, q.scale_id, q.ds_map_id, "
-                    "COALESCE(t.question_text, q.question_text) AS question_text, "
-                    "q.answer_type, q.min_value, q.max_value, q.is_required, q.skip_logic, q.display_order "
-                    "FROM prs_questions q "
-                    "JOIN prs_scale_question_map m ON m.question_id = q.question_id "
-                    "LEFT JOIN prs_question_translations t ON t.question_id = q.question_id AND t.language_code = :lang "
-                    "WHERE m.scale_id = :scale_id ORDER BY m.display_order"
-                ),
-                {"scale_id": scale_id, "lang": language},
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT q.question_id, q.question_code, q.disease_id, q.scale_id, q.ds_map_id, "
+                        "COALESCE(t.question_text, q.question_text) AS question_text, "
+                        "q.answer_type, q.min_value, q.max_value, q.is_required, q.skip_logic, q.display_order "
+                        "FROM prs_questions q "
+                        "JOIN prs_scale_question_map m ON m.question_id = q.question_id "
+                        "LEFT JOIN prs_question_translations t ON t.question_id = q.question_id AND t.language_code = :lang "
+                        "WHERE m.scale_id = :scale_id ORDER BY m.display_order"
+                    ),
+                    {"scale_id": scale_id, "lang": language},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         if not question_rows:
             return []
         option_rows = (
-            await self.session.execute(
-                text(
-                    "SELECT o.option_id, o.question_id, "
-                    "COALESCE(ot.option_label, o.option_label) AS option_label, "
-                    "o.option_value, o.points, o.display_order "
-                    "FROM prs_options o "
-                    "LEFT JOIN prs_option_translations ot ON ot.option_id = o.option_id AND ot.language_code = :lang "
-                    "WHERE o.question_id = ANY(:qids) AND o.status = TRUE "
-                    "ORDER BY o.question_id, o.display_order"
-                ),
-                {"qids": [r["question_id"] for r in question_rows], "lang": language},
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT o.option_id, o.question_id, "
+                        "COALESCE(ot.option_label, o.option_label) AS option_label, "
+                        "o.option_value, o.points, o.display_order "
+                        "FROM prs_options o "
+                        "LEFT JOIN prs_option_translations ot ON ot.option_id = o.option_id AND ot.language_code = :lang "
+                        "WHERE o.question_id = ANY(:qids) AND o.status = TRUE "
+                        "ORDER BY o.question_id, o.display_order"
+                    ),
+                    {"qids": [r["question_id"] for r in question_rows], "lang": language},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         options_by_question: dict[str, list[dict]] = {}
         for row in option_rows:
             options_by_question.setdefault(row["question_id"], []).append(
                 {
-                    "option_id": row["option_id"], "value": row["option_value"], "label": row["option_label"],
-                    "points": row["points"], "display_order": row["display_order"],
+                    "option_id": row["option_id"],
+                    "value": row["option_value"],
+                    "label": row["option_label"],
+                    "points": row["points"],
+                    "display_order": row["display_order"],
                 }
             )
         result = []
@@ -184,20 +206,28 @@ class PrsCatalogRepository:
 
     async def option_points(self, question_id: str, option_value: str) -> float | None:
         row = (
-            await self.session.execute(
-                text("SELECT points FROM prs_options WHERE question_id = :qid AND option_value = :val"),
-                {"qid": question_id, "val": option_value},
+            (
+                await self.session.execute(
+                    text("SELECT points FROM prs_options WHERE question_id = :qid AND option_value = :val"),
+                    {"qid": question_id, "val": option_value},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         return float(row["points"]) if row else None
 
     async def max_points_for_question(self, question_id: str) -> float:
         row = (
-            await self.session.execute(
-                text("SELECT COALESCE(MAX(points), 0) AS m FROM prs_options WHERE question_id = :qid"),
-                {"qid": question_id},
+            (
+                await self.session.execute(
+                    text("SELECT COALESCE(MAX(points), 0) AS m FROM prs_options WHERE question_id = :qid"),
+                    {"qid": question_id},
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
         return float(row["m"])
 
 
@@ -227,7 +257,8 @@ class PatientScaleAssignmentRepository:
                 "scale_id": scale_id,
                 "disease_id": disease_id,
                 "assessment_stage": assessment_stage,
-                "assigned_by": str(assigned_by), "assignment_reason": assignment_reason,
+                "assigned_by": str(assigned_by),
+                "assignment_reason": assignment_reason,
             },
         )
 
@@ -240,8 +271,10 @@ class PatientScaleAssignmentRepository:
             clauses.append("disease_id = :disease_id")
             params["disease_id"] = disease_id
         rows = (
-            await self.session.execute(text(f"SELECT * FROM patient_scale_assignments WHERE {' AND '.join(clauses)}"), params)
-        ).mappings().all()
+            (await self.session.execute(text(f"SELECT * FROM patient_scale_assignments WHERE {' AND '.join(clauses)}"), params))
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
 
@@ -249,8 +282,18 @@ class AssessmentInstanceRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, *, disease_id: str, patient_id: UUID, session_id, cycle_id, initiated_by: str,
-                      administered_by, assessment_stage: str, language_code: str = "en") -> dict:
+    async def create(
+        self,
+        *,
+        disease_id: str,
+        patient_id: UUID,
+        session_id,
+        cycle_id,
+        initiated_by: str,
+        administered_by,
+        assessment_stage: str,
+        language_code: str = "en",
+    ) -> dict:
         # '-' not '/' — used as a URL path parameter, same fix as anamnesis_id.
         instance_id = f"{str(patient_id)[:8]}-{uuid.uuid4().hex[:8]}"
         return await fetch_one(
@@ -262,10 +305,15 @@ class AssessmentInstanceRepository:
                 "RETURNING *"
             ),
             {
-                "id": instance_id, "disease_id": disease_id, "patient_id": str(patient_id),
-                "session_id": str(session_id) if session_id else None, "cycle_id": str(cycle_id) if cycle_id else None,
-                "initiated_by": initiated_by, "administered_by": str(administered_by) if administered_by else None,
-                "stage": assessment_stage, "lang": language_code,
+                "id": instance_id,
+                "disease_id": disease_id,
+                "patient_id": str(patient_id),
+                "session_id": str(session_id) if session_id else None,
+                "cycle_id": str(cycle_id) if cycle_id else None,
+                "initiated_by": initiated_by,
+                "administered_by": str(administered_by) if administered_by else None,
+                "stage": assessment_stage,
+                "lang": language_code,
             },
         )
 
@@ -307,11 +355,15 @@ class AssessmentInstanceRepository:
             clauses.append("assessment_stage = :stage")
             params["stage"] = assessment_stage
         rows = (
-            await self.session.execute(
-                text(f"SELECT * FROM prs_assessment_instances WHERE {' AND '.join(clauses)} ORDER BY started_at DESC"),
-                params,
+            (
+                await self.session.execute(
+                    text(f"SELECT * FROM prs_assessment_instances WHERE {' AND '.join(clauses)} ORDER BY started_at DESC"),
+                    params,
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
 
@@ -319,8 +371,9 @@ class PrsResponseRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def upsert(self, *, instance_id: str, question_id: str, given_response: str, response_value: float | None,
-                      language_code: str = "en") -> dict:
+    async def upsert(
+        self, *, instance_id: str, question_id: str, given_response: str, response_value: float | None, language_code: str = "en"
+    ) -> dict:
         # given_response is always prs_options.option_value (a language-neutral
         # code, e.g. "0"/"1"/"2" — see prs_options.option_value vs option_label),
         # so this is already stored "in English" regardless of display language.
@@ -335,15 +388,19 @@ class PrsResponseRepository:
                 "response_value = EXCLUDED.response_value, language_code = EXCLUDED.language_code RETURNING *"
             ),
             {
-                "id": response_id, "instance_id": instance_id, "question_id": question_id, "given": given_response,
-                "value": response_value, "lang": language_code,
+                "id": response_id,
+                "instance_id": instance_id,
+                "question_id": question_id,
+                "given": given_response,
+                "value": response_value,
+                "lang": language_code,
             },
         )
 
     async def list_for_instance(self, instance_id: str) -> list[dict]:
         rows = (
-            await self.session.execute(text("SELECT * FROM prs_responses WHERE instance_id = :id"), {"id": instance_id})
-        ).mappings().all()
+            (await self.session.execute(text("SELECT * FROM prs_responses WHERE instance_id = :id"), {"id": instance_id})).mappings().all()
+        )
         return [dict(r) for r in rows]
 
     async def list_for_instance_translated(self, instance_id: str, language: str) -> list[dict]:
@@ -352,35 +409,43 @@ class PrsResponseRepository:
         # resolved to whatever language the viewer asks for, independent of
         # the language the patient actually answered in.
         rows = (
-            await self.session.execute(
-                text(
-                    "SELECT r.response_id, r.instance_id, r.question_id, r.given_response, r.response_value, "
-                    "r.language_code, COALESCE(qt.question_text, q.question_text) AS question_text, "
-                    "COALESCE(ot.option_label, o.option_label) AS response_label "
-                    "FROM prs_responses r "
-                    "JOIN prs_questions q ON q.question_id = r.question_id "
-                    "LEFT JOIN prs_question_translations qt ON qt.question_id = q.question_id AND qt.language_code = :lang "
-                    "LEFT JOIN prs_options o ON o.question_id = r.question_id AND o.option_value = r.given_response "
-                    "LEFT JOIN prs_option_translations ot ON ot.option_id = o.option_id AND ot.language_code = :lang "
-                    "WHERE r.instance_id = :instance_id "
-                    "ORDER BY q.scale_id, q.display_order"
-                ),
-                {"instance_id": instance_id, "lang": language},
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT r.response_id, r.instance_id, r.question_id, r.given_response, r.response_value, "
+                        "r.language_code, COALESCE(qt.question_text, q.question_text) AS question_text, "
+                        "COALESCE(ot.option_label, o.option_label) AS response_label "
+                        "FROM prs_responses r "
+                        "JOIN prs_questions q ON q.question_id = r.question_id "
+                        "LEFT JOIN prs_question_translations qt ON qt.question_id = q.question_id AND qt.language_code = :lang "
+                        "LEFT JOIN prs_options o ON o.question_id = r.question_id AND o.option_value = r.given_response "
+                        "LEFT JOIN prs_option_translations ot ON ot.option_id = o.option_id AND ot.language_code = :lang "
+                        "WHERE r.instance_id = :instance_id "
+                        "ORDER BY q.scale_id, q.display_order"
+                    ),
+                    {"instance_id": instance_id, "lang": language},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
     async def sum_for_scale(self, instance_id: str, scale_id: str) -> tuple[float, int]:
         row = (
-            await self.session.execute(
-                text(
-                    "SELECT COALESCE(SUM(r.response_value), 0) AS total, COUNT(*) AS n "
-                    "FROM prs_responses r JOIN prs_scale_question_map m ON m.question_id = r.question_id "
-                    "WHERE r.instance_id = :instance_id AND m.scale_id = :scale_id"
-                ),
-                {"instance_id": instance_id, "scale_id": scale_id},
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT COALESCE(SUM(r.response_value), 0) AS total, COUNT(*) AS n "
+                        "FROM prs_responses r JOIN prs_scale_question_map m ON m.question_id = r.question_id "
+                        "WHERE r.instance_id = :instance_id AND m.scale_id = :scale_id"
+                    ),
+                    {"instance_id": instance_id, "scale_id": scale_id},
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
         return float(row["total"]), row["n"]
 
 
@@ -405,10 +470,10 @@ class PrsScaleResultRepository:
 
     async def list_for_instance(self, instance_id: str) -> list[dict]:
         rows = (
-            await self.session.execute(
-                text("SELECT * FROM prs_scale_results WHERE instance_id = :id"), {"id": instance_id}
-            )
-        ).mappings().all()
+            (await self.session.execute(text("SELECT * FROM prs_scale_results WHERE instance_id = :id"), {"id": instance_id}))
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
     async def final_result(self, instance_id: str) -> dict | None:

@@ -26,11 +26,17 @@ class PaymentService:
         rzp_order = razorpay_client.create_order(amount=amount, currency=currency, receipt=receipt)
         idempotency_key = f"{rzp_order['id']}"
         payment = await self.repo.create(
-            session_id=session_id, order_id=order_id, amount=amount, currency=currency,
-            idempotency_key=idempotency_key, razorpay_order_id=rzp_order["id"],
+            session_id=session_id,
+            order_id=order_id,
+            amount=amount,
+            currency=currency,
+            idempotency_key=idempotency_key,
+            razorpay_order_id=rzp_order["id"],
         )
         await emit_event(
-            self.session, aggregate_type="payment", aggregate_id=payment["payment_id"],
+            self.session,
+            aggregate_type="payment",
+            aggregate_id=payment["payment_id"],
             event_type="payment_created",
             payload={
                 "payment_id": str(payment["payment_id"]),
@@ -100,7 +106,9 @@ class PaymentService:
             razorpay_payment_id=_razorpay_payment_id,
         )
         await emit_event(
-            self.session, aggregate_type="payment", aggregate_id=payment_id,
+            self.session,
+            aggregate_type="payment",
+            aggregate_id=payment_id,
             event_type="payment_completed" if status == "paid" else "payment_waived" if status == "waived" else "payment_status_changed",
             payload={"payment_id": str(payment_id), "status": status},
         )

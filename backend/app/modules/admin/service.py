@@ -92,18 +92,26 @@ class RegionService:
             raise BusinessRuleError("This clinic does not belong to this region", code="CLINIC_NOT_IN_REGION")
         if not clinic["is_main_branch"]:
             raise BusinessRuleError(
-                "Regional admin must be assigned from this region's main-branch clinic "
-                "(its first-created clinic), not any other clinic",
+                "Regional admin must be assigned from this region's main-branch clinic (its first-created clinic), not any other clinic",
                 code="CLINIC_NOT_MAIN_BRANCH",
             )
 
         try:
             profile = await create_profile(
-                self.session, email=data["email"], first_name=data["first_name"],
-                last_name=data["last_name"], phone=data.get("phone"), role="regional_admin",
-                is_active=False, consent_signed=False,
-                gender=data.get("gender"), dob=data.get("dob"), address=data.get("address"),
-                city=data.get("city"), state=data.get("state"), country=data.get("country"),
+                self.session,
+                email=data["email"],
+                first_name=data["first_name"],
+                last_name=data["last_name"],
+                phone=data.get("phone"),
+                role="regional_admin",
+                is_active=False,
+                consent_signed=False,
+                gender=data.get("gender"),
+                dob=data.get("dob"),
+                address=data.get("address"),
+                city=data.get("city"),
+                state=data.get("state"),
+                country=data.get("country"),
                 pincode=data.get("pincode"),
             )
         except IntegrityError as exc:
@@ -111,7 +119,10 @@ class RegionService:
 
         admins_repo = AdminsRepository(self.session)
         await admins_repo.create(
-            profile_id=profile["id"], admin_type="regional_admin", region_id=region_id, clinic_id=clinic["clinic_id"],
+            profile_id=profile["id"],
+            admin_type="regional_admin",
+            region_id=region_id,
+            clinic_id=clinic["clinic_id"],
         )
         await self.staff_repo.create(clinic_id=clinic["clinic_id"], profile_id=profile["id"], staff_role="regional_admin")
         updated = await self.repo.update(region_id, {"regional_admin_id": str(profile["id"])})
@@ -139,9 +150,7 @@ class ClinicService:
         try:
             clinic = await self.repo.create(payload)
         except IntegrityError as exc:
-            raise ConflictError(
-                f"Clinic code {data.get('clinic_code')!r} already exists", code="CLINIC_CODE_TAKEN"
-            ) from exc
+            raise ConflictError(f"Clinic code {data.get('clinic_code')!r} already exists", code="CLINIC_CODE_TAKEN") from exc
         await emit_event(
             self.session,
             aggregate_type="clinic",
@@ -176,11 +185,20 @@ class ClinicService:
 
         try:
             profile = await create_profile(
-                self.session, email=data["email"], first_name=data["first_name"],
-                last_name=data["last_name"], phone=data.get("phone"), role="clinic_admin",
-                is_active=False, consent_signed=False,  # inactive until they sign the staff_onboarding consent
-                gender=data.get("gender"), dob=data.get("dob"), address=data.get("address"),
-                city=data.get("city"), state=data.get("state"), country=data.get("country"),
+                self.session,
+                email=data["email"],
+                first_name=data["first_name"],
+                last_name=data["last_name"],
+                phone=data.get("phone"),
+                role="clinic_admin",
+                is_active=False,
+                consent_signed=False,  # inactive until they sign the staff_onboarding consent
+                gender=data.get("gender"),
+                dob=data.get("dob"),
+                address=data.get("address"),
+                city=data.get("city"),
+                state=data.get("state"),
+                country=data.get("country"),
                 pincode=data.get("pincode"),
             )
         except IntegrityError as exc:
@@ -196,8 +214,11 @@ class ClinicService:
         await create_onboarding_consent(self.session, role="clinic_admin", profile_id=profile["id"], clinic_id=clinic_id)
 
         await emit_event(
-            self.session, aggregate_type="clinic", aggregate_id=clinic_id,
-            event_type="clinic_admin_assigned", payload={"clinic_id": str(clinic_id), "profile_id": str(profile["id"])},
+            self.session,
+            aggregate_type="clinic",
+            aggregate_id=clinic_id,
+            event_type="clinic_admin_assigned",
+            payload={"clinic_id": str(clinic_id), "profile_id": str(profile["id"])},
         )
         return updated  # type: ignore[return-value]
 
@@ -294,12 +315,8 @@ class ClinicRequestService:
     async def decide(self, request_id: UUID, *, decision: str, reviewed_by: UUID, review_notes: str | None) -> dict:
         req = await self.get(request_id)
         if req["status"] != "pending":
-            raise BusinessRuleError(
-                f"Clinic request already {req['status']}", code="CLINIC_REQUEST_ALREADY_DECIDED"
-            )
-        updated = await self.repo.decide(
-            request_id, status=decision, reviewed_by=reviewed_by, review_notes=review_notes
-        )
+            raise BusinessRuleError(f"Clinic request already {req['status']}", code="CLINIC_REQUEST_ALREADY_DECIDED")
+        updated = await self.repo.decide(request_id, status=decision, reviewed_by=reviewed_by, review_notes=review_notes)
         await emit_event(
             self.session,
             aggregate_type="clinic_request",
@@ -319,9 +336,7 @@ class StaffAssignmentService:
         try:
             assignment = await self.repo.create(clinic_id=clinic_id, profile_id=profile_id, staff_role=staff_role)
         except IntegrityError as exc:
-            raise ConflictError(
-                "This profile already has an assignment at this clinic", code="ASSIGNMENT_ALREADY_EXISTS"
-            ) from exc
+            raise ConflictError("This profile already has an assignment at this clinic", code="ASSIGNMENT_ALREADY_EXISTS") from exc
         await emit_event(
             self.session,
             aggregate_type="clinic_staff_assignment",

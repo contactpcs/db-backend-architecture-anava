@@ -23,7 +23,8 @@ async def create_onboarding_consent(session: AsyncSession, *, role: str, profile
         consent_type=consent_type,
         patient_id=profile_id if consent_type == "patient_onboarding" else None,
         staff_id=profile_id if consent_type == "staff_onboarding" else None,
-        clinic_id=clinic_id, region_id=region_id,
+        clinic_id=clinic_id,
+        region_id=region_id,
         role=role if consent_type == "staff_onboarding" else None,
     )
 
@@ -42,8 +43,16 @@ class ConsentRecordService:
         self.repo = ConsentRecordRepository(session)
         self.templates = ConsentTemplateRepository(session)
 
-    async def create(self, *, consent_type: str, patient_id, staff_id, clinic_id: UUID | None = None,
-                      region_id: UUID | None = None, role: str | None = None) -> dict:
+    async def create(
+        self,
+        *,
+        consent_type: str,
+        patient_id,
+        staff_id,
+        clinic_id: UUID | None = None,
+        region_id: UUID | None = None,
+        role: str | None = None,
+    ) -> dict:
         if clinic_id is None and region_id is None:
             raise BusinessRuleError("Either clinic_id or region_id must be set", code="CONSENT_SCOPE_REQUIRED")
         # consent_records.patient_id references profiles(id), not
@@ -63,12 +72,19 @@ class ConsentRecordService:
         if not template:
             raise NotFoundError(f"No active template for consent_type={consent_type!r} role={role!r}", code="CONSENT_TEMPLATE_NOT_FOUND")
         record = await self.repo.create(
-            consent_type=consent_type, template_id=template["template_id"],
-            patient_id=patient_id, staff_id=staff_id, clinic_id=clinic_id, region_id=region_id,
+            consent_type=consent_type,
+            template_id=template["template_id"],
+            patient_id=patient_id,
+            staff_id=staff_id,
+            clinic_id=clinic_id,
+            region_id=region_id,
         )
         await emit_event(
-            self.session, aggregate_type="consent_record", aggregate_id=record["consent_id"],
-            event_type="consent_generated", payload={"consent_id": str(record["consent_id"]), "consent_type": consent_type},
+            self.session,
+            aggregate_type="consent_record",
+            aggregate_id=record["consent_id"],
+            event_type="consent_generated",
+            payload={"consent_id": str(record["consent_id"]), "consent_type": consent_type},
         )
         return record
 
@@ -100,8 +116,12 @@ class ConsentRecordService:
         template = await self.templates.get(record["template_id"])
         content_hash = template["content_hash"] if template else None
         updated = await self.repo.sign(
-            consent_id, signed_by=signed_by, witness_id=witness_id,
-            signature_data=signature_data, ip_address=ip_address, content_hash_at_signing=content_hash,
+            consent_id,
+            signed_by=signed_by,
+            witness_id=witness_id,
+            signature_data=signature_data,
+            ip_address=ip_address,
+            content_hash_at_signing=content_hash,
         )
         if updated is None:
             # Truly concurrent double-submit — both requests read status=
@@ -110,17 +130,18 @@ class ConsentRecordService:
             # The loser lands here instead of crashing on a None response.
             return await self.get(consent_id)
         await emit_event(
-            self.session, aggregate_type="consent_record", aggregate_id=consent_id,
-            event_type="consent_signed", payload={"consent_id": str(consent_id), "consent_type": record["consent_type"]},
+            self.session,
+            aggregate_type="consent_record",
+            aggregate_id=consent_id,
+            event_type="consent_signed",
+            payload={"consent_id": str(consent_id), "consent_type": record["consent_type"]},
         )
         # consent_signed is a plain "did they sign" flag, set for whichever
         # role signed — separate from is_active (see profiles.consent_signed,
         # SQL/28_consent_redesign.sql). is_active handling stays split by role
         # below since staff and patients activate on different triggers.
         signer_id = record["staff_id"] or record["patient_id"]
-        await self.session.execute(
-            text("UPDATE profiles SET consent_signed = TRUE WHERE id = :id"), {"id": str(signer_id)}
-        )
+        await self.session.execute(text("UPDATE profiles SET consent_signed = TRUE WHERE id = :id"), {"id": str(signer_id)})
 
         # staff_onboarding activates immediately — no registration-test flow
         # applies to staff. patient_onboarding does NOT activate here for
@@ -131,9 +152,7 @@ class ConsentRecordService:
         # approval_status='not_required') or at receptionist approval
         # (decide_approval, for self-registered) — never at consent sign.
         if record["consent_type"] == "staff_onboarding" and record["staff_id"]:
-            await self.session.execute(
-                text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(record["staff_id"])}
-            )
+            await self.session.execute(text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(record["staff_id"])})
 
         if record["consent_type"] == "patient_onboarding" and record["patient_id"]:
             # Local import — avoids a module-load-time circular import
@@ -153,7 +172,10 @@ class ConsentRecordService:
             raise BusinessRuleError("Only a signed consent can be revoked", code="CONSENT_NOT_SIGNED")
         updated = await self.repo.revoke(consent_id, revoked_by=revoked_by)
         await emit_event(
-            self.session, aggregate_type="consent_record", aggregate_id=consent_id,
-            event_type="consent_revoked", payload={"consent_id": str(consent_id)},
+            self.session,
+            aggregate_type="consent_record",
+            aggregate_id=consent_id,
+            event_type="consent_revoked",
+            payload={"consent_id": str(consent_id)},
         )
         return updated  # type: ignore[return-value]

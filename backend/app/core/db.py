@@ -82,9 +82,7 @@ async def _apply_rls_context(session: AsyncSession) -> None:
     ctx = get_request_context()
     if ctx is None:
         return
-    await session.execute(
-        text_set_local("app.current_user_id", ctx.user_id)
-    )
+    await session.execute(text_set_local("app.current_user_id", ctx.user_id))
     await session.execute(text_set_local("app.current_user_role", ctx.role))
     if ctx.clinic_id:
         await session.execute(text_set_local("app.current_clinic_id", ctx.clinic_id))

@@ -172,10 +172,7 @@ async def _load_profile_and_scope(cognito_sub: str) -> RequestContext:
         elif role in ("doctor", "clinical_assistant", "receptionist"):
             scope = (
                 await conn.execute(
-                    text(
-                        "SELECT clinic_id FROM clinic_staff_assignments "
-                        "WHERE profile_id = :pid AND is_active = TRUE LIMIT 1"
-                    ),
+                    text("SELECT clinic_id FROM clinic_staff_assignments WHERE profile_id = :pid AND is_active = TRUE LIMIT 1"),
                     {"pid": profile_id},
                 )
             ).first()
@@ -192,8 +189,12 @@ async def _load_profile_and_scope(cognito_sub: str) -> RequestContext:
                 clinic_id = str(scope.primary_clinic_id)
 
     return RequestContext(
-        user_id=profile_id, role=role, clinic_id=clinic_id, region_id=region_id,
-        is_active=is_active, consent_signed=consent_signed,
+        user_id=profile_id,
+        role=role,
+        clinic_id=clinic_id,
+        region_id=region_id,
+        is_active=is_active,
+        consent_signed=consent_signed,
     )
 
 

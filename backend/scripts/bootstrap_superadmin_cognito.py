@@ -40,33 +40,44 @@ async def main() -> None:
     async with engine.connect() as conn:
         existing = (await conn.execute(text("SELECT 1 FROM profiles WHERE email = :email"), {"email": SUPERADMIN_EMAIL})).first()
     if existing:
-        raise SystemExit(f"{SUPERADMIN_EMAIL!r} already exists in this database — nothing to do. "
-                          f"(Safe to reuse this script across separate dev/test/prod environments — "
-                          f"each has its own DB and its own Cognito pool — but not to re-run twice against the same one.)")
+        raise SystemExit(
+            f"{SUPERADMIN_EMAIL!r} already exists in this database — nothing to do. "
+            f"(Safe to reuse this script across separate dev/test/prod environments — "
+            f"each has its own DB and its own Cognito pool — but not to re-run twice against the same one.)"
+        )
 
     from app.core.cognito import provision_staff_user
 
     cognito_sub = provision_staff_user(
-        email=SUPERADMIN_EMAIL, first_name=SUPERADMIN_FIRST_NAME, last_name=SUPERADMIN_LAST_NAME, phone=None,
+        email=SUPERADMIN_EMAIL,
+        first_name=SUPERADMIN_FIRST_NAME,
+        last_name=SUPERADMIN_LAST_NAME,
+        phone=None,
     )
 
     async with engine.begin() as conn:
         row = (
-            await conn.execute(
-                text(
-                    "INSERT INTO profiles (cognito_sub, email, first_name, last_name, role, is_active, consent_signed) "
-                    "VALUES (:sub, :email, :first_name, :last_name, 'super_admin', TRUE, TRUE) RETURNING id"
-                ),
-                {"sub": cognito_sub, "email": SUPERADMIN_EMAIL, "first_name": SUPERADMIN_FIRST_NAME, "last_name": SUPERADMIN_LAST_NAME},
+            (
+                await conn.execute(
+                    text(
+                        "INSERT INTO profiles (cognito_sub, email, first_name, last_name, role, is_active, consent_signed) "
+                        "VALUES (:sub, :email, :first_name, :last_name, 'super_admin', TRUE, TRUE) RETURNING id"
+                    ),
+                    {"sub": cognito_sub, "email": SUPERADMIN_EMAIL, "first_name": SUPERADMIN_FIRST_NAME, "last_name": SUPERADMIN_LAST_NAME},
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
         await conn.execute(
             text("INSERT INTO admins (profile_id, admin_type) VALUES (:pid, 'super_admin')"),
             {"pid": row["id"]},
         )
     await engine.dispose()
-    print(f"Created super_admin {SUPERADMIN_EMAIL!r} (cognito_sub={cognito_sub}). "
-          f"Cognito emailed a temp password to that address — first login will need /auth/login/new-password.")
+    print(
+        f"Created super_admin {SUPERADMIN_EMAIL!r} (cognito_sub={cognito_sub}). "
+        f"Cognito emailed a temp password to that address — first login will need /auth/login/new-password."
+    )
 
 
 if __name__ == "__main__":

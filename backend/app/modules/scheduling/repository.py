@@ -54,11 +54,15 @@ class WeeklyScheduleRepository:
 
     async def list_for_doctor(self, doctor_id: UUID) -> list[dict]:
         rows = (
-            await self.session.execute(
-                text("SELECT * FROM doctor_weekly_schedules WHERE doctor_id = :id AND is_active = TRUE ORDER BY day_of_week"),
-                {"id": str(doctor_id)},
+            (
+                await self.session.execute(
+                    text("SELECT * FROM doctor_weekly_schedules WHERE doctor_id = :id AND is_active = TRUE ORDER BY day_of_week"),
+                    {"id": str(doctor_id)},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
     async def replace_for_doctor(self, doctor_id: UUID, clinic_id: UUID, items: list[dict], *, created_by: UUID) -> list[dict]:
@@ -89,10 +93,10 @@ class ScheduleOverrideRepository:
             clause += " AND override_date >= :from_date"
             params["from_date"] = from_date
         rows = (
-            await self.session.execute(
-                text(f"SELECT * FROM doctor_schedule_overrides WHERE {clause} ORDER BY override_date"), params
-            )
-        ).mappings().all()
+            (await self.session.execute(text(f"SELECT * FROM doctor_schedule_overrides WHERE {clause} ORDER BY override_date"), params))
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
     async def for_date(self, doctor_id: UUID, on_date) -> dict | None:
@@ -106,11 +110,15 @@ class ScheduleOverrideRepository:
         """Keyed by date — one query for the whole range instead of one
         per day when computing multi-day availability."""
         rows = (
-            await self.session.execute(
-                text("SELECT * FROM doctor_schedule_overrides WHERE doctor_id = :id AND override_date BETWEEN :f AND :t"),
-                {"id": str(doctor_id), "f": from_date, "t": to_date},
+            (
+                await self.session.execute(
+                    text("SELECT * FROM doctor_schedule_overrides WHERE doctor_id = :id AND override_date BETWEEN :f AND :t"),
+                    {"id": str(doctor_id), "f": from_date, "t": to_date},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return {r["override_date"]: dict(r) for r in rows}
 
     async def get(self, override_id: UUID) -> dict | None:
@@ -136,8 +144,15 @@ class AppointmentRequestRepository:
     async def get(self, request_id: UUID) -> dict | None:
         return await fetch_optional(self.session, text(_REQ_SELECT + "WHERE r.request_id = :id"), {"id": str(request_id)})
 
-    async def list(self, *, clinic_id: UUID | None = None, region_id: UUID | None = None, patient_id: UUID | None = None,
-                   doctor_id: UUID | None = None, status: str | None = None) -> list[dict]:
+    async def list(
+        self,
+        *,
+        clinic_id: UUID | None = None,
+        region_id: UUID | None = None,
+        patient_id: UUID | None = None,
+        doctor_id: UUID | None = None,
+        status: str | None = None,
+    ) -> list[dict]:
         clauses, params = [], {}
         if clinic_id:
             clauses.append("r.clinic_id = :cid")
@@ -175,8 +190,13 @@ class AppointmentRequestRepository:
                 "UPDATE appointment_requests SET status = :status, reviewed_by = :reviewed_by, review_notes = :notes, "
                 "approved_appointment_id = :appt_id, updated_at = NOW() WHERE request_id = :id RETURNING *"
             ),
-            {"status": status, "reviewed_by": str(reviewed_by), "notes": review_notes,
-             "appt_id": str(approved_appointment_id) if approved_appointment_id else None, "id": str(request_id)},
+            {
+                "status": status,
+                "reviewed_by": str(reviewed_by),
+                "notes": review_notes,
+                "appt_id": str(approved_appointment_id) if approved_appointment_id else None,
+                "id": str(request_id),
+            },
         )
 
 
@@ -191,9 +211,19 @@ class AppointmentRepository:
     async def get(self, appointment_id: UUID) -> dict | None:
         return await fetch_optional(self.session, text(_APPT_SELECT + "WHERE a.appointment_id = :id"), {"id": str(appointment_id)})
 
-    async def list(self, *, clinic_id: UUID | None = None, region_id: UUID | None = None, doctor_id: UUID | None = None,
-                   patient_id: UUID | None = None, status: str | None = None, date_from=None, date_to=None,
-                   skip: int = 0, limit: int = 100) -> builtins.list[dict]:
+    async def list(
+        self,
+        *,
+        clinic_id: UUID | None = None,
+        region_id: UUID | None = None,
+        doctor_id: UUID | None = None,
+        patient_id: UUID | None = None,
+        status: str | None = None,
+        date_from=None,
+        date_to=None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> builtins.list[dict]:
         clauses: builtins.list[str] = []
         params: dict[str, Any] = {}
         if clinic_id:
@@ -220,34 +250,46 @@ class AppointmentRepository:
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         params["skip"], params["limit"] = skip, limit
         rows = (
-            await self.session.execute(
-                text(f"{_APPT_SELECT}{where} ORDER BY a.appointment_date, a.start_time OFFSET :skip LIMIT :limit"), params
+            (
+                await self.session.execute(
+                    text(f"{_APPT_SELECT}{where} ORDER BY a.appointment_date, a.start_time OFFSET :skip LIMIT :limit"), params
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
     async def list_for_doctor_on_date(self, doctor_id: UUID, on_date) -> builtins.list[dict]:
         rows = (
-            await self.session.execute(
-                text(
-                    "SELECT * FROM appointments WHERE doctor_id = :id AND appointment_date = :d "
-                    "AND status NOT IN ('cancelled', 'rescheduled')"
-                ),
-                {"id": str(doctor_id), "d": on_date},
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT * FROM appointments WHERE doctor_id = :id AND appointment_date = :d "
+                        "AND status NOT IN ('cancelled', 'rescheduled')"
+                    ),
+                    {"id": str(doctor_id), "d": on_date},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
     async def list_for_doctor_in_range(self, doctor_id: UUID, from_date, to_date) -> builtins.list[dict]:
         rows = (
-            await self.session.execute(
-                text(
-                    "SELECT * FROM appointments WHERE doctor_id = :id AND appointment_date BETWEEN :f AND :t "
-                    "AND status NOT IN ('cancelled', 'rescheduled')"
-                ),
-                {"id": str(doctor_id), "f": from_date, "t": to_date},
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT * FROM appointments WHERE doctor_id = :id AND appointment_date BETWEEN :f AND :t "
+                        "AND status NOT IN ('cancelled', 'rescheduled')"
+                    ),
+                    {"id": str(doctor_id), "f": from_date, "t": to_date},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
     async def update_status(self, appointment_id: UUID, *, status: str, cancelled_by=None, cancellation_reason=None) -> dict | None:
@@ -306,9 +348,13 @@ class AppointmentAuditLogRepository:
 
     async def list_for_appointment(self, appointment_id: UUID) -> list[dict]:
         rows = (
-            await self.session.execute(
-                text("SELECT * FROM appointment_audit_logs WHERE appointment_id = :id ORDER BY changed_at"),
-                {"id": str(appointment_id)},
+            (
+                await self.session.execute(
+                    text("SELECT * FROM appointment_audit_logs WHERE appointment_id = :id ORDER BY changed_at"),
+                    {"id": str(appointment_id)},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]

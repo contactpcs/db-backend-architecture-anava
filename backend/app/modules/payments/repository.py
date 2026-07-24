@@ -28,19 +28,21 @@ class PaymentRepository:
                 "INSERT INTO payments (session_id, order_id, amount, currency, idempotency_key, razorpay_order_id) "
                 "VALUES (:session_id, :order_id, :amount, :currency, :idem, :rzp_order) RETURNING *"
             ),
-            {"session_id": str(session_id) if session_id else None, "order_id": str(order_id) if order_id else None,
-             "amount": amount, "currency": currency, "idem": idempotency_key, "rzp_order": razorpay_order_id},
+            {
+                "session_id": str(session_id) if session_id else None,
+                "order_id": str(order_id) if order_id else None,
+                "amount": amount,
+                "currency": currency,
+                "idem": idempotency_key,
+                "rzp_order": razorpay_order_id,
+            },
         )
 
     async def get_by_razorpay_order_id(self, razorpay_order_id: str) -> dict | None:
-        return await fetch_optional(
-            self.session, text("SELECT * FROM payments WHERE razorpay_order_id = :id"), {"id": razorpay_order_id}
-        )
+        return await fetch_optional(self.session, text("SELECT * FROM payments WHERE razorpay_order_id = :id"), {"id": razorpay_order_id})
 
     async def get(self, payment_id: UUID) -> dict | None:
-        return await fetch_optional(
-            self.session, text("SELECT * FROM payments WHERE payment_id = :id"), {"id": str(payment_id)}
-        )
+        return await fetch_optional(self.session, text("SELECT * FROM payments WHERE payment_id = :id"), {"id": str(payment_id)})
 
     async def get_owner_profile_id(self, payment_id: UUID) -> str | None:
         """A payment has no patient_id of its own — same two-hop join as
@@ -74,17 +76,21 @@ class PaymentRepository:
         # since a payment is for either a clinical session or a store order,
         # and both of those carry clinic_id.
         rows = (
-            await self.session.execute(
-                text(
-                    "SELECT p.* FROM payments p "
-                    "LEFT JOIN sessions sess ON sess.session_id = p.session_id "
-                    "LEFT JOIN store_orders so ON so.order_id = p.order_id "
-                    "WHERE COALESCE(sess.clinic_id, so.clinic_id) = :clinic_id "
-                    "ORDER BY p.created_at DESC"
-                ),
-                {"clinic_id": str(clinic_id)},
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT p.* FROM payments p "
+                        "LEFT JOIN sessions sess ON sess.session_id = p.session_id "
+                        "LEFT JOIN store_orders so ON so.order_id = p.order_id "
+                        "WHERE COALESCE(sess.clinic_id, so.clinic_id) = :clinic_id "
+                        "ORDER BY p.created_at DESC"
+                    ),
+                    {"clinic_id": str(clinic_id)},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
     async def set_status(
@@ -98,6 +104,12 @@ class PaymentRepository:
                 f"UPDATE payments SET status = :status, payment_method = :method, waived_by = :waived_by, "
                 f"waived_reason = :reason {paid_at_clause} {rzp_clause} WHERE payment_id = :id RETURNING *"
             ),
-            {"status": status, "method": payment_method, "waived_by": str(waived_by) if waived_by else None,
-             "reason": waived_reason, "id": str(payment_id), "rzp_payment": razorpay_payment_id},
+            {
+                "status": status,
+                "method": payment_method,
+                "waived_by": str(waived_by) if waived_by else None,
+                "reason": waived_reason,
+                "id": str(payment_id),
+                "rzp_payment": razorpay_payment_id,
+            },
         )
