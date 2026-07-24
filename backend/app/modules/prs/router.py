@@ -6,7 +6,11 @@ from app.core.db import RequestContext, get_db
 from app.core.permissions import require_role
 from app.core.scoping import assert_owns_profile, assert_patient_self
 from app.modules.prs import schemas as s
-from app.modules.prs.service import PatientScaleAssignmentService, PrsAssessmentService, PrsCatalogService
+from app.modules.prs.service import (
+    PatientScaleAssignmentService,
+    PrsAssessmentService,
+    PrsCatalogService,
+)
 
 router = APIRouter()
 
@@ -34,7 +38,12 @@ async def assign_scale(body: s.PatientScaleAssignmentCreate, db=Depends(get_db),
 
 
 @router.get("/patients/{patient_id}/scale-assignments", response_model=list[s.PatientScaleAssignmentRead])
-async def list_scale_assignments(patient_id: UUID, assessment_stage: str | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+async def list_scale_assignments(
+    patient_id: UUID,
+    assessment_stage: str | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
     await assert_patient_self(ctx, db, patient_id)
     return await PatientScaleAssignmentService(db).list(patient_id, assessment_stage=assessment_stage)
 
@@ -49,7 +58,11 @@ async def list_patient_prs_instances(
 
 
 @router.post("/prs-assessment-instances", response_model=s.AssessmentStartRead, status_code=201)
-async def start_assessment(body: s.AssessmentInstanceCreate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+async def start_assessment(
+    body: s.AssessmentInstanceCreate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
     await assert_patient_self(ctx, db, body.patient_id)
     initiated_by = "doctor_on_behalf" if ctx.role != "patient" else "patient"
     return await PrsAssessmentService(db).start(
@@ -107,11 +120,18 @@ async def list_responses_by_scale(
 
 
 @router.post("/prs-assessment-instances/{instance_id}/responses", response_model=s.AssessmentInstanceRead)
-async def submit_responses(instance_id: str, body: s.ResponsesSubmit, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+async def submit_responses(
+    instance_id: str,
+    body: s.ResponsesSubmit,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
     instance = await PrsAssessmentService(db).get(instance_id)
     assert_owns_profile(ctx, instance["patient_id"])
     items = [item.model_dump() for item in body.responses]
-    return await PrsAssessmentService(db).submit_responses(instance_id, items=items, finalize_scale_id=body.finalize_scale_id)
+    return await PrsAssessmentService(db).submit_responses(
+        instance_id, items=items, finalize_scale_id=body.finalize_scale_id
+    )
 
 
 @router.get("/prs-assessment-instances/{instance_id}/results")

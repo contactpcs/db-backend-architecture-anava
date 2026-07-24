@@ -40,7 +40,12 @@ async def get_payment(payment_id: UUID, db=Depends(get_db), ctx: RequestContext 
 
 
 @router.patch("/payments/{payment_id}/status", response_model=s.PaymentRead)
-async def update_payment_status(payment_id: UUID, body: s.PaymentStatusUpdate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
+async def update_payment_status(
+    payment_id: UUID,
+    body: s.PaymentStatusUpdate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
+):
     if body.status == "waived" and ctx.role not in ("clinic_admin", "super_admin"):
         raise PermissionError_("Only a Clinic Admin can waive a payment", code="WAIVER_NOT_PERMITTED")
     return await PaymentService(db).update_status(

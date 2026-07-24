@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +31,12 @@ class PaymentService:
         )
         await emit_event(
             self.session, aggregate_type="payment", aggregate_id=payment["payment_id"],
-            event_type="payment_created", payload={"payment_id": str(payment["payment_id"]), "amount": amount, "razorpay_order_id": rzp_order["id"]},
+            event_type="payment_created",
+            payload={
+                "payment_id": str(payment["payment_id"]),
+                "amount": amount,
+                "razorpay_order_id": rzp_order["id"],
+            },
         )
         return payment
 
@@ -76,9 +80,25 @@ class PaymentService:
     async def list(self, clinic_id: UUID) -> list[dict]:
         return await self.repo.list_by_clinic(clinic_id)
 
-    async def update_status(self, payment_id: UUID, *, status: str, payment_method, waived_by=None, waived_reason=None, _razorpay_payment_id=None) -> dict:
+    async def update_status(
+        self,
+        payment_id: UUID,
+        *,
+        status: str,
+        payment_method,
+        waived_by=None,
+        waived_reason=None,
+        _razorpay_payment_id=None,
+    ) -> dict:
         await self.get(payment_id)
-        updated = await self.repo.set_status(payment_id, status=status, payment_method=payment_method, waived_by=waived_by, waived_reason=waived_reason, razorpay_payment_id=_razorpay_payment_id)
+        updated = await self.repo.set_status(
+            payment_id,
+            status=status,
+            payment_method=payment_method,
+            waived_by=waived_by,
+            waived_reason=waived_reason,
+            razorpay_payment_id=_razorpay_payment_id,
+        )
         await emit_event(
             self.session, aggregate_type="payment", aggregate_id=payment_id,
             event_type="payment_completed" if status == "paid" else "payment_waived" if status == "waived" else "payment_status_changed",

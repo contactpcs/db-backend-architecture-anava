@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import builtins
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
@@ -86,7 +88,11 @@ class ScheduleOverrideRepository:
         if from_date:
             clause += " AND override_date >= :from_date"
             params["from_date"] = from_date
-        rows = (await self.session.execute(text(f"SELECT * FROM doctor_schedule_overrides WHERE {clause} ORDER BY override_date"), params)).mappings().all()
+        rows = (
+            await self.session.execute(
+                text(f"SELECT * FROM doctor_schedule_overrides WHERE {clause} ORDER BY override_date"), params
+            )
+        ).mappings().all()
         return [dict(r) for r in rows]
 
     async def for_date(self, doctor_id: UUID, on_date) -> dict | None:
@@ -108,11 +114,15 @@ class ScheduleOverrideRepository:
         return {r["override_date"]: dict(r) for r in rows}
 
     async def get(self, override_id: UUID) -> dict | None:
-        return await fetch_optional(self.session, text("SELECT * FROM doctor_schedule_overrides WHERE override_id = :id"), {"id": str(override_id)})
+        return await fetch_optional(
+            self.session,
+            text("SELECT * FROM doctor_schedule_overrides WHERE override_id = :id"),
+            {"id": str(override_id)},
+        )
 
     async def delete(self, override_id: UUID) -> bool:
         result = await self.session.execute(text("DELETE FROM doctor_schedule_overrides WHERE override_id = :id"), {"id": str(override_id)})
-        return result.rowcount > 0
+        return result.rowcount > 0  # type: ignore[attr-defined]  # CursorResult has rowcount; async Result stubs don't expose it
 
 
 class AppointmentRequestRepository:
@@ -156,7 +166,9 @@ class AppointmentRequestRepository:
             params["parent"] = str(parent_appointment_id)
         return await fetch_optional(self.session, text(f"SELECT * FROM appointment_requests WHERE {clause} LIMIT 1"), params)
 
-    async def set_decision(self, request_id: UUID, *, status: str, reviewed_by: UUID, review_notes, approved_appointment_id=None) -> dict | None:
+    async def set_decision(
+        self, request_id: UUID, *, status: str, reviewed_by: UUID, review_notes, approved_appointment_id=None
+    ) -> dict | None:
         return await fetch_optional(
             self.session,
             text(
@@ -181,8 +193,9 @@ class AppointmentRepository:
 
     async def list(self, *, clinic_id: UUID | None = None, region_id: UUID | None = None, doctor_id: UUID | None = None,
                    patient_id: UUID | None = None, status: str | None = None, date_from=None, date_to=None,
-                   skip: int = 0, limit: int = 100) -> list[dict]:
-        clauses, params = [], {}
+                   skip: int = 0, limit: int = 100) -> builtins.list[dict]:
+        clauses: builtins.list[str] = []
+        params: dict[str, Any] = {}
         if clinic_id:
             clauses.append("a.clinic_id = :cid")
             params["cid"] = str(clinic_id)
@@ -213,16 +226,19 @@ class AppointmentRepository:
         ).mappings().all()
         return [dict(r) for r in rows]
 
-    async def list_for_doctor_on_date(self, doctor_id: UUID, on_date) -> list[dict]:
+    async def list_for_doctor_on_date(self, doctor_id: UUID, on_date) -> builtins.list[dict]:
         rows = (
             await self.session.execute(
-                text("SELECT * FROM appointments WHERE doctor_id = :id AND appointment_date = :d AND status NOT IN ('cancelled', 'rescheduled')"),
+                text(
+                    "SELECT * FROM appointments WHERE doctor_id = :id AND appointment_date = :d "
+                    "AND status NOT IN ('cancelled', 'rescheduled')"
+                ),
                 {"id": str(doctor_id), "d": on_date},
             )
         ).mappings().all()
         return [dict(r) for r in rows]
 
-    async def list_for_doctor_in_range(self, doctor_id: UUID, from_date, to_date) -> list[dict]:
+    async def list_for_doctor_in_range(self, doctor_id: UUID, from_date, to_date) -> builtins.list[dict]:
         rows = (
             await self.session.execute(
                 text(
@@ -236,7 +252,7 @@ class AppointmentRepository:
 
     async def update_status(self, appointment_id: UUID, *, status: str, cancelled_by=None, cancellation_reason=None) -> dict | None:
         extra_cols = ""
-        params = {"status": status, "id": str(appointment_id)}
+        params: dict[str, Any] = {"status": status, "id": str(appointment_id)}
         if status == "cancelled":
             extra_cols = ", cancelled_by = :cancelled_by, cancellation_reason = :reason"
             params["cancelled_by"] = str(cancelled_by) if cancelled_by else None
@@ -266,7 +282,10 @@ class AppointmentRepository:
     async def reschedule(self, appointment_id: UUID, *, new_appointment_id: UUID) -> dict | None:
         return await fetch_optional(
             self.session,
-            text("UPDATE appointments SET status = 'rescheduled', rescheduled_to = :new_id, updated_at = NOW() WHERE appointment_id = :id RETURNING *"),
+            text(
+                "UPDATE appointments SET status = 'rescheduled', rescheduled_to = :new_id, "
+                "updated_at = NOW() WHERE appointment_id = :id RETURNING *"
+            ),
             {"new_id": str(new_appointment_id), "id": str(appointment_id)},
         )
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from uuid import UUID
 
 from sqlalchemy import text
@@ -183,7 +184,7 @@ class DoctorService:
             raise NotFoundError("Doctor not found", code="DOCTOR_NOT_FOUND")
         return doctor
 
-    async def list(self, *, clinic_id: UUID | None = None) -> list[dict]:
+    async def list(self, *, clinic_id: UUID | None = None) -> builtins.list[dict]:
         return await self.repo.list(clinic_id=clinic_id)
 
     async def update(self, doctor_id: UUID, fields: dict, *, updated_by: UUID) -> dict:
@@ -259,7 +260,7 @@ class ClinicalAssistantService:
             raise NotFoundError("Clinical assistant not found", code="CA_NOT_FOUND")
         return ca
 
-    async def list(self, *, clinic_id: UUID | None = None) -> list[dict]:
+    async def list(self, *, clinic_id: UUID | None = None) -> builtins.list[dict]:
         return await self.repo.list(clinic_id=clinic_id)
 
     async def update(self, ca_id: UUID, fields: dict, *, updated_by: UUID) -> dict:
@@ -324,7 +325,7 @@ class ReceptionistService:
             raise NotFoundError("Receptionist not found", code="RECEPTIONIST_NOT_FOUND")
         return receptionist
 
-    async def list(self, *, clinic_id: UUID | None = None) -> list[dict]:
+    async def list(self, *, clinic_id: UUID | None = None) -> builtins.list[dict]:
         return await self.repo.list(clinic_id=clinic_id)
 
     async def update(self, receptionist_id: UUID, fields: dict, *, updated_by: UUID) -> dict:
@@ -336,7 +337,11 @@ class ReceptionistService:
             await self.repo.update(receptionist_id, role_fields)
         await emit_event(
             self.session, aggregate_type="receptionist", aggregate_id=receptionist_id, event_type="staff_updated",
-            payload={"receptionist_id": str(receptionist_id), "updated_by": str(updated_by), "changed_fields": sorted(profile_fields | role_fields)},
+            payload={
+                "receptionist_id": str(receptionist_id),
+                "updated_by": str(updated_by),
+                "changed_fields": sorted(profile_fields | role_fields),
+            },
         )
         return await self.get(receptionist_id)
 
@@ -357,7 +362,7 @@ class CaDoctorAssignmentService:
         except IntegrityError as exc:
             raise ConflictError("This CA is already assigned to this doctor", code="ASSIGNMENT_ALREADY_EXISTS") from exc
 
-    async def list(self, *, ca_id: UUID | None = None, doctor_id: UUID | None = None) -> list[dict]:
+    async def list(self, *, ca_id: UUID | None = None, doctor_id: UUID | None = None) -> builtins.list[dict]:
         return await self.repo.list(ca_id=ca_id, doctor_id=doctor_id)
 
 
@@ -385,10 +390,10 @@ class StaffRequestService:
             raise NotFoundError("Staff request not found", code="STAFF_REQUEST_NOT_FOUND")
         return req
 
-    async def list(self, *, clinic_id: UUID | None = None, status: str | None = None) -> list[dict]:
+    async def list(self, *, clinic_id: UUID | None = None, status: str | None = None) -> builtins.list[dict]:
         return await self.repo.list(clinic_id=clinic_id, status=status)
 
-    async def list_by_region(self, region_id: str, *, status: str | None = None) -> list[dict]:
+    async def list_by_region(self, region_id: str, *, status: str | None = None) -> builtins.list[dict]:
         return await self.repo.list_by_region(region_id, status=status)
 
     async def decide(self, request_id: UUID, *, decision: str, reviewed_by: UUID, review_notes: str | None) -> dict:

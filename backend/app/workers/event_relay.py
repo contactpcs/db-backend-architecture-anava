@@ -125,7 +125,7 @@ _STATUS_TITLES = {"confirmed": "Your appointment is confirmed", "completed": "Yo
 async def _handle_appointment_status_changed(session, payload: dict[str, Any]) -> list[dict]:
     """Only confirmed/completed are patient-facing news — checked_in/
     in_progress are internal workflow states nobody needs pushed to them."""
-    title = _STATUS_TITLES.get(payload.get("status"))
+    title = _STATUS_TITLES.get(payload.get("status", ""))
     if not title:
         return []
     row = (
@@ -290,12 +290,12 @@ async def drain_outbox() -> int:
     is exactly what letting one shared transaction/loop crash used to do."""
     async with _relay_session_factory() as session:
         async with session.begin():
-            rows = (
+            outbox_rows = (
                 await session.execute(
                     text("SELECT * FROM outbox_events WHERE published_at IS NULL ORDER BY created_at LIMIT 100")
                 )
             ).mappings().all()
-            rows = [dict(r) for r in rows]
+            rows = [dict(r) for r in outbox_rows]
 
     processed = 0
     for row in rows:
@@ -333,7 +333,7 @@ async def run_forever() -> None:
             wake.clear()
             try:
                 await asyncio.wait_for(wake.wait(), timeout=POLL_INTERVAL_SECONDS)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
     finally:
         await conn.close()

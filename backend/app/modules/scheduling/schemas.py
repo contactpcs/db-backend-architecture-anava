@@ -173,7 +173,10 @@ class AppointmentCreate(BaseModel):
     appointment_date: date
     start_time: time
     end_time: time | None = None
-    appointment_type: str = Field(default="initial_assessment", pattern="^(initial_assessment|doctor_consultation|ca_session|treatment_session|follow_up|demo_visit|teleconsult)$")
+    appointment_type: str = Field(
+        default="initial_assessment",
+        pattern="^(initial_assessment|doctor_consultation|ca_session|treatment_session|follow_up|demo_visit|teleconsult)$",
+    )
     session_phase: str | None = None
     reason: str | None = None
     patient_complaint: str | None = None
@@ -182,7 +185,10 @@ class AppointmentCreate(BaseModel):
 class AppointmentUpdate(BaseModel):
     notes: str | None = None
     patient_complaint: str | None = None
-    appointment_type: str | None = Field(default=None, pattern="^(initial_assessment|doctor_consultation|ca_session|treatment_session|follow_up|demo_visit|teleconsult)$")
+    appointment_type: str | None = Field(
+        default=None,
+        pattern="^(initial_assessment|doctor_consultation|ca_session|treatment_session|follow_up|demo_visit|teleconsult)$",
+    )
 
 
 class AppointmentReschedule(BaseModel):

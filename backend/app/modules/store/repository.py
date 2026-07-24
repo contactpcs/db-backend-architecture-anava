@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
@@ -20,9 +21,12 @@ class ProductRepository:
         return await fetch_optional(self.session, text("SELECT * FROM products WHERE product_id = :id"), {"id": str(product_id)})
 
     async def list(self, *, category: str | None = None) -> list[dict]:
-        clause = "WHERE category = :cat" if category else ""
         params = {"cat": category} if category else {}
-        rows = (await self.session.execute(text(f"SELECT * FROM products WHERE is_active = TRUE {'AND category = :cat' if category else ''}"), params)).mappings().all()
+        rows = (
+            await self.session.execute(
+                text(f"SELECT * FROM products WHERE is_active = TRUE {'AND category = :cat' if category else ''}"), params
+            )
+        ).mappings().all()
         return [dict(r) for r in rows]
 
 
@@ -54,14 +58,16 @@ class StoreOrderRepository:
 
     async def set_status(self, order_id: UUID, *, status: str, approved_by=None) -> dict | None:
         extra = ""
-        params = {"status": status, "id": str(order_id)}
+        params: dict[str, Any] = {"status": status, "id": str(order_id)}
         if status == "doctor_approved":
             extra = ", approved_by = :approved_by"
             params["approved_by"] = str(approved_by) if approved_by else None
         elif status == "cancelled":
             extra = ", cancelled_by = :approved_by, cancelled_at = NOW()"
             params["approved_by"] = str(approved_by) if approved_by else None
-        return await fetch_optional(self.session, text(f"UPDATE store_orders SET status = :status {extra} WHERE order_id = :id RETURNING *"), params)
+        return await fetch_optional(
+            self.session, text(f"UPDATE store_orders SET status = :status {extra} WHERE order_id = :id RETURNING *"), params
+        )
 
     async def add_item(self, *, order_id: UUID, product_id: UUID, quantity: int, unit_price: float) -> dict:
         return await fetch_one(
@@ -80,7 +86,11 @@ class DeviceAssignmentRepository:
         return await fetch_one(self.session, sql, params)
 
     async def get_for_plan(self, plan_id: UUID) -> dict | None:
-        return await fetch_optional(self.session, text("SELECT * FROM device_assignments WHERE plan_id = :pid ORDER BY created_at DESC LIMIT 1"), {"pid": str(plan_id)})
+        return await fetch_optional(
+            self.session,
+            text("SELECT * FROM device_assignments WHERE plan_id = :pid ORDER BY created_at DESC LIMIT 1"),
+            {"pid": str(plan_id)},
+        )
 
     async def set_status(self, da_id: UUID, *, purchase_status: str, order_id=None) -> dict | None:
         timestamps = {
@@ -89,6 +99,9 @@ class DeviceAssignmentRepository:
         }.get(purchase_status, "")
         return await fetch_optional(
             self.session,
-            text(f"UPDATE device_assignments SET purchase_status = :status, order_id = COALESCE(:order_id, order_id) {timestamps} WHERE da_id = :id RETURNING *"),
+            text(
+                "UPDATE device_assignments SET purchase_status = :status, "
+                f"order_id = COALESCE(:order_id, order_id) {timestamps} WHERE da_id = :id RETURNING *"
+            ),
             {"status": purchase_status, "order_id": str(order_id) if order_id else None, "id": str(da_id)},
         )

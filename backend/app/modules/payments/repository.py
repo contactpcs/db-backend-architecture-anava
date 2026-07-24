@@ -12,7 +12,16 @@ class PaymentRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, *, session_id, order_id, amount: float, currency: str, idempotency_key: str, razorpay_order_id: str | None = None) -> dict:
+    async def create(
+        self,
+        *,
+        session_id,
+        order_id,
+        amount: float,
+        currency: str,
+        idempotency_key: str,
+        razorpay_order_id: str | None = None,
+    ) -> dict:
         return await fetch_one(
             self.session,
             text(
@@ -24,10 +33,14 @@ class PaymentRepository:
         )
 
     async def get_by_razorpay_order_id(self, razorpay_order_id: str) -> dict | None:
-        return await fetch_optional(self.session, text("SELECT * FROM payments WHERE razorpay_order_id = :id"), {"id": razorpay_order_id})
+        return await fetch_optional(
+            self.session, text("SELECT * FROM payments WHERE razorpay_order_id = :id"), {"id": razorpay_order_id}
+        )
 
     async def get(self, payment_id: UUID) -> dict | None:
-        return await fetch_optional(self.session, text("SELECT * FROM payments WHERE payment_id = :id"), {"id": str(payment_id)})
+        return await fetch_optional(
+            self.session, text("SELECT * FROM payments WHERE payment_id = :id"), {"id": str(payment_id)}
+        )
 
     async def get_owner_profile_id(self, payment_id: UUID) -> str | None:
         """A payment has no patient_id of its own — same two-hop join as
@@ -50,7 +63,11 @@ class PaymentRepository:
         return row["owner_profile_id"] if row else None
 
     async def get_for_session(self, session_id: UUID) -> dict | None:
-        return await fetch_optional(self.session, text("SELECT * FROM payments WHERE session_id = :id ORDER BY created_at DESC LIMIT 1"), {"id": str(session_id)})
+        return await fetch_optional(
+            self.session,
+            text("SELECT * FROM payments WHERE session_id = :id ORDER BY created_at DESC LIMIT 1"),
+            {"id": str(session_id)},
+        )
 
     async def list_by_clinic(self, clinic_id: UUID) -> list[dict]:
         # payments has no clinic_id of its own — scoped via a two-hop join,
@@ -70,7 +87,9 @@ class PaymentRepository:
         ).mappings().all()
         return [dict(r) for r in rows]
 
-    async def set_status(self, payment_id: UUID, *, status: str, payment_method, waived_by, waived_reason, razorpay_payment_id=None) -> dict | None:
+    async def set_status(
+        self, payment_id: UUID, *, status: str, payment_method, waived_by, waived_reason, razorpay_payment_id=None
+    ) -> dict | None:
         paid_at_clause = ", paid_at = NOW()" if status == "paid" else ""
         rzp_clause = ", razorpay_payment_id = COALESCE(:rzp_payment, razorpay_payment_id)"
         return await fetch_optional(

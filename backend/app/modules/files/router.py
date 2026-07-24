@@ -99,7 +99,12 @@ async def get_download_url(
 
 
 @router.patch("/eeg-files/{eeg_id}/review")
-async def review_eeg_file(eeg_id: UUID, body: s.FileReviewUpdate, db=Depends(get_db), ctx: RequestContext = Depends(require_role("super_admin", "doctor"))):
+async def review_eeg_file(
+    eeg_id: UUID,
+    body: s.FileReviewUpdate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin", "doctor")),
+):
     return await FileService(db).review_eeg(
         eeg_id, reviewed_by=UUID(ctx.user_id), clinical_findings=body.clinical_findings,
         is_abnormal=body.is_abnormal, status=body.status,

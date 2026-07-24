@@ -12,15 +12,15 @@ Create Date: 2026-07-01
 
 """
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence, Union
 
 from alembic import op
 
 revision: str = "0001"
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 # Order matches SQL/00_run_all.sql — foreign key dependencies enforced.
 # 00_run_all.sql itself is excluded (psql \\i meta-commands, not raw SQL).

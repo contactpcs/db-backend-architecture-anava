@@ -8,7 +8,11 @@ from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, NotFoundError
 from app.core.fsm import assert_transition
 from app.core.resolve import resolve_patient_profile_id as _resolve_patient_profile_id
-from app.modules.store.repository import DeviceAssignmentRepository, ProductRepository, StoreOrderRepository
+from app.modules.store.repository import (
+    DeviceAssignmentRepository,
+    ProductRepository,
+    StoreOrderRepository,
+)
 
 # Device order flow (Master Doc Section 14.3): pending_doctor_approval -> doctor_approved
 #   -> pending_dispatch -> dispatched_to_clinic -> received_at_clinic -> collected_by_patient
@@ -68,7 +72,9 @@ class StoreOrderService:
         }
         order = await self.repo.create(payload)
         for item in items_with_price:
-            await self.repo.add_item(order_id=order["order_id"], product_id=item["product_id"], quantity=item["quantity"], unit_price=item["unit_price"])
+            await self.repo.add_item(
+                order_id=order["order_id"], product_id=item["product_id"], quantity=item["quantity"], unit_price=item["unit_price"]
+            )
 
         await emit_event(
             self.session, aggregate_type="store_order", aggregate_id=order["order_id"],
@@ -88,7 +94,9 @@ class StoreOrderService:
     async def update_status(self, order_id: UUID, *, status: str, changed_by: UUID) -> dict:
         order = await self.get(order_id)
         assert_transition(order["status"], status, _DEVICE_TRANSITIONS, entity="order", code="INVALID_ORDER_TRANSITION")
-        updated = await self.repo.set_status(order_id, status=status, approved_by=changed_by if status in ("doctor_approved", "cancelled") else None)
+        updated = await self.repo.set_status(
+            order_id, status=status, approved_by=changed_by if status in ("doctor_approved", "cancelled") else None
+        )
 
         event_map = {
             "doctor_approved": "device_order_approved", "dispatched_to_clinic": "stock_dispatched",

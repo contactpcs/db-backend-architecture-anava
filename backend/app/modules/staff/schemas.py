@@ -100,7 +100,9 @@ class ClinicalAssistantRead(BaseModel):
     profile_id: UUID
     clinic_id: UUID
     qualification: str | None
-    is_active: bool  # this role slot's own on/off flag — kept in sync with profile_is_active on every update, see staff/service.py::_split_profile_fields
+    # this role slot's own on/off flag — kept in sync with profile_is_active on
+    # every update, see staff/service.py::_split_profile_fields
+    is_active: bool
     created_at: datetime
     first_name: str
     last_name: str
@@ -121,7 +123,9 @@ class ReceptionistRead(BaseModel):
     receptionist_id: UUID
     profile_id: UUID
     clinic_id: UUID
-    is_active: bool  # this role slot's own on/off flag — kept in sync with profile_is_active on every update, see staff/service.py::_split_profile_fields
+    # this role slot's own on/off flag — kept in sync with profile_is_active on
+    # every update, see staff/service.py::_split_profile_fields
+    is_active: bool
     created_at: datetime
     first_name: str
     last_name: str

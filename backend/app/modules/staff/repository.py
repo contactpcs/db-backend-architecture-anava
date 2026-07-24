@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from uuid import UUID
 
 from sqlalchemy import text
@@ -112,7 +113,7 @@ class DoctorRepository:
         ).mappings().first()
         return dict(row) if row else None
 
-    async def list(self, *, clinic_id: UUID | None = None) -> list[dict]:
+    async def list(self, *, clinic_id: UUID | None = None) -> builtins.list[dict]:
         # profile_is_active is joined in from profiles — doctors has no
         # is_active column of its own (availability_status covers a
         # different concept), and this is the real consent-gate signal the
@@ -151,12 +152,15 @@ class DoctorRepository:
             {"by": str(deleted_by), "id": str(doctor_id)},
         )
         await self.session.execute(
-            text("UPDATE clinic_staff_assignments SET is_active = FALSE, removed_at = NOW() WHERE profile_id = :pid AND staff_role = 'doctor' AND is_active = TRUE"),
+            text(
+                "UPDATE clinic_staff_assignments SET is_active = FALSE, removed_at = NOW() "
+                "WHERE profile_id = :pid AND staff_role = 'doctor' AND is_active = TRUE"
+            ),
             {"pid": str(doctor["profile_id"])},
         )
         return doctor
 
-    async def active_patient_counts(self, doctor_ids: list[UUID]) -> dict[str, int]:
+    async def active_patient_counts(self, doctor_ids: builtins.list[UUID]) -> dict[str, int]:
         if not doctor_ids:
             return {}
         rows = (
@@ -197,7 +201,7 @@ class ClinicalAssistantRepository:
         ).mappings().one()
         return dict(row)
 
-    async def list(self, *, clinic_id: UUID | None = None) -> list[dict]:
+    async def list(self, *, clinic_id: UUID | None = None) -> builtins.list[dict]:
         base = (
             "SELECT ca.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active "
             "FROM clinical_assistants ca JOIN profiles p ON p.id = ca.profile_id WHERE ca.deleted_at IS NULL"
@@ -227,11 +231,17 @@ class ClinicalAssistantRepository:
         if not ca:
             return None
         await self.session.execute(
-            text("UPDATE clinical_assistants SET deleted_by = :by, deleted_at = NOW(), is_active = FALSE WHERE ca_id = :id"),
+            text(
+                "UPDATE clinical_assistants SET deleted_by = :by, deleted_at = NOW(), "
+                "is_active = FALSE WHERE ca_id = :id"
+            ),
             {"by": str(deleted_by), "id": str(ca_id)},
         )
         await self.session.execute(
-            text("UPDATE clinic_staff_assignments SET is_active = FALSE, removed_at = NOW() WHERE profile_id = :pid AND staff_role = 'clinical_assistant' AND is_active = TRUE"),
+            text(
+                "UPDATE clinic_staff_assignments SET is_active = FALSE, removed_at = NOW() "
+                "WHERE profile_id = :pid AND staff_role = 'clinical_assistant' AND is_active = TRUE"
+            ),
             {"pid": str(ca["profile_id"])},
         )
         return ca
@@ -253,7 +263,7 @@ class ReceptionistRepository:
         ).mappings().one()
         return dict(row)
 
-    async def list(self, *, clinic_id: UUID | None = None) -> list[dict]:
+    async def list(self, *, clinic_id: UUID | None = None) -> builtins.list[dict]:
         base = (
             "SELECT r.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active "
             "FROM receptionists r JOIN profiles p ON p.id = r.profile_id WHERE r.deleted_at IS NULL"
@@ -293,11 +303,17 @@ class ReceptionistRepository:
         if not receptionist:
             return None
         await self.session.execute(
-            text("UPDATE receptionists SET deleted_by = :by, deleted_at = NOW(), is_active = FALSE WHERE receptionist_id = :id"),
+            text(
+                "UPDATE receptionists SET deleted_by = :by, deleted_at = NOW(), "
+                "is_active = FALSE WHERE receptionist_id = :id"
+            ),
             {"by": str(deleted_by), "id": str(receptionist_id)},
         )
         await self.session.execute(
-            text("UPDATE clinic_staff_assignments SET is_active = FALSE, removed_at = NOW() WHERE profile_id = :pid AND staff_role = 'receptionist' AND is_active = TRUE"),
+            text(
+                "UPDATE clinic_staff_assignments SET is_active = FALSE, removed_at = NOW() "
+                "WHERE profile_id = :pid AND staff_role = 'receptionist' AND is_active = TRUE"
+            ),
             {"pid": str(receptionist["profile_id"])},
         )
         return receptionist
@@ -319,7 +335,7 @@ class CaDoctorAssignmentRepository:
         ).mappings().one()
         return dict(row)
 
-    async def list(self, *, ca_id: UUID | None = None, doctor_id: UUID | None = None) -> list[dict]:
+    async def list(self, *, ca_id: UUID | None = None, doctor_id: UUID | None = None) -> builtins.list[dict]:
         clauses, params = ["removed_at IS NULL"], {}
         if ca_id:
             clauses.append("ca_id = :ca_id")
@@ -351,7 +367,7 @@ class StaffRequestRepository:
         ).mappings().first()
         return dict(row) if row else None
 
-    async def list(self, *, clinic_id: UUID | None = None, status: str | None = None) -> list[dict]:
+    async def list(self, *, clinic_id: UUID | None = None, status: str | None = None) -> builtins.list[dict]:
         clauses, params = [], {}
         if clinic_id:
             clauses.append("clinic_id = :clinic_id")
@@ -367,7 +383,7 @@ class StaffRequestRepository:
         ).mappings().all()
         return [dict(r) for r in rows]
 
-    async def list_by_region(self, region_id: str, *, status: str | None = None) -> list[dict]:
+    async def list_by_region(self, region_id: str, *, status: str | None = None) -> builtins.list[dict]:
         clauses, params = ["c.region_id = :region_id"], {"region_id": region_id}
         if status:
             clauses.append("sr.status = :status")

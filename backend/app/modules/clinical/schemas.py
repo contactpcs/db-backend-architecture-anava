@@ -61,13 +61,19 @@ class SessionCreate(BaseModel):
     cycle_id: UUID | None = None
     clinic_id: UUID | None = None
     session_date: datetime
-    session_phase: str | None = Field(default=None, pattern="^(clinical_assistant|doctor_consultation|additional_tests|doctor_additional_review|treatment|home_treatment_visit)$")
+    session_phase: str | None = Field(
+        default=None,
+        pattern="^(clinical_assistant|doctor_consultation|additional_tests|doctor_additional_review|treatment|home_treatment_visit)$",
+    )
     session_number_in_cycle: int | None = None
 
 
 class SessionStatusUpdate(BaseModel):
     status: str = Field(pattern="^(in_progress|completed|cancelled|missed)$")
-    outcome: str | None = Field(default=None, pattern="^(session1_complete|treatment_plan_given|additional_tests_requested|session3_complete|home_treatment_visit_complete)$")
+    outcome: str | None = Field(
+        default=None,
+        pattern="^(session1_complete|treatment_plan_given|additional_tests_requested|session3_complete|home_treatment_visit_complete)$",
+    )
 
 
 class SessionRead(BaseModel):

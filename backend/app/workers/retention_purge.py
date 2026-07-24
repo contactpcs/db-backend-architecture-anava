@@ -44,7 +44,7 @@ ERASURE_DELETE_NOW_GRACE = timedelta(days=30)
 # Section 12 mapping table — (category name, table, patient_id column, bucket).
 # bucket drives both the erasure-request classification (Job 1) and, for
 # delete_now, what Job 1's execution step actually deletes.
-DATA_CATEGORIES: list[tuple[str, str, str, str]] = [
+DATA_CATEGORIES: list[tuple[str, str, str | None, str]] = [
     ("anamnesis", "anamnesis_assessments", "patient_id", "retain_locked"),
     ("prs_assessments", "prs_assessment_instances", "patient_id", "retain_locked"),
     ("eeg_files", "patient_eeg_files", "patient_id", "retain_locked"),

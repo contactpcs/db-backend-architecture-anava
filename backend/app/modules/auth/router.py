@@ -215,9 +215,15 @@ async def verify_channel_confirm(body: VerifyChannelConfirm, request: Request, d
 
     verify_attribute(access_token=_bearer_token(request), attribute=body.attribute, code=body.code)
     if body.attribute == "email":
-        await db.execute(text("UPDATE profiles SET email_verified = TRUE, email = :value WHERE id = :id"), {"value": body.value, "id": ctx.user_id})
+        await db.execute(
+            text("UPDATE profiles SET email_verified = TRUE, email = :value WHERE id = :id"),
+            {"value": body.value, "id": ctx.user_id},
+        )
     else:
-        await db.execute(text("UPDATE profiles SET phone_verified = TRUE, phone = :value WHERE id = :id"), {"value": body.value, "id": ctx.user_id})
+        await db.execute(
+            text("UPDATE profiles SET phone_verified = TRUE, phone = :value WHERE id = :id"),
+            {"value": body.value, "id": ctx.user_id},
+        )
     await db.commit()
 
 

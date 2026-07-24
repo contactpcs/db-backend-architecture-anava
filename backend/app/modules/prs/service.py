@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from uuid import UUID
 
 from sqlalchemy import text
@@ -68,18 +69,29 @@ class PatientScaleAssignmentService:
     def __init__(self, session: AsyncSession):
         self.repo = PatientScaleAssignmentRepository(session)
 
-    async def create(self, *, patient_id: UUID, scale_id: str, disease_id: str, assessment_stage: str, assigned_by: UUID, assignment_reason: str) -> dict:
+    async def create(
+        self,
+        *,
+        patient_id: UUID,
+        scale_id: str,
+        disease_id: str,
+        assessment_stage: str,
+        assigned_by: UUID,
+        assignment_reason: str,
+    ) -> dict:
         profile_id = await _resolve_profile_id(self.repo.session, patient_id)
         return await self.repo.create(
             patient_id=profile_id, scale_id=scale_id, disease_id=disease_id, assessment_stage=assessment_stage,
             assigned_by=assigned_by, assignment_reason=assignment_reason,
         )
 
-    async def list(self, patient_id: UUID, *, assessment_stage: str | None = None) -> list[dict]:
+    async def list(self, patient_id: UUID, *, assessment_stage: str | None = None) -> builtins.list[dict]:
         profile_id = await _resolve_profile_id(self.repo.session, patient_id)
         return await self.repo.list(patient_id=profile_id, assessment_stage=assessment_stage)
 
-    async def auto_assign_for_disease(self, patient_id: UUID, disease_id: str, assessment_stage: str, assigned_by: UUID) -> list[dict]:
+    async def auto_assign_for_disease(
+        self, patient_id: UUID, disease_id: str, assessment_stage: str, assigned_by: UUID
+    ) -> builtins.list[dict]:
         """Master Doc Section 9.3 — at registration, scales are auto-assigned
         based on disease_selection. Assigns every scale mapped to this disease
         whose applicable_for matches this stage (or 'all')."""

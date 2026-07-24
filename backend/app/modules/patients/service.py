@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from uuid import UUID
 
 from sqlalchemy import text
@@ -86,7 +87,7 @@ class PatientService:
             raise NotFoundError("Patient not found", code="PATIENT_NOT_FOUND")
         return patient
 
-    async def list(self, **filters) -> list[dict]:
+    async def list(self, **filters) -> builtins.list[dict]:
         return await self.repo.list(**filters)
 
     async def update(self, patient_id: UUID, fields: dict) -> dict:
@@ -114,7 +115,7 @@ class PatientService:
         if patient["approval_status"] != "pending":
             raise BusinessRuleError(f"Approval already {patient['approval_status']}", code="APPROVAL_ALREADY_DECIDED")
 
-        updated = await self.repo.set_approval(
+        await self.repo.set_approval(
             patient_id, approval_status=decision, approved_by=decided_by, rejection_reason=rejection_reason,
         )
         if decision == "approved":
@@ -148,7 +149,12 @@ class PatientService:
         await self.repo.update(patient_id, profile_fields={}, patient_fields={"primary_doctor_id": str(doctor["profile_id"])})
         await emit_event(
             self.session, aggregate_type="patient", aggregate_id=patient_id,
-            event_type="doctor_allocated", payload={"patient_id": str(patient_id), "doctor_id": str(doctor["profile_id"]), "allocated_by": str(allocated_by)},
+            event_type="doctor_allocated",
+            payload={
+                "patient_id": str(patient_id),
+                "doctor_id": str(doctor["profile_id"]),
+                "allocated_by": str(allocated_by),
+            },
         )
         return await self.get(patient_id)
 
@@ -187,7 +193,7 @@ class PatientService:
         await self.advance_registration_status(patient_id)
         return selection
 
-    async def list_diseases(self, patient_id: UUID) -> list[dict]:
+    async def list_diseases(self, patient_id: UUID) -> builtins.list[dict]:
         """Used by the admin/staff patient-detail view to show which
         condition(s) a patient selected."""
         patient = await self.get(patient_id)
@@ -211,7 +217,8 @@ class PatientService:
             "SELECT 1 FROM anamnesis_assessments WHERE patient_id = :pid AND status = 'completed'", {"pid": str(profile_id)}
         )
         has_completed_general_prs = await self._exists(
-            "SELECT 1 FROM prs_assessment_instances WHERE patient_id = :pid AND assessment_stage = 'general_registration' AND status = 'completed'",
+            "SELECT 1 FROM prs_assessment_instances WHERE patient_id = :pid "
+            "AND assessment_stage = 'general_registration' AND status = 'completed'",
             {"pid": str(profile_id)},
         )
 
@@ -258,7 +265,9 @@ class PatientService:
         # during Stage 6 testing (ForeignKeyViolationError) — same class of
         # mistake as the patients.patient_id vs profiles.id confusion above.
         await self.repo.complete_registration(patient_id, doctor["profile_id"])
-        await self.assignments.create(doctor_id=doctor["profile_id"], patient_id=patient["profile_id"], clinic_id=patient["primary_clinic_id"])
+        await self.assignments.create(
+            doctor_id=doctor["profile_id"], patient_id=patient["profile_id"], clinic_id=patient["primary_clinic_id"]
+        )
         # Staff-registered patients (approval_status='not_required') have no
         # receptionist approval gate to wait on — activate them the moment
         # they finish the same registration-test sequence self-registered
@@ -330,7 +339,9 @@ class FollowUpService:
     async def _doctor_by_profile_id(self, profile_id):
         from sqlalchemy import text as _text
 
-        row = (await self.session.execute(_text("SELECT * FROM doctors WHERE profile_id = :pid"), {"pid": str(profile_id)})).mappings().first()
+        row = (
+            await self.session.execute(_text("SELECT * FROM doctors WHERE profile_id = :pid"), {"pid": str(profile_id)})
+        ).mappings().first()
         return dict(row) if row else None
 
 
@@ -356,7 +367,8 @@ class PatientTransferService:
 
         payload = {
             "patient_id": str(patient["profile_id"]), "from_clinic_id": str(patient["primary_clinic_id"]),
-            "to_clinic_id": str(data["to_clinic_id"]), "from_doctor_id": str(patient["primary_doctor_id"]) if patient["primary_doctor_id"] else None,
+            "to_clinic_id": str(data["to_clinic_id"]),
+            "from_doctor_id": str(patient["primary_doctor_id"]) if patient["primary_doctor_id"] else None,
             "transfer_reason": data["transfer_reason"],
             "active_cycle_id": str(active_cycle["cycle_id"]) if active_cycle else None,
             "initiated_by": str(initiated_by), "notes": data.get("notes"),
@@ -385,7 +397,11 @@ class PatientTransferService:
 
         from sqlalchemy import text as _text
 
-        consent = (await self.session.execute(_text("SELECT * FROM consent_records WHERE consent_id = :id"), {"id": str(consent_id)})).mappings().first()
+        consent = (
+            await self.session.execute(
+                _text("SELECT * FROM consent_records WHERE consent_id = :id"), {"id": str(consent_id)}
+            )
+        ).mappings().first()
         if not consent or consent["status"] != "signed":
             raise BusinessRuleError("Transfer requires a signed consent record", code="CONSENT_NOT_SIGNED")
 
@@ -394,11 +410,6 @@ class PatientTransferService:
         doctor = await DoctorService(self.session).pick_least_loaded(transfer["to_clinic_id"])
         if not doctor:
             raise BusinessRuleError("No available doctor at the receiving clinic", code="NO_AVAILABLE_DOCTOR")
-
-        patients_by_profile = await self.session.execute(
-            _text("SELECT patient_id FROM patients WHERE profile_id = :pid"), {"pid": transfer["patient_id"]}
-        )
-        patient_row = patients_by_profile.mappings().first()
 
         await self.session.execute(
             _text("UPDATE patients SET primary_clinic_id = :clinic_id, primary_doctor_id = :doctor_id WHERE profile_id = :pid"),
@@ -440,7 +451,11 @@ class PatientExitService:
 
         from sqlalchemy import text as _text
 
-        consent = (await self.session.execute(_text("SELECT * FROM consent_records WHERE consent_id = :id"), {"id": str(consent_id)})).mappings().first()
+        consent = (
+            await self.session.execute(
+                _text("SELECT * FROM consent_records WHERE consent_id = :id"), {"id": str(consent_id)}
+            )
+        ).mappings().first()
         if not consent or consent["status"] != "signed" or consent["consent_type"] != "patient_clinic_exit":
             raise BusinessRuleError("Exit requires a signed patient_clinic_exit consent", code="EXIT_CONSENT_REQUIRED")
 

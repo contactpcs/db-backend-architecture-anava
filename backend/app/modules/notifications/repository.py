@@ -46,4 +46,4 @@ class NotificationRepository:
                 text("UPDATE notifications SET is_read = TRUE, read_at = NOW() WHERE recipient_id = :rid AND is_read = FALSE"),
                 {"rid": str(recipient_id)},
             )
-        return result.rowcount
+        return result.rowcount  # type: ignore[attr-defined]  # CursorResult has rowcount; async Result stubs don't expose it

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
@@ -56,15 +57,21 @@ class StockTransferRepository:
             clauses.append("status = :status")
             params["status"] = status
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        rows = (await self.session.execute(text(f"SELECT * FROM stock_transfers {where} ORDER BY created_at DESC"), params)).mappings().all()
+        rows = (
+            await self.session.execute(text(f"SELECT * FROM stock_transfers {where} ORDER BY created_at DESC"), params)
+        ).mappings().all()
         return [dict(r) for r in rows]
 
     async def set_status(self, st_id: UUID, *, status: str, received_by=None) -> dict | None:
         extra = ""
-        params = {"status": status, "id": str(st_id)}
+        params: dict[str, Any] = {"status": status, "id": str(st_id)}
         if status == "dispatched":
             extra = ", dispatched_at = NOW()"
         elif status == "received":
             extra = ", received_at = NOW(), received_by = :received_by"
             params["received_by"] = str(received_by) if received_by else None
-        return await fetch_optional(self.session, text(f"UPDATE stock_transfers SET status = :status {extra} WHERE st_id = :id RETURNING *"), params)
+        return await fetch_optional(
+            self.session,
+            text(f"UPDATE stock_transfers SET status = :status {extra} WHERE st_id = :id RETURNING *"),
+            params,
+        )

@@ -63,9 +63,13 @@ class StockTransferService:
         if status == "received":
             # Move stock: increment destination, decrement source (if any —
             # super_admin central stock has no clinics-table row to decrement).
-            await self.inventory.adjust(product_id=transfer["product_id"], clinic_id=transfer["to_clinic_id"], delta=transfer["quantity"])
+            await self.inventory.adjust(
+                product_id=transfer["product_id"], clinic_id=transfer["to_clinic_id"], delta=transfer["quantity"]
+            )
             if transfer["from_clinic_id"]:
-                await self.inventory.adjust(product_id=transfer["product_id"], clinic_id=transfer["from_clinic_id"], delta=-transfer["quantity"])
+                await self.inventory.adjust(
+                    product_id=transfer["product_id"], clinic_id=transfer["from_clinic_id"], delta=-transfer["quantity"]
+                )
 
         await emit_event(
             self.session, aggregate_type="stock_transfer", aggregate_id=st_id,

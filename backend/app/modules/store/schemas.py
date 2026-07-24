@@ -35,7 +35,9 @@ class StoreOrderCreate(BaseModel):
 
 
 class StoreOrderStatusUpdate(BaseModel):
-    status: str = Field(pattern="^(doctor_approved|pending_dispatch|dispatched_to_clinic|received_at_clinic|collected_by_patient|cancelled)$")
+    status: str = Field(
+        pattern="^(doctor_approved|pending_dispatch|dispatched_to_clinic|received_at_clinic|collected_by_patient|cancelled)$"
+    )
 
 
 class StoreOrderRead(BaseModel):

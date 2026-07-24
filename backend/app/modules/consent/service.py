@@ -9,7 +9,6 @@ from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, NotFoundError
 from app.modules.consent.repository import ConsentRecordRepository, ConsentTemplateRepository
 
-
 _STAFF_ROLES = ("super_admin", "regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist")
 
 

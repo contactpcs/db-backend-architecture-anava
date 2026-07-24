@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from uuid import UUID
 
 from sqlalchemy import text
@@ -12,7 +13,7 @@ class AnamnesisQuestionRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def list(self) -> list[dict]:
+    async def list(self) -> builtins.list[dict]:
         rows = (
             await self.session.execute(
                 text("SELECT * FROM anamnesis_questions WHERE status = TRUE ORDER BY section_number, display_order")
@@ -20,7 +21,7 @@ class AnamnesisQuestionRepository:
         ).mappings().all()
         return [dict(r) for r in rows]
 
-    async def list_with_options(self) -> list[dict]:
+    async def list_with_options(self) -> builtins.list[dict]:
         """Same as list() but with each question's radio/select/checkbox
         options nested — the frontend catalog screen needs these to render
         anything beyond free-text questions, and the plain list() response
@@ -70,7 +71,11 @@ class AnamnesisAssessmentRepository:
         )
 
     async def get(self, anamnesis_id: str) -> dict | None:
-        return await fetch_optional(self.session, text("SELECT * FROM anamnesis_assessments WHERE anamnesis_id = :id"), {"id": anamnesis_id})
+        return await fetch_optional(
+            self.session,
+            text("SELECT * FROM anamnesis_assessments WHERE anamnesis_id = :id"),
+            {"id": anamnesis_id},
+        )
 
     async def get_latest_for_patient(self, patient_id: UUID) -> dict | None:
         return await fetch_optional(

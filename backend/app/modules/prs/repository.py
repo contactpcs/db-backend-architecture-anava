@@ -71,7 +71,9 @@ class PrsCatalogRepository:
         # anamnesis/repository.py::list_with_options) — the disease list UI
         # needs scale_ids/scales per disease to show "N scales" and preview
         # them before assigning; prs_diseases alone never carried this.
-        disease_rows = (await self.session.execute(text("SELECT * FROM prs_diseases WHERE status = TRUE ORDER BY disease_name"))).mappings().all()
+        disease_rows = (
+            await self.session.execute(text("SELECT * FROM prs_diseases WHERE status = TRUE ORDER BY disease_name"))
+        ).mappings().all()
         scale_rows = (
             await self.session.execute(
                 text(
@@ -203,15 +205,28 @@ class PatientScaleAssignmentRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, *, patient_id: UUID, scale_id: str, disease_id: str, assessment_stage: str, assigned_by: UUID, assignment_reason: str) -> dict:
+    async def create(
+        self,
+        *,
+        patient_id: UUID,
+        scale_id: str,
+        disease_id: str,
+        assessment_stage: str,
+        assigned_by: UUID,
+        assignment_reason: str,
+    ) -> dict:
         return await fetch_one(
             self.session,
             text(
-                "INSERT INTO patient_scale_assignments (patient_id, scale_id, disease_id, assessment_stage, assigned_by, assignment_reason) "
+                "INSERT INTO patient_scale_assignments "
+                "(patient_id, scale_id, disease_id, assessment_stage, assigned_by, assignment_reason) "
                 "VALUES (:patient_id, :scale_id, :disease_id, :assessment_stage, :assigned_by, :assignment_reason) RETURNING *"
             ),
             {
-                "patient_id": str(patient_id), "scale_id": scale_id, "disease_id": disease_id, "assessment_stage": assessment_stage,
+                "patient_id": str(patient_id),
+                "scale_id": scale_id,
+                "disease_id": disease_id,
+                "assessment_stage": assessment_stage,
                 "assigned_by": str(assigned_by), "assignment_reason": assignment_reason,
             },
         )
@@ -267,7 +282,9 @@ class AssessmentInstanceRepository:
         )
 
     async def get(self, instance_id: str) -> dict | None:
-        return await fetch_optional(self.session, text("SELECT * FROM prs_assessment_instances WHERE instance_id = :id"), {"id": instance_id})
+        return await fetch_optional(
+            self.session, text("SELECT * FROM prs_assessment_instances WHERE instance_id = :id"), {"id": instance_id}
+        )
 
     async def find_in_progress(self, *, patient_id: UUID, disease_id: str, assessment_stage: str) -> dict | None:
         """Resume support — starting an assessment for the same patient/
@@ -387,7 +404,11 @@ class PrsScaleResultRepository:
         )
 
     async def list_for_instance(self, instance_id: str) -> list[dict]:
-        rows = (await self.session.execute(text("SELECT * FROM prs_scale_results WHERE instance_id = :id"), {"id": instance_id})).mappings().all()
+        rows = (
+            await self.session.execute(
+                text("SELECT * FROM prs_scale_results WHERE instance_id = :id"), {"id": instance_id}
+            )
+        ).mappings().all()
         return [dict(r) for r in rows]
 
     async def final_result(self, instance_id: str) -> dict | None:

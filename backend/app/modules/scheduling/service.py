@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import datetime as dt
 from uuid import UUID
 
@@ -186,7 +187,9 @@ class AvailabilityService:
         doctor_profile_id = await _resolve_doctor_profile_id(self.session, doctor_id)
         return await self._compute_for_profile(doctor_profile_id, from_date, to_date, include_unavailable=include_unavailable)
 
-    async def _compute_for_profile(self, doctor_profile_id: UUID, from_date: dt.date, to_date: dt.date, *, include_unavailable: bool = True) -> list[dict]:
+    async def _compute_for_profile(
+        self, doctor_profile_id: UUID, from_date: dt.date, to_date: dt.date, *, include_unavailable: bool = True
+    ) -> list[dict]:
         if to_date < from_date:
             raise BusinessRuleError("to_date must not be before from_date", code="INVALID_DATE_RANGE")
         if (to_date - from_date).days > 60:
@@ -265,13 +268,16 @@ class AppointmentRequestService:
             "clinic_id": str(clinic_id), "patient_id": str(patient_profile_id),
             "doctor_id": str(doctor_profile_id) if doctor_profile_id else None,
             "cycle_id": str(data["cycle_id"]) if data.get("cycle_id") else None,
-            "request_type": request_type, "parent_appointment_id": str(data["parent_appointment_id"]) if data.get("parent_appointment_id") else None,
+            "request_type": request_type,
+            "parent_appointment_id": (
+                str(data["parent_appointment_id"]) if data.get("parent_appointment_id") else None
+            ),
             "preferred_date_1": data["preferred_date_1"],
             "preferred_date_2": data.get("preferred_date_2"), "preferred_date_3": data.get("preferred_date_3"),
             "preferred_time_window": data.get("preferred_time_window", "any"),
             "patient_complaint": data.get("patient_complaint"), "reason": data.get("reason"),
             "urgency": data.get("urgency", "normal"), "submitted_by": str(submitted_by),
-            "expires_at": dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=REQUEST_EXPIRY_HOURS),
+            "expires_at": dt.datetime.now(dt.UTC) + dt.timedelta(hours=REQUEST_EXPIRY_HOURS),
         }
         req = await self.repo.create(payload)
         await emit_event(
@@ -292,7 +298,8 @@ class AppointmentRequestService:
             raise BusinessRuleError("Only a scheduled or confirmed appointment can be rescheduled", code="APPOINTMENT_NOT_ACTIVE")
         if _hours_until(appt["appointment_date"], appt["start_time"]) < RESCHEDULE_REQUEST_MIN_HOURS:
             raise BusinessRuleError(
-                f"Reschedule requests must be made at least {RESCHEDULE_REQUEST_MIN_HOURS} hours in advance", code="RESCHEDULE_WINDOW_PASSED"
+                f"Reschedule requests must be made at least {RESCHEDULE_REQUEST_MIN_HOURS} hours in advance",
+                code="RESCHEDULE_WINDOW_PASSED",
             )
         return await self.create(
             {
@@ -400,8 +407,14 @@ class AppointmentService:
     async def create(self, data: dict, *, booked_by: UUID, booked_by_role: str, ctx: RequestContext | None = None,
                       _patient_profile_id_override=None, _doctor_profile_id_override=False,
                       appointment_request_id: UUID | None = None) -> dict:
-        patient_profile_id = _patient_profile_id_override or await _resolve_patient_profile_id(self.session, data["patient_id"])
-        doctor_profile_id = await _resolve_doctor_profile_id(self.session, data["doctor_id"]) if data.get("doctor_id") and not _doctor_profile_id_override else data.get("doctor_id")
+        patient_profile_id = _patient_profile_id_override or await _resolve_patient_profile_id(
+            self.session, data["patient_id"]
+        )
+        doctor_profile_id = (
+            await _resolve_doctor_profile_id(self.session, data["doctor_id"])
+            if data.get("doctor_id") and not _doctor_profile_id_override
+            else data.get("doctor_id")
+        )
         if not doctor_profile_id:
             raise NotFoundError("Doctor not found", code="DOCTOR_NOT_FOUND")
         doctor_profile_id = UUID(str(doctor_profile_id))
@@ -409,10 +422,14 @@ class AppointmentService:
         if ctx is not None:
             await assert_clinic_scope(ctx, self.session, data["clinic_id"])
 
-        is_available, duration = await AvailabilityService(self.session).check_slot(doctor_profile_id, data["appointment_date"], data["start_time"])
+        is_available, duration = await AvailabilityService(self.session).check_slot(
+            doctor_profile_id, data["appointment_date"], data["start_time"]
+        )
         if not is_available:
             raise ConflictError("That slot is not available on the doctor's schedule", code="APPOINTMENT_SLOT_UNAVAILABLE")
-        end_time = data.get("end_time") or (dt.datetime.combine(data["appointment_date"], data["start_time"]) + dt.timedelta(minutes=duration)).time()
+        end_time = data.get("end_time") or (
+            dt.datetime.combine(data["appointment_date"], data["start_time"]) + dt.timedelta(minutes=duration)
+        ).time()
 
         payload = {
             "clinic_id": str(data["clinic_id"]), "patient_id": str(patient_profile_id),
@@ -433,7 +450,8 @@ class AppointmentService:
             ) from exc
         await emit_event(
             self.session, aggregate_type="appointment", aggregate_id=appointment["appointment_id"],
-            event_type="appointment_booked", payload={"appointment_id": str(appointment["appointment_id"]), "doctor_id": str(doctor_profile_id)},
+            event_type="appointment_booked",
+            payload={"appointment_id": str(appointment["appointment_id"]), "doctor_id": str(doctor_profile_id)},
         )
         return await self.get(appointment["appointment_id"])
 
@@ -444,7 +462,7 @@ class AppointmentService:
         return appt
 
     async def list(self, *, ctx: RequestContext, clinic_id=None, doctor_id=None, patient_id=None,
-                    status=None, date_from=None, date_to=None, skip: int = 0, limit: int = 100) -> list[dict]:
+                    status=None, date_from=None, date_to=None, skip: int = 0, limit: int = 100) -> builtins.list[dict]:
         # v1: patient sees only their own, doctor only their own, staff
         # scoped to clinic (+ optional doctor_id/patient_id filters layered
         # on top) — never trusting a caller-supplied id to widen their view.
@@ -473,12 +491,12 @@ class AppointmentService:
             date_from=date_from, date_to=date_to, skip=skip, limit=limit,
         )
 
-    async def list_upcoming(self, *, ctx: RequestContext, days: int = 14) -> list[dict]:
+    async def list_upcoming(self, *, ctx: RequestContext, days: int = 14) -> builtins.list[dict]:
         today = dt.date.today()
         rows = await self.list(ctx=ctx, date_from=today, date_to=today + dt.timedelta(days=days), limit=200)
         return [r for r in rows if r["status"] in ACTIVE_STATUSES]
 
-    async def list_today(self, *, ctx: RequestContext) -> list[dict]:
+    async def list_today(self, *, ctx: RequestContext) -> builtins.list[dict]:
         today = dt.date.today()
         return await self.list(ctx=ctx, date_from=today, date_to=today, limit=200)
 
@@ -526,8 +544,20 @@ class AppointmentService:
             raise BusinessRuleError("A cancellation reason is required", code="CANCELLATION_REASON_REQUIRED")
         self._authorize_transition(appt, status=status, ctx=ctx)
 
-        updated = await self.repo.update_status(appointment_id, status=status, cancelled_by=changed_by if status == "cancelled" else None, cancellation_reason=cancellation_reason)
-        await self._write_audit(appointment_id, changed_by=changed_by, changed_by_role=changed_by_role, previous_status=appt["status"], new_status=status, change_reason=cancellation_reason)
+        await self.repo.update_status(
+            appointment_id,
+            status=status,
+            cancelled_by=changed_by if status == "cancelled" else None,
+            cancellation_reason=cancellation_reason,
+        )
+        await self._write_audit(
+            appointment_id,
+            changed_by=changed_by,
+            changed_by_role=changed_by_role,
+            previous_status=appt["status"],
+            new_status=status,
+            change_reason=cancellation_reason,
+        )
         await emit_event(
             self.session, aggregate_type="appointment", aggregate_id=appointment_id,
             event_type="appointment_cancelled" if status == "cancelled" else "appointment_status_changed",
@@ -547,7 +577,10 @@ class AppointmentService:
                           ctx: RequestContext, appointment_request_id: UUID | None = None) -> dict:
         old = await self.get(appointment_id)
         if ctx.role == "patient":
-            raise PermissionError_("Patients cannot reschedule directly — submit a reschedule request instead", code="PATIENT_ACTION_NOT_ALLOWED")
+            raise PermissionError_(
+                "Patients cannot reschedule directly — submit a reschedule request instead",
+                code="PATIENT_ACTION_NOT_ALLOWED",
+            )
         if old["status"] not in ACTIVE_STATUSES:
             raise BusinessRuleError("Only an active appointment can be rescheduled", code="APPOINTMENT_NOT_ACTIVE")
         await assert_clinic_scope(ctx, self.session, old["clinic_id"])
@@ -572,9 +605,13 @@ class AppointmentService:
         )
         await emit_event(
             self.session, aggregate_type="appointment", aggregate_id=appointment_id,
-            event_type="appointment_rescheduled", payload={"old_appointment_id": str(appointment_id), "new_appointment_id": str(new_appointment["appointment_id"])},
+            event_type="appointment_rescheduled",
+            payload={
+                "old_appointment_id": str(appointment_id),
+                "new_appointment_id": str(new_appointment["appointment_id"]),
+            },
         )
         return await self.get(new_appointment["appointment_id"])
 
-    async def audit_log(self, appointment_id: UUID) -> list[dict]:
+    async def audit_log(self, appointment_id: UUID) -> builtins.list[dict]:
         return await self.audit.list_for_appointment(appointment_id)

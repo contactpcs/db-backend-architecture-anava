@@ -2,7 +2,12 @@ from collections.abc import AsyncGenerator
 from contextvars import ContextVar
 from dataclasses import dataclass
 
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.config import build_ssl_context, get_settings
 

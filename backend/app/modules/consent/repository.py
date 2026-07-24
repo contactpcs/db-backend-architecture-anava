@@ -68,11 +68,13 @@ class ConsentRecordRepository:
             clauses.append("clinic_id = :clinic_id")
             params["clinic_id"] = str(clinic_id)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        rows = (await self.session.execute(text(f"SELECT * FROM consent_records {where} ORDER BY created_at DESC"), params)).mappings().all()
+        rows = (
+            await self.session.execute(text(f"SELECT * FROM consent_records {where} ORDER BY created_at DESC"), params)
+        ).mappings().all()
         return [dict(r) for r in rows]
 
     async def sign(self, consent_id: UUID, *, signed_by: UUID, witness_id, signature_data: str,
-                    ip_address, content_hash_at_signing: str) -> dict | None:
+                    ip_address, content_hash_at_signing: str | None) -> dict | None:
         return await fetch_optional(
             self.session,
             text(

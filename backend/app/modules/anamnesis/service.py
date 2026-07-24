@@ -71,7 +71,10 @@ class AnamnesisService:
             )
 
         if complete:
-            assessment = await self.assessments.mark_complete(anamnesis_id)  # type: ignore[assignment]
+            completed = await self.assessments.mark_complete(anamnesis_id)
+            if not completed:
+                raise NotFoundError("Anamnesis assessment not found", code="ANAMNESIS_NOT_FOUND")
+            assessment = completed
             await emit_event(
                 self.session, aggregate_type="anamnesis_assessment", aggregate_id=anamnesis_id,
                 event_type="anamnesis_completed", payload={"anamnesis_id": anamnesis_id, "patient_id": str(assessment["patient_id"])},
@@ -82,4 +85,4 @@ class AnamnesisService:
             patient = await PatientRepository(self.session).get_by_profile_id(assessment["patient_id"])
             if patient:
                 await PatientService(self.session).advance_registration_status(patient["patient_id"])
-        return assessment  # type: ignore[return-value]
+        return assessment

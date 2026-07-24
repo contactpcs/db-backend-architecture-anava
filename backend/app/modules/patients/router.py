@@ -36,7 +36,9 @@ async def register_patient(
     cognito_sub = None
     if settings.auth_mode == "cognito":
         from app.core.cognito import provision_staff_user
-        cognito_sub = provision_staff_user(email=data["email"], first_name=data["first_name"], last_name=data["last_name"], phone=data.get("phone"))
+        cognito_sub = provision_staff_user(
+            email=data["email"], first_name=data["first_name"], last_name=data["last_name"], phone=data.get("phone")
+        )
     return await PatientService(db).register(data, cognito_sub=cognito_sub)
 
 
@@ -129,12 +131,19 @@ async def select_disease(
 
 
 @router.post("/patients/{patient_id}/followup-cycles", status_code=201)
-async def start_followup_cycle(patient_id: UUID, body: s.FollowUpCycleCreate, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
+async def start_followup_cycle(
+    patient_id: UUID,
+    body: s.FollowUpCycleCreate,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
+):
     return await FollowUpService(db).start(patient_id, doctor_id=body.doctor_id)
 
 
 @router.post("/patients/{patient_id}/transfers", response_model=s.TransferRead, status_code=201)
-async def initiate_transfer(patient_id: UUID, body: s.TransferInitiate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
+async def initiate_transfer(
+    patient_id: UUID, body: s.TransferInitiate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))
+):
     return await PatientTransferService(db).initiate(patient_id, body.model_dump(), initiated_by=UUID(ctx.user_id))
 
 
@@ -144,10 +153,17 @@ async def get_transfer(pct_id: UUID, db=Depends(get_db), _ctx: RequestContext = 
 
 
 @router.patch("/transfers/{pct_id}/complete", response_model=s.TransferRead)
-async def complete_transfer(pct_id: UUID, body: s.TransferComplete, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
+async def complete_transfer(
+    pct_id: UUID, body: s.TransferComplete, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF))
+):
     return await PatientTransferService(db).complete(pct_id, consent_id=body.consent_id)
 
 
 @router.post("/patients/{patient_id}/exit")
-async def exit_patient(patient_id: UUID, body: s.ExitInitiate, db=Depends(get_db), _ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin", "doctor"))):
+async def exit_patient(
+    patient_id: UUID,
+    body: s.ExitInitiate,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin", "doctor")),
+):
     return await PatientExitService(db).exit(patient_id, consent_id=body.consent_id)

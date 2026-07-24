@@ -34,7 +34,9 @@ async def get_current_anamnesis(patient_id: UUID, db=Depends(get_db), ctx: Reque
 
 
 @router.get("/anamnesis/{anamnesis_id}/responses", response_model=list[s.AnamnesisResponseRead])
-async def get_anamnesis_responses(anamnesis_id: str, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+async def get_anamnesis_responses(
+    anamnesis_id: str, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))
+):
     assessment = await AnamnesisService(db).get_by_id(anamnesis_id)
     assert_owns_profile(ctx, assessment["patient_id"])
     return await AnamnesisService(db).get_responses(anamnesis_id)

@@ -9,7 +9,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.core.exceptions import NotFoundError
-from app.core.resolve import resolve_ca_profile_id, resolve_doctor_profile_id, resolve_patient_profile_id
+from app.core.resolve import (
+    resolve_ca_profile_id,
+    resolve_doctor_profile_id,
+    resolve_patient_profile_id,
+)
 
 
 @pytest.mark.asyncio

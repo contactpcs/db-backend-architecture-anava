@@ -54,6 +54,8 @@ def _client():
 def _secret_hash(username: str) -> str:
     """Required on every call when the app client has a secret (ours does —
     it's only ever called server-side, never from a browser)."""
+    assert settings.cognito_app_client_id is not None
+    assert settings.cognito_app_client_secret is not None
     msg = username + settings.cognito_app_client_id
     digest = hmac.new(
         settings.cognito_app_client_secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256

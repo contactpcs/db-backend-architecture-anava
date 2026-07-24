@@ -54,7 +54,9 @@ async def get_doctor(doctor_id: UUID, db=Depends(get_db), _ctx: RequestContext =
 
 
 @router.patch("/doctors/{doctor_id}", response_model=s.DoctorRead)
-async def update_doctor(doctor_id: UUID, body: s.DoctorUpdate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES, "doctor"))):
+async def update_doctor(
+    doctor_id: UUID, body: s.DoctorUpdate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES, "doctor")),
+):
     existing = await DoctorService(db).get(doctor_id)
     await assert_clinic_scope(ctx, db, existing["clinic_id"])
     return await DoctorService(db).update(doctor_id, body.model_dump(), updated_by=UUID(ctx.user_id))
@@ -89,7 +91,10 @@ async def get_ca(ca_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends
 
 
 @router.patch("/clinical-assistants/{ca_id}", response_model=s.ClinicalAssistantRead)
-async def update_ca(ca_id: UUID, body: s.ClinicalAssistantUpdate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES, "clinical_assistant"))):
+async def update_ca(
+    ca_id: UUID, body: s.ClinicalAssistantUpdate, db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES, "clinical_assistant")),
+):
     existing = await ClinicalAssistantService(db).get(ca_id)
     await assert_clinic_scope(ctx, db, existing["clinic_id"])
     return await ClinicalAssistantService(db).update(ca_id, body.model_dump(), updated_by=UUID(ctx.user_id))
@@ -104,7 +109,9 @@ async def delete_ca(ca_id: UUID, db=Depends(get_db), ctx: RequestContext = Depen
 
 # ------------------------------------------------------------- receptionists --
 @router.post("/receptionists", response_model=s.ReceptionistRead, status_code=201)
-async def create_receptionist(body: s.ReceptionistCreate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_STAFF_CREATE_ROLES))):
+async def create_receptionist(
+    body: s.ReceptionistCreate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_STAFF_CREATE_ROLES)),
+):
     data = body.model_dump()
     data["clinic_id"] = str(data["clinic_id"])
     await assert_clinic_scope(ctx, db, data["clinic_id"])
@@ -112,7 +119,9 @@ async def create_receptionist(body: s.ReceptionistCreate, db=Depends(get_db), ct
 
 
 @router.get("/receptionists", response_model=list[s.ReceptionistRead])
-async def list_receptionists(clinic_id: UUID | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_STAFF_READ_ROLES))):
+async def list_receptionists(
+    clinic_id: UUID | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_STAFF_READ_ROLES)),
+):
     if clinic_id is None and ctx.role == "clinic_admin":
         clinic_id = UUID(ctx.clinic_id)
     return await ReceptionistService(db).list(clinic_id=clinic_id)
@@ -124,7 +133,10 @@ async def get_receptionist(receptionist_id: UUID, db=Depends(get_db), _ctx: Requ
 
 
 @router.patch("/receptionists/{receptionist_id}", response_model=s.ReceptionistRead)
-async def update_receptionist(receptionist_id: UUID, body: s.ReceptionistUpdate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES, "receptionist"))):
+async def update_receptionist(
+    receptionist_id: UUID, body: s.ReceptionistUpdate, db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES, "receptionist")),
+):
     existing = await ReceptionistService(db).get(receptionist_id)
     await assert_clinic_scope(ctx, db, existing["clinic_id"])
     return await ReceptionistService(db).update(receptionist_id, body.model_dump(), updated_by=UUID(ctx.user_id))
@@ -139,12 +151,17 @@ async def delete_receptionist(receptionist_id: UUID, db=Depends(get_db), ctx: Re
 
 # -------------------------------------------------- CA <-> doctor assignments --
 @router.post("/ca-doctor-assignments", response_model=s.CaDoctorAssignmentRead, status_code=201)
-async def create_ca_doctor_assignment(body: s.CaDoctorAssignmentCreate, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES))):
+async def create_ca_doctor_assignment(
+    body: s.CaDoctorAssignmentCreate, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES)),
+):
     return await CaDoctorAssignmentService(db).create(**body.model_dump())
 
 
 @router.get("/ca-doctor-assignments", response_model=list[s.CaDoctorAssignmentRead])
-async def list_ca_doctor_assignments(ca_id: UUID | None = None, doctor_id: UUID | None = None, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_STAFF_READ_ROLES))):
+async def list_ca_doctor_assignments(
+    ca_id: UUID | None = None, doctor_id: UUID | None = None, db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role(*_STAFF_READ_ROLES)),
+):
     return await CaDoctorAssignmentService(db).list(ca_id=ca_id, doctor_id=doctor_id)
 
 
@@ -154,7 +171,9 @@ async def list_ca_doctor_assignments(ca_id: UUID | None = None, doctor_id: UUID 
 # every boundary. See Master Doc Section 8 Flow G/H/I: Clinic Admin initiates,
 # Regional Admin approves.
 @router.post("/staff-requests", response_model=s.StaffRequestRead, status_code=201)
-async def create_staff_request(body: s.StaffRequestCreate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES))):
+async def create_staff_request(
+    body: s.StaffRequestCreate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES)),
+):
     data = body.model_dump()
     data["clinic_id"] = str(data["clinic_id"])
     if data.get("target_staff_id"):
@@ -171,7 +190,10 @@ async def create_staff_request(body: s.StaffRequestCreate, db=Depends(get_db), c
 
 
 @router.get("/staff-requests", response_model=list[s.StaffRequestRead])
-async def list_staff_requests(clinic_id: UUID | None = None, status: str | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES))):
+async def list_staff_requests(
+    clinic_id: UUID | None = None, status: str | None = None, db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_STAFF_MGMT_ROLES)),
+):
     if ctx.role == "clinic_admin":
         if clinic_id and str(clinic_id) != ctx.clinic_id:
             raise PermissionError_("You can only view staff requests for your own clinic", code="CLINIC_SCOPE_MISMATCH")
@@ -183,16 +205,23 @@ async def list_staff_requests(clinic_id: UUID | None = None, status: str | None 
             if region_id != ctx.region_id:
                 raise PermissionError_("You can only view staff requests for clinics in your own region", code="REGION_SCOPE_MISMATCH")
             return await StaffRequestService(db).list(clinic_id=clinic_id, status=status)
+        if not ctx.region_id:
+            raise PermissionError_("Your account has no region assigned", code="NO_REGION_ASSIGNED")
         return await StaffRequestService(db).list_by_region(ctx.region_id, status=status)
 
     return await StaffRequestService(db).list(clinic_id=clinic_id, status=status)
 
 
 @router.patch("/staff-requests/{request_id}/decision", response_model=s.StaffRequestRead)
-async def decide_staff_request(request_id: UUID, body: s.StaffRequestDecision, db=Depends(get_db), ctx: RequestContext = Depends(require_role("super_admin", "regional_admin"))):
+async def decide_staff_request(
+    request_id: UUID, body: s.StaffRequestDecision, db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin", "regional_admin")),
+):
     if ctx.role == "regional_admin":
         req = await StaffRequestService(db).get(request_id)
         region_id = await clinic_region_id(db, req["clinic_id"])
         if region_id != ctx.region_id:
             raise PermissionError_("You can only decide on staff requests for clinics in your own region", code="REGION_SCOPE_MISMATCH")
-    return await StaffRequestService(db).decide(request_id, decision=body.decision, reviewed_by=UUID(ctx.user_id), review_notes=body.review_notes)
+    return await StaffRequestService(db).decide(
+        request_id, decision=body.decision, reviewed_by=UUID(ctx.user_id), review_notes=body.review_notes,
+    )

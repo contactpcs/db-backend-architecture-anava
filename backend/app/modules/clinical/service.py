@@ -104,12 +104,14 @@ class ProtocolRequestService:
             # administration reads to know which scales to present.
             scale_ids = (req.get("protocol_details") or {}).get("main_prs_scale_ids") or []
             if scale_ids:
-                from app.modules.prs.service import PatientScaleAssignmentService
-
                 # req["patient_id"] is already profiles.id here (assessment_protocol_requests
                 # stores it that way) — PatientScaleAssignmentService.create expects
                 # patients.patient_id, so go through the patients table the other way.
-                from app.modules.patients.repository import DiseaseSelectionRepository, PatientRepository
+                from app.modules.patients.repository import (
+                    DiseaseSelectionRepository,
+                    PatientRepository,
+                )
+                from app.modules.prs.service import PatientScaleAssignmentService
 
                 patient = await PatientRepository(self.session).get_by_profile_id(req["patient_id"])
                 if patient:

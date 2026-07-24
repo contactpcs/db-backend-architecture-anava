@@ -11,15 +11,15 @@ Create Date: 2026-07-07
 
 """
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence, Union
 
 from alembic import op
 
 revision: str = "0024"
-down_revision: Union[str, None] = "0023"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "0023"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 SQL_DIR = Path(__file__).resolve().parents[3] / "SQL"
 

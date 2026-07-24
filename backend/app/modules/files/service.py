@@ -62,7 +62,14 @@ class FileService:
         results = []
         if doc_type in (None, "eeg"):
             for r in await self.eeg.list_for_patient(profile_id):
-                results.append({**r, "doc_type": "eeg", "file_id": r["eeg_id"], "file_name": r["raw_file_name"], "file_size": r["raw_file_size"], "checksum": r["raw_checksum"]})
+                results.append({
+                    **r,
+                    "doc_type": "eeg",
+                    "file_id": r["eeg_id"],
+                    "file_name": r["raw_file_name"],
+                    "file_size": r["raw_file_size"],
+                    "checksum": r["raw_checksum"],
+                })
         if doc_type in (None, "medical_history"):
             for r in await self.mhf.list_for_patient(profile_id):
                 results.append({**r, "doc_type": "medical_history", "file_id": r["mhf_id"]})
@@ -77,8 +84,14 @@ class FileService:
         key = record["raw_data_s3_key"] if doc_type == "eeg" else record["s3_key"]
         return s3.presign_download(key)
 
-    async def review_eeg(self, eeg_id: UUID, *, reviewed_by: UUID, clinical_findings, is_abnormal, status: str) -> dict:
-        updated = await self.eeg.review(eeg_id, reviewed_by=reviewed_by, clinical_findings=clinical_findings, is_abnormal=is_abnormal, status=status or "reviewed")
+    async def review_eeg(self, eeg_id: UUID, *, reviewed_by: UUID, clinical_findings, is_abnormal, status: str | None) -> dict:
+        updated = await self.eeg.review(
+            eeg_id,
+            reviewed_by=reviewed_by,
+            clinical_findings=clinical_findings,
+            is_abnormal=is_abnormal,
+            status=status or "reviewed",
+        )
         if not updated:
             raise NotFoundError("EEG file not found", code="FILE_NOT_FOUND")
         await emit_event(
