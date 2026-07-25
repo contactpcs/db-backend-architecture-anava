@@ -24,3 +24,4 @@ venv/
 # Word doc lock files (created while a .docx is open)
 ~$*.docx
 ~$*.doc
+.gstack/
