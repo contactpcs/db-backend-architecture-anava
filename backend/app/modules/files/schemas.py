@@ -8,6 +8,7 @@ class PresignUploadRequest(BaseModel):
     doc_type: str = Field(pattern="^(eeg|medical_history)$")
     file_name: str
     clinic_id: UUID
+    content_type: str = Field(pattern=r"^[\w.+-]+/[\w.+-]+$")
 
 
 class PresignUploadResponse(BaseModel):

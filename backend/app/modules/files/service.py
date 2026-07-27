@@ -17,9 +17,9 @@ class FileService:
         self.eeg = EegFileRepository(session)
         self.mhf = MedicalHistoryFileRepository(session)
 
-    async def presign_upload(self, patient_id: UUID, *, doc_type: str, file_name: str, clinic_id: UUID) -> dict:
+    async def presign_upload(self, patient_id: UUID, *, doc_type: str, file_name: str, clinic_id: UUID, content_type: str) -> dict:
         key = s3.build_key(clinic_id=str(clinic_id), patient_id=str(patient_id), category=doc_type, filename=file_name)
-        return {"s3_key": key, "upload_url": s3.presign_upload(key)}
+        return {"s3_key": key, "upload_url": s3.presign_upload(key, content_type=content_type)}
 
     async def upload_bytes(self, s3_key: str, content: bytes) -> dict:
         size, checksum = s3.save_bytes(s3_key, content)

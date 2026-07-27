@@ -45,7 +45,9 @@ async def presign_upload(
 ):
     await assert_patient_self(ctx, db, patient_id)
     _require_own_medical_history(ctx, body.doc_type)
-    return await FileService(db).presign_upload(patient_id, doc_type=body.doc_type, file_name=body.file_name, clinic_id=body.clinic_id)
+    return await FileService(db).presign_upload(
+        patient_id, doc_type=body.doc_type, file_name=body.file_name, clinic_id=body.clinic_id, content_type=body.content_type
+    )
 
 
 @router.put("/files/upload/{s3_key:path}")
