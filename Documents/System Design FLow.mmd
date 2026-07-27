@@ -1,0 +1,62 @@
+graph LR
+    Client["Client<br/>Web / Mobile App<br/>(Patient, Doctor, Admin, Staff)"]
+
+    subgraph SEC["Security Gate - FastAPI Middleware"]
+        CORS["CORS Middleware"]
+        AUTH["Auth Middleware<br/>verify JWT, load profile,<br/>build RequestContext"]
+        RID["Request ID + Logging"]
+    end
+
+    subgraph APP["Application Module - Router / Service / Repository"]
+        ROUTER["Router<br/>require_role() check"]
+        SERVICE["Service<br/>business rules + scope check"]
+        REPO["Repository<br/>SQL queries"]
+    end
+
+    CACHE["Redis Cache<br/>cache-aside<br/>profile: 60s TTL<br/>catalogs: 10min TTL"]
+    PGDB[("PostgreSQL<br/>RLS + constraints<br/>outbox_events table")]
+    PUBSUB["Redis Pub/Sub<br/>SSE channels"]
+    WORKER["Event Relay Worker<br/>separate process"]
+
+    subgraph ASYNC2["Notification Fan-out (Stage 13+, not yet built)"]
+        SQS["Amazon SQS<br/>notification queue"]
+        SES["AWS SES<br/>email delivery"]
+        SNS["AWS SNS / Pinpoint<br/>SMS + push delivery"]
+    end
+
+    Client -->|"1 - HTTPS request + JWT"| CORS
+    CORS -->|"2"| AUTH
+    AUTH -->|"3"| RID
+    RID -->|"4 - authenticated request"| ROUTER
+    ROUTER -->|"5 - authorized call"| SERVICE
+    SERVICE -->|"6 - query"| REPO
+    REPO -->|"7 - cache GET check"| CACHE
+    CACHE -.->|"8 - HIT: cached row"| REPO
+    REPO -->|"9 - MISS: query DB"| PGDB
+    PGDB -.->|"10 - row returned, populate cache"| CACHE
+    REPO -->|"11 - JSON response"| SERVICE
+    SERVICE -->|"12"| ROUTER
+    ROUTER -->|"13"| Client
+
+    PGDB -->|"14 - LISTEN/NOTIFY wake"| WORKER
+    WORKER -->|"15 - publish user:{id}:stream"| PUBSUB
+    PUBSUB -.->|"16 - SSE live push"| Client
+    WORKER -->|"17 - enqueue notification job"| SQS
+    SQS -->|"18 - deliver email"| SES
+    SQS -->|"19 - deliver SMS / push"| SNS
+
+    style Client fill:#3b82f6,color:#fff
+    style CORS fill:#f97316,color:#fff
+    style AUTH fill:#f97316,color:#fff
+    style RID fill:#f97316,color:#fff
+    style ROUTER fill:#3b82f6,color:#fff
+    style SERVICE fill:#3b82f6,color:#fff
+    style REPO fill:#3b82f6,color:#fff
+    style CACHE fill:#eab308,color:#000
+    style PGDB fill:#22c55e,color:#000
+    style PUBSUB fill:#22c55e,color:#000
+    style WORKER fill:#a855f7,color:#fff
+    style SQS fill:#94a3b8,color:#000,stroke-dasharray: 5 5,stroke:#475569,stroke-width:2px
+    style SES fill:#94a3b8,color:#000,stroke-dasharray: 5 5,stroke:#475569,stroke-width:2px
+    style SNS fill:#94a3b8,color:#000,stroke-dasharray: 5 5,stroke:#475569,stroke-width:2px
+    style ASYNC2 fill:#f1f5f9,stroke:#94a3b8,stroke-width:2px,stroke-dasharray: 5 5
