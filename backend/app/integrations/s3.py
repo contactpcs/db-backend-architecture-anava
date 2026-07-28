@@ -6,6 +6,7 @@ directly — Section 4/13 of the architecture doc ("frontend/backend never
 constructs S3 paths ad hoc")."""
 
 import hashlib
+import re
 import uuid
 from pathlib import Path
 
@@ -34,13 +35,22 @@ def _client():
         import boto3
         from botocore.config import Config
 
+        # Force the regional endpoint: boto3's default virtual-hosted URL
+        # resolves to the global s3.amazonaws.com host for non-us-east-1
+        # buckets, which S3 302/307-redirects to the regional host — and
+        # since sigv4 signs the Host header, that redirect breaks presigned
+        # URLs handed to clients. Pinning endpoint_url avoids the redirect.
+        endpoint_url = f"https://s3.{settings.aws_region}.amazonaws.com"
         boto_config = Config(signature_version="s3v4")
         if settings.aws_profile:
-            _s3_client = boto3.Session(profile_name=settings.aws_profile).client("s3", region_name=settings.aws_region, config=boto_config)
+            _s3_client = boto3.Session(profile_name=settings.aws_profile).client(
+                "s3", region_name=settings.aws_region, endpoint_url=endpoint_url, config=boto_config
+            )
         else:
             _s3_client = boto3.client(
                 "s3",
                 region_name=settings.aws_region,
+                endpoint_url=endpoint_url,
                 config=boto_config,
                 aws_access_key_id=settings.aws_access_key_id,
                 aws_secret_access_key=settings.aws_secret_access_key,
@@ -48,12 +58,26 @@ def _client():
     return _s3_client
 
 
+def _sanitize_filename(filename: str) -> str:
+    """Strip to ASCII alnum/dot/dash/underscore. Unicode (emoji, non-Latin
+    scripts) or spaces in the key survive upload but can fail sigv4
+    verification when a client's URL-encoding of the path differs from what
+    was signed — the original name is preserved separately in the DB's
+    file_name column, this is purely for the S3 key."""
+    stem, dot, ext = filename.rpartition(".")
+    name = stem if dot else filename
+    ext = f".{ext}" if dot else ""
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("_") or "file"
+    safe_ext = re.sub(r"[^A-Za-z0-9]+", "", ext)
+    return f"{safe}.{safe_ext}" if safe_ext else safe
+
+
 def build_key(*, clinic_id: str, patient_id: str, category: str, filename: str) -> str:
     """Enforces the S3 folder convention from Architecture Section 4/13:
     regions/{region}/clinics/{clinic}/patients/{patient}/{category}/{file}.
     Region is omitted locally (not resolved at this layer) — Stage 13 adds it
     back when wiring the real bucket path."""
-    safe_name = f"{uuid.uuid4().hex[:8]}_{filename}"
+    safe_name = f"{uuid.uuid4().hex[:8]}_{_sanitize_filename(filename)}"
     return f"clinics/{clinic_id}/patients/{patient_id}/{category}/{safe_name}"
 
 
@@ -84,22 +108,48 @@ def presign_download(key: str, *, expires_in: int = 300) -> str:
 
 
 def save_bytes(key: str, content: bytes) -> tuple[int, str]:
-    path = _local_root() / key
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
     checksum = hashlib.sha256(content).hexdigest()
+    if settings.file_storage_mode != "s3":
+        path = _local_root() / key
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        return len(content), checksum
+    try:
+        _client().put_object(Bucket=settings.s3_bucket_name, Key=key, Body=content)
+    except ClientError as exc:
+        raise ExternalServiceError(f"Could not upload to S3: {exc}", code="S3_UPLOAD_FAILED") from exc
     return len(content), checksum
 
 
 def read_bytes(key: str) -> bytes:
-    return (_local_root() / key).read_bytes()
+    if settings.file_storage_mode != "s3":
+        return (_local_root() / key).read_bytes()
+    try:
+        obj = _client().get_object(Bucket=settings.s3_bucket_name, Key=key)
+        return obj["Body"].read()
+    except ClientError as exc:
+        raise ExternalServiceError(f"Could not read from S3: {exc}", code="S3_READ_FAILED") from exc
 
 
 def delete(key: str) -> None:
-    path = _local_root() / key
-    if path.exists():
-        path.unlink()
+    if settings.file_storage_mode != "s3":
+        path = _local_root() / key
+        if path.exists():
+            path.unlink()
+        return
+    try:
+        _client().delete_object(Bucket=settings.s3_bucket_name, Key=key)
+    except ClientError as exc:
+        raise ExternalServiceError(f"Could not delete from S3: {exc}", code="S3_DELETE_FAILED") from exc
 
 
 def exists(key: str) -> bool:
-    return (_local_root() / key).exists()
+    if settings.file_storage_mode != "s3":
+        return (_local_root() / key).exists()
+    try:
+        _client().head_object(Bucket=settings.s3_bucket_name, Key=key)
+        return True
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
+            return False
+        raise ExternalServiceError(f"Could not check S3 object: {exc}", code="S3_HEAD_FAILED") from exc
