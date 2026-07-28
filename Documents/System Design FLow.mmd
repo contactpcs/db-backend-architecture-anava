@@ -24,6 +24,9 @@ graph LR
         SNS["AWS SNS / Pinpoint<br/>SMS + push delivery"]
     end
 
+    RAZORPAY["Razorpay<br/>payment gateway<br/>(order create + refund)"]
+    SWEEP["Hold Expiry Sweep<br/>cron worker, 15min TTL<br/>(planned - appointment payments)"]
+
     Client -->|"1 - HTTPS request + JWT"| CORS
     CORS -->|"2"| AUTH
     AUTH -->|"3"| RID
@@ -45,6 +48,10 @@ graph LR
     SQS -->|"18 - deliver email"| SES
     SQS -->|"19 - deliver SMS / push"| SNS
 
+    SERVICE -->|"20 - create order / refund"| RAZORPAY
+    RAZORPAY -.->|"21 - webhook: payment captured / refunded (public, HMAC verified)"| ROUTER
+    SWEEP -->|"22 - poll & expire payment_pending past 15min TTL"| PGDB
+
     style Client fill:#3b82f6,color:#fff
     style CORS fill:#f97316,color:#fff
     style AUTH fill:#f97316,color:#fff
@@ -60,3 +67,5 @@ graph LR
     style SES fill:#94a3b8,color:#000,stroke-dasharray: 5 5,stroke:#475569,stroke-width:2px
     style SNS fill:#94a3b8,color:#000,stroke-dasharray: 5 5,stroke:#475569,stroke-width:2px
     style ASYNC2 fill:#f1f5f9,stroke:#94a3b8,stroke-width:2px,stroke-dasharray: 5 5
+    style RAZORPAY fill:#6366f1,color:#fff,stroke:#4338ca,stroke-width:2px
+    style SWEEP fill:#94a3b8,color:#000,stroke-dasharray: 5 5,stroke:#475569,stroke-width:2px
