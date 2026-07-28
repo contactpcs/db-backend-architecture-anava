@@ -880,16 +880,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "orbit",
         "elementId": "opq0T7h69wImVkQxileDE",
+        "mode": "orbit",
         "fixedPoint": [
           1,
           0.5001
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "JD6MWlV5LJoNSRyJyJWu1",
+        "mode": "orbit",
         "fixedPoint": [
           0,
           0.5001
@@ -952,16 +952,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "orbit",
         "elementId": "JD6MWlV5LJoNSRyJyJWu1",
+        "mode": "orbit",
         "fixedPoint": [
           1,
           0.5001
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "qzaNvGrX5BUXyJu687zOJ",
+        "mode": "orbit",
         "fixedPoint": [
           0,
           0.5001
@@ -1023,16 +1023,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "orbit",
         "elementId": "qzaNvGrX5BUXyJu687zOJ",
+        "mode": "orbit",
         "fixedPoint": [
           1,
           0.5001
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "MYgGChONoZSsjOI9g1lUj",
+        "mode": "orbit",
         "fixedPoint": [
           0.5071812079493789,
           0.4928187920506146
@@ -1172,16 +1172,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "inside",
         "elementId": "MYgGChONoZSsjOI9g1lUj",
+        "mode": "inside",
         "fixedPoint": [
           0.30463379923761036,
           0.9886366750543775
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "TcH9hzKh3HZKuUBBCYVoy",
+        "mode": "orbit",
         "fixedPoint": [
           0.5009284905243888,
           0.5009284905243878
@@ -1243,16 +1243,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "inside",
         "elementId": "TcH9hzKh3HZKuUBBCYVoy",
+        "mode": "inside",
         "fixedPoint": [
           0.801803595419359,
           0.00684931506849315
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "sIWGsp47wfKl_2efblEkv",
+        "mode": "orbit",
         "fixedPoint": [
           0,
           0.5001
@@ -1314,16 +1314,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "orbit",
         "elementId": "sIWGsp47wfKl_2efblEkv",
+        "mode": "orbit",
         "fixedPoint": [
           1,
           0.5001
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "HrCRXkPJB3xb-iKiNctHz",
+        "mode": "orbit",
         "fixedPoint": [
           0,
           0.5001
@@ -1395,16 +1395,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "orbit",
         "elementId": "HrCRXkPJB3xb-iKiNctHz",
+        "mode": "orbit",
         "fixedPoint": [
           0.5083701892322281,
           0.5083701892322291
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "WalwybgUxQAmNJ8DMqZIC",
+        "mode": "orbit",
         "fixedPoint": [
           0.5007579820504475,
           0.4992420179495505
@@ -1476,16 +1476,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "inside",
         "elementId": "WalwybgUxQAmNJ8DMqZIC",
+        "mode": "inside",
         "fixedPoint": [
           0.17977394810431105,
           0.9961833107052867
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "HrCRXkPJB3xb-iKiNctHz",
+        "mode": "orbit",
         "fixedPoint": [
           0.5361885259434613,
           0.536188525943463
@@ -1549,16 +1549,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "orbit",
         "elementId": "HrCRXkPJB3xb-iKiNctHz",
+        "mode": "orbit",
         "fixedPoint": [
           1,
           0.5001
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "Y0Wm1ih6dgK-ykUKPgltR",
+        "mode": "orbit",
         "fixedPoint": [
           0,
           0.5001
@@ -1590,8 +1590,8 @@
         "type": 2
       },
       "seed": 1095014096,
-      "version": 4,
-      "versionNonce": 2080075824,
+      "version": 5,
+      "versionNonce": 1306361451,
       "isDeleted": false,
       "boundElements": [
         {
@@ -1599,7 +1599,7 @@
           "id": "44P3rysjSTmvbaefRWX0A"
         }
       ],
-      "updated": 1785213230074,
+      "updated": 1785227421770,
       "link": null,
       "locked": false,
       "points": [
@@ -1618,16 +1618,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "orbit",
         "elementId": "Y0Wm1ih6dgK-ykUKPgltR",
+        "mode": "orbit",
         "fixedPoint": [
           1,
           0.5001
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "WalwybgUxQAmNJ8DMqZIC",
+        "mode": "orbit",
         "fixedPoint": [
           0.49253713626540946,
           0.49253713626540946
@@ -1689,16 +1689,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "inside",
         "elementId": "HrCRXkPJB3xb-iKiNctHz",
+        "mode": "inside",
         "fixedPoint": [
           0.09800366339834071,
           0.9931506849315068
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "sIWGsp47wfKl_2efblEkv",
+        "mode": "orbit",
         "fixedPoint": [
           0.49839270920958695,
           0.5016072907904139
@@ -1760,16 +1760,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "inside",
         "elementId": "sIWGsp47wfKl_2efblEkv",
+        "mode": "inside",
         "fixedPoint": [
           0.260701425356339,
           0.9931506849315068
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "TcH9hzKh3HZKuUBBCYVoy",
+        "mode": "orbit",
         "fixedPoint": [
           0.49847582161525233,
           0.5015241783847483
@@ -1877,16 +1877,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "orbit",
         "elementId": "TcH9hzKh3HZKuUBBCYVoy",
+        "mode": "orbit",
         "fixedPoint": [
           0.49972754771949796,
           0.5002724522805023
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "opq0T7h69wImVkQxileDE",
+        "mode": "orbit",
         "fixedPoint": [
           0.4845079758017006,
           0.4845079758017017
@@ -1947,16 +1947,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "inside",
         "elementId": "Y0Wm1ih6dgK-ykUKPgltR",
+        "mode": "inside",
         "fixedPoint": [
           0.7752331367017179,
           0.9822924716551796
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "5pzxeSiPjcZah_swWw9Ce",
+        "mode": "orbit",
         "fixedPoint": [
           0,
           0.5001
@@ -2020,16 +2020,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "inside",
         "elementId": "5pzxeSiPjcZah_swWw9Ce",
+        "mode": "inside",
         "fixedPoint": [
           0.690878793996905,
           0.8588236906163836
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "MUDHuDOF2pxrTUh4WbvuZ",
+        "mode": "orbit",
         "fixedPoint": [
           0,
           0.5001
@@ -2153,16 +2153,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "orbit",
         "elementId": "5pzxeSiPjcZah_swWw9Ce",
+        "mode": "orbit",
         "fixedPoint": [
           1,
           0.5001
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "vdIbaaXEoY7NUzzaJgjnG",
+        "mode": "orbit",
         "fixedPoint": [
           0,
           0.5001
@@ -2224,16 +2224,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "orbit",
         "elementId": "vdIbaaXEoY7NUzzaJgjnG",
+        "mode": "orbit",
         "fixedPoint": [
           0.6740221732451612,
           0.32597782675484
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "2r7H95kZRh8SdsvwbDp1a",
+        "mode": "orbit",
         "fixedPoint": [
           0,
           0.5001
@@ -2295,16 +2295,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "orbit",
         "elementId": "vdIbaaXEoY7NUzzaJgjnG",
+        "mode": "orbit",
         "fixedPoint": [
           0.5453690018812366,
           0.45463099811876256
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "YdeacGyW_Id4yz-JJCG6S",
+        "mode": "orbit",
         "fixedPoint": [
           0,
           0.5001
@@ -2364,16 +2364,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "orbit",
         "elementId": "sIWGsp47wfKl_2efblEkv",
+        "mode": "orbit",
         "fixedPoint": [
           0.49612965655973584,
           0.4961296565597355
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "03XkWeQYkju4l5biMwJQ0",
+        "mode": "orbit",
         "fixedPoint": [
           0.45665123506638367,
           0.5433487649336171
@@ -2442,16 +2442,16 @@
       ],
       "lastCommittedPoint": null,
       "startBinding": {
-        "mode": "orbit",
         "elementId": "03XkWeQYkju4l5biMwJQ0",
+        "mode": "orbit",
         "fixedPoint": [
           0.5019970203566075,
           0.5019970203566081
         ]
       },
       "endBinding": {
-        "mode": "orbit",
         "elementId": "TcH9hzKh3HZKuUBBCYVoy",
+        "mode": "orbit",
         "fixedPoint": [
           0.49934453956292374,
           0.4993445395629248
@@ -3607,10 +3607,10 @@
     {
       "id": "44P3rysjSTmvbaefRWX0A",
       "type": "text",
-      "x": 3010.70734375,
-      "y": 176.25,
-      "width": 298.9453125,
-      "height": 25,
+      "x": 3027.3100811767576,
+      "y": 163.75,
+      "width": 265.7398376464844,
+      "height": 50,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -3624,14 +3624,14 @@
       "index": "b07",
       "roundness": null,
       "seed": 2033761328,
-      "version": 3,
-      "versionNonce": 1648229936,
+      "version": 5,
+      "versionNonce": 1677094661,
       "isDeleted": false,
       "boundElements": [],
-      "updated": 1785213230079,
+      "updated": 1785227421006,
       "link": null,
       "locked": false,
-      "text": "10 - row returned, populate cache",
+      "text": "10 - row returned, populate\ncache",
       "fontSize": 20,
       "fontFamily": 5,
       "textAlign": "center",
@@ -4096,8 +4096,8 @@
     {
       "id": "s3FilesModuleBox",
       "type": "rectangle",
-      "x": 1500,
-      "y": 1050,
+      "x": 1508.0671695360418,
+      "y": 1094.3692785797691,
       "width": 300,
       "height": 100,
       "angle": 0,
@@ -4113,23 +4113,32 @@
       "index": "b0K",
       "roundness": null,
       "seed": 55501210,
-      "version": 1,
-      "versionNonce": 100000010,
+      "version": 30,
+      "versionNonce": 354934949,
       "isDeleted": false,
       "boundElements": [
-        {"type": "text", "id": "s3FilesModuleLabel"},
-        {"id": "arrRepoToFilesModule", "type": "arrow"},
-        {"id": "arrFilesModuleToS3", "type": "arrow"}
+        {
+          "type": "text",
+          "id": "s3FilesModuleLabel"
+        },
+        {
+          "id": "arrRepoToFilesModule",
+          "type": "arrow"
+        },
+        {
+          "id": "arrFilesModuleToS3",
+          "type": "arrow"
+        }
       ],
-      "updated": 1785213230080,
+      "updated": 1785227280010,
       "link": null,
       "locked": false
     },
     {
       "id": "s3FilesModuleLabel",
       "type": "text",
-      "x": 1515,
-      "y": 1062,
+      "x": 1523.0671695360418,
+      "y": 1106.3692785797691,
       "width": 270,
       "height": 75,
       "angle": 0,
@@ -4145,11 +4154,11 @@
       "index": "b0L",
       "roundness": null,
       "seed": 55501211,
-      "version": 1,
-      "versionNonce": 100000011,
+      "version": 30,
+      "versionNonce": 1762558981,
       "isDeleted": false,
       "boundElements": [],
-      "updated": 1785213230080,
+      "updated": 1785227280010,
       "link": null,
       "locked": false,
       "text": "files module\nRouter -> FileService -> s3.py\n(only module allowed to\ntouch S3 keys)",
@@ -4165,8 +4174,8 @@
     {
       "id": "s3BucketBoxNew1",
       "type": "rectangle",
-      "x": 1500,
-      "y": 1230,
+      "x": 1512.1006773698323,
+      "y": 1371.0832950306642,
       "width": 300,
       "height": 120,
       "angle": 0,
@@ -4182,24 +4191,36 @@
       "index": "b0M",
       "roundness": null,
       "seed": 55501234,
-      "version": 1,
-      "versionNonce": 100000001,
+      "version": 81,
+      "versionNonce": 1188019973,
       "isDeleted": false,
       "boundElements": [
-        {"type": "text", "id": "s3BucketLabelNew1"},
-        {"id": "arrFilesModuleToS3", "type": "arrow"},
-        {"id": "arrClientToS3Put", "type": "arrow"},
-        {"id": "arrClientToS3Get", "type": "arrow"}
+        {
+          "type": "text",
+          "id": "s3BucketLabelNew1"
+        },
+        {
+          "id": "arrFilesModuleToS3",
+          "type": "arrow"
+        },
+        {
+          "id": "arrClientToS3Put",
+          "type": "arrow"
+        },
+        {
+          "id": "arrClientToS3Get",
+          "type": "arrow"
+        }
       ],
-      "updated": 1785213230080,
+      "updated": 1785227277181,
       "link": null,
       "locked": false
     },
     {
       "id": "s3BucketLabelNew1",
       "type": "text",
-      "x": 1515,
-      "y": 1247,
+      "x": 1527.1006773698323,
+      "y": 1388.0832950306642,
       "width": 270,
       "height": 85,
       "angle": 0,
@@ -4215,11 +4236,11 @@
       "index": "b0N",
       "roundness": null,
       "seed": 55501235,
-      "version": 1,
-      "versionNonce": 100000002,
+      "version": 81,
+      "versionNonce": 720082533,
       "isDeleted": false,
       "boundElements": [],
-      "updated": 1785213230080,
+      "updated": 1785227277181,
       "link": null,
       "locked": false,
       "text": "Amazon S3\nclinics/{clinic}/patients/{patient}/{category}/{file}\nEEG raw data + medical history docs\n(local mode: disk stand-in until Stage 13)",
@@ -4235,10 +4256,10 @@
     {
       "id": "arrRepoToFilesModule",
       "type": "arrow",
-      "x": 1750,
-      "y": 958,
-      "width": 5,
-      "height": 92,
+      "x": 1752.9929643798127,
+      "y": 963.6430053710935,
+      "width": 90.54032172358393,
+      "height": 124.7262732086756,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -4250,40 +4271,61 @@
       "groupIds": [],
       "frameId": null,
       "index": "b0O",
-      "roundness": {"type": 2},
+      "roundness": {
+        "type": 2
+      },
       "seed": 55501240,
-      "version": 1,
-      "versionNonce": 100000005,
+      "version": 30,
+      "versionNonce": 50969445,
       "isDeleted": false,
       "boundElements": [
-        {"type": "text", "id": "arrRepoToFilesModuleLabel"}
+        {
+          "type": "text",
+          "id": "arrRepoToFilesModuleLabel"
+        }
       ],
-      "updated": 1785213230080,
+      "updated": 1785227280010,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [0, 92]],
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -90.54032172358393,
+          124.7262732086756
+        ]
+      ],
       "lastCommittedPoint": null,
       "startBinding": {
         "elementId": "XDkyq410_0P3OwPy23P6g",
         "mode": "orbit",
-        "fixedPoint": [0.85, 1]
+        "fixedPoint": [
+          0.85,
+          1
+        ]
       },
       "endBinding": {
         "elementId": "s3FilesModuleBox",
         "mode": "orbit",
-        "fixedPoint": [0.5, 0]
+        "fixedPoint": [
+          0.5001,
+          0
+        ]
       },
       "startArrowhead": null,
       "endArrowhead": "arrow",
-      "elbowed": false
+      "elbowed": false,
+      "moveMidPointsWithElement": false
     },
     {
       "id": "arrRepoToFilesModuleLabel",
       "type": "text",
       "x": 1760,
       "y": 995,
-      "width": 320,
-      "height": 25,
+      "width": 162.49490356445312,
+      "height": 37.5,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -4297,14 +4339,14 @@
       "index": "b0P",
       "roundness": null,
       "seed": 55501241,
-      "version": 1,
-      "versionNonce": 100000006,
+      "version": 2,
+      "versionNonce": 1674781029,
       "isDeleted": false,
       "boundElements": [],
-      "updated": 1785213230080,
+      "updated": 1785227278876,
       "link": null,
       "locked": false,
-      "text": "23 - presign-upload / confirm / download-url",
+      "text": "23 - presign-upload /\nconfirm / download-url",
       "fontSize": 15,
       "fontFamily": 5,
       "textAlign": "center",
@@ -4317,10 +4359,10 @@
     {
       "id": "arrFilesModuleToS3",
       "type": "arrow",
-      "x": 1650,
-      "y": 1150,
-      "width": 0,
-      "height": 80,
+      "x": 1658.2341198894367,
+      "y": 1200.3692785797693,
+      "width": 3.7596071270008906,
+      "height": 164.71401645089486,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -4332,40 +4374,61 @@
       "groupIds": [],
       "frameId": null,
       "index": "b0Q",
-      "roundness": {"type": 2},
+      "roundness": {
+        "type": 2
+      },
       "seed": 55501242,
-      "version": 1,
-      "versionNonce": 100000007,
+      "version": 111,
+      "versionNonce": 1533478597,
       "isDeleted": false,
       "boundElements": [
-        {"type": "text", "id": "arrFilesModuleToS3Label"}
+        {
+          "type": "text",
+          "id": "arrFilesModuleToS3Label"
+        }
       ],
-      "updated": 1785213230080,
+      "updated": 1785227280010,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [0, 80]],
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          3.7596071270008906,
+          164.71401645089486
+        ]
+      ],
       "lastCommittedPoint": null,
       "startBinding": {
         "elementId": "s3FilesModuleBox",
         "mode": "orbit",
-        "fixedPoint": [0.5, 1]
+        "fixedPoint": [
+          0.5001,
+          1
+        ]
       },
       "endBinding": {
         "elementId": "s3BucketBoxNew1",
         "mode": "orbit",
-        "fixedPoint": [0.5, 0]
+        "fixedPoint": [
+          0.5001,
+          0
+        ]
       },
       "startArrowhead": null,
       "endArrowhead": "arrow",
-      "elbowed": false
+      "elbowed": false,
+      "moveMidPointsWithElement": false
     },
     {
       "id": "arrFilesModuleToS3Label",
       "type": "text",
       "x": 1665,
       "y": 1180,
-      "width": 260,
-      "height": 25,
+      "width": 147.79782104492188,
+      "height": 70,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -4379,14 +4442,14 @@
       "index": "b0R",
       "roundness": null,
       "seed": 55501243,
-      "version": 1,
-      "versionNonce": 100000008,
+      "version": 2,
+      "versionNonce": 1652801259,
       "isDeleted": false,
       "boundElements": [],
-      "updated": 1785213230080,
+      "updated": 1785227250870,
       "link": null,
       "locked": false,
-      "text": "generate_presigned_url\n(build_key, exists, read_bytes)",
+      "text": "generate_presigned_u\nrl\n(build_key, exists,\nread_bytes)",
       "fontSize": 14,
       "fontFamily": 5,
       "textAlign": "center",
@@ -4399,10 +4462,10 @@
     {
       "id": "arrClientToS3Put",
       "type": "arrow",
-      "x": 4640,
-      "y": 1290,
-      "width": 2790,
-      "height": 30,
+      "x": 4636.7846281951015,
+      "y": 861.3483039715036,
+      "width": 2818.6839508252688,
+      "height": 544.6793647839827,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -4414,40 +4477,65 @@
       "groupIds": [],
       "frameId": null,
       "index": "b0S",
-      "roundness": {"type": 2},
+      "roundness": {
+        "type": 2
+      },
       "seed": 55501244,
-      "version": 1,
-      "versionNonce": 100000009,
+      "version": 98,
+      "versionNonce": 472580389,
       "isDeleted": false,
       "boundElements": [
-        {"type": "text", "id": "arrClientToS3PutLabel"}
+        {
+          "type": "text",
+          "id": "arrClientToS3PutLabel"
+        }
       ],
-      "updated": 1785213230080,
+      "updated": 1785227277181,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [-2790, 30]],
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -1425.445896412773,
+          299.5562484814211
+        ],
+        [
+          -2818.6839508252688,
+          544.6793647839827
+        ]
+      ],
       "lastCommittedPoint": null,
       "startBinding": {
         "elementId": "opq0T7h69wImVkQxileDE",
         "mode": "orbit",
-        "fixedPoint": [0.5, 1]
+        "fixedPoint": [
+          0.5001,
+          1
+        ]
       },
       "endBinding": {
         "elementId": "s3BucketBoxNew1",
         "mode": "orbit",
-        "fixedPoint": [1, 0.3]
+        "fixedPoint": [
+          1,
+          0.3
+        ]
       },
       "startArrowhead": null,
       "endArrowhead": "arrow",
-      "elbowed": false
+      "elbowed": false,
+      "moveMidPointsWithElement": false
     },
     {
       "id": "arrClientToS3PutLabel",
       "type": "text",
       "x": 3200,
       "y": 1295,
-      "width": 420,
-      "height": 25,
+      "width": 652.154541015625,
+      "height": 18.75,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -4461,11 +4549,11 @@
       "index": "b0T",
       "roundness": null,
       "seed": 55501245,
-      "version": 1,
-      "versionNonce": 100000012,
+      "version": 2,
+      "versionNonce": 1976254507,
       "isDeleted": false,
       "boundElements": [],
-      "updated": 1785213230080,
+      "updated": 1785227250870,
       "link": null,
       "locked": false,
       "text": "24 - client PUTs/GETs bytes direct to presigned URL (bypasses backend, real S3 mode)",
@@ -4481,10 +4569,10 @@
     {
       "id": "arrClientToS3Get",
       "type": "arrow",
-      "x": 4640,
-      "y": 1320,
-      "width": 2790,
-      "height": 60,
+      "x": 1818.1006773698323,
+      "y": 1454.3987512777564,
+      "width": 2844.38951399727,
+      "height": 593.0504473062529,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -4496,30 +4584,52 @@
       "groupIds": [],
       "frameId": null,
       "index": "b0U",
-      "roundness": {"type": 2},
+      "roundness": {
+        "type": 2
+      },
       "seed": 55501246,
-      "version": 1,
-      "versionNonce": 100000013,
+      "version": 123,
+      "versionNonce": 1406768261,
       "isDeleted": false,
       "boundElements": [],
-      "updated": 1785213230080,
+      "updated": 1785227277181,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [-2790, 0]],
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          1516.2618897646357,
+          -172.99126740169527
+        ],
+        [
+          2844.38951399727,
+          -593.0504473062529
+        ]
+      ],
       "lastCommittedPoint": null,
       "startBinding": {
         "elementId": "s3BucketBoxNew1",
         "mode": "orbit",
-        "fixedPoint": [1, 0.7]
+        "fixedPoint": [
+          1,
+          0.7
+        ]
       },
       "endBinding": {
         "elementId": "opq0T7h69wImVkQxileDE",
         "mode": "orbit",
-        "fixedPoint": [0.5, 1.05]
+        "fixedPoint": [
+          0.5001,
+          1.05
+        ]
       },
       "startArrowhead": null,
       "endArrowhead": "arrow",
-      "elbowed": false
+      "elbowed": false,
+      "moveMidPointsWithElement": false
     }
   ],
   "appState": {
