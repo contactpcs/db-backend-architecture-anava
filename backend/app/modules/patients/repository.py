@@ -32,6 +32,9 @@ class PatientRepository:
         self_registered: bool = False,
         approval_status: str = "not_required",
         cognito_sub: str | None = None,
+        registered_by: UUID | None = None,
+        guardian_name: str | None = None,
+        guardian_relationship: str | None = None,
     ) -> dict:
         # is_active = FALSE — gated until the patient signs the
         # patient_onboarding consent (see consent/service.py ConsentRecordService.sign),
@@ -86,8 +89,9 @@ class PatientRepository:
             self.session,
             text(
                 "INSERT INTO patients (profile_id, primary_clinic_id, emergency_contact_name, emergency_contact_phone, "
-                "self_registered, approval_status) "
-                "VALUES (:profile_id, :clinic_id, :ec_name, :ec_phone, :self_registered, :approval_status) RETURNING *"
+                "self_registered, approval_status, registered_by, guardian_name, guardian_relationship) "
+                "VALUES (:profile_id, :clinic_id, :ec_name, :ec_phone, :self_registered, :approval_status, :registered_by, "
+                ":guardian_name, :guardian_relationship) RETURNING *"
             ),
             {
                 "profile_id": profile["id"],
@@ -96,6 +100,9 @@ class PatientRepository:
                 "ec_phone": emergency_contact_phone,
                 "self_registered": self_registered,
                 "approval_status": approval_status,
+                "registered_by": str(registered_by) if registered_by else None,
+                "guardian_name": guardian_name,
+                "guardian_relationship": guardian_relationship,
             },
         )
         # Merge in the profile fields we already have in hand — avoids a

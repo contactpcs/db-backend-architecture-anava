@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import text
@@ -16,6 +17,15 @@ from app.modules.patients.repository import (
     PatientTransferRepository,
 )
 from app.modules.staff.service import DoctorService
+
+
+def _is_minor(dob: date | None) -> bool:
+    if dob is None:
+        return False
+    today = date.today()
+    age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+    return age < 18
+
 
 # Registration status machine (Master Doc Section 6.2 / SQL/04_patient_tables.sql CHECK constraint)
 _REGISTRATION_STEPS = [
@@ -35,7 +45,9 @@ class PatientService:
         self.disease_repo = DiseaseSelectionRepository(session)
         self.assignments = DoctorPatientAssignmentRepository(session)
 
-    async def register(self, data: dict, *, self_registered: bool = False, cognito_sub: str | None = None) -> dict:
+    async def register(
+        self, data: dict, *, self_registered: bool = False, cognito_sub: str | None = None, registered_by: UUID | None = None
+    ) -> dict:
         clinic = (
             (
                 await self.session.execute(
@@ -63,6 +75,13 @@ class PatientService:
             )
         if clinic["status"] in ("pending_closure", "closed"):
             raise BusinessRuleError("Cannot register a patient at a clinic that is closing/closed", code="CLINIC_NOT_OPEN")
+        # Under-18: email/phone above belong to the guardian, not the patient
+        # (no separate guardian identity/table — same columns either way, by
+        # design). Enforced here, not just as an optional schema field, so
+        # every registration route (self-service, receptionist) is covered
+        # by one check rather than trusting each caller to remember it.
+        if _is_minor(data.get("dob")) and not data.get("guardian_name"):
+            raise BusinessRuleError("Guardian name is required for a patient under 18", code="GUARDIAN_REQUIRED")
         try:
             patient = await self.repo.create_profile_and_patient(
                 email=data["email"],
@@ -82,6 +101,9 @@ class PatientService:
                 self_registered=self_registered,
                 approval_status="pending" if self_registered else "not_required",
                 cognito_sub=cognito_sub,
+                registered_by=registered_by,
+                guardian_name=data.get("guardian_name"),
+                guardian_relationship=data.get("guardian_relationship"),
             )
         except IntegrityError as exc:
             raise ConflictError(f"Email {data['email']!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
