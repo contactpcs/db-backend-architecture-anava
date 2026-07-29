@@ -123,6 +123,9 @@ class PatientService:
             aggregate_id=patient["patient_id"],
             event_type="patient_registered",
             payload={"patient_id": str(patient["patient_id"]), "mrn": patient["mrn"]},
+            # Only fills a gap for anonymous self-registration; no-op when a
+            # staff member (already authenticated) registered this patient.
+            actor_role="patient",
         )
         return patient
 
