@@ -255,6 +255,23 @@ def initiate_auth(*, username: str, password: str) -> dict:
     return resp["AuthenticationResult"]
 
 
+def change_password(*, access_token: str, previous_password: str, new_password: str) -> None:
+    """Authenticated 'change my own password' — needs the caller's real
+    current password (unlike admin_set_user_password, which has no
+    old-password check) and their own access token, not a username."""
+    _require_cognito_mode()
+    try:
+        _client().change_password(AccessToken=access_token, PreviousPassword=previous_password, ProposedPassword=new_password)
+    except _client().exceptions.NotAuthorizedException as exc:
+        raise PermissionError_("Current password is incorrect", code="INVALID_CURRENT_PASSWORD") from exc
+    except _client().exceptions.InvalidPasswordException as exc:
+        raise BusinessRuleError("Password does not meet requirements", code="INVALID_PASSWORD") from exc
+    except _client().exceptions.LimitExceededException as exc:
+        raise BusinessRuleError("Too many attempts — try again later", code="RATE_LIMITED") from exc
+    except ClientError as exc:
+        raise BusinessRuleError(f"Could not change password: {exc}", code="COGNITO_CHANGE_PASSWORD_FAILED") from exc
+
+
 def forgot_password(*, username: str) -> None:
     """Starts Cognito's native forgot-password flow — sends a reset code to
     whichever channel (email/phone) is on file. Deliberately silent on
