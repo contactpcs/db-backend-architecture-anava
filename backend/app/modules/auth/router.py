@@ -193,6 +193,7 @@ async def patient_signup_complete(body: PatientSignupComplete, db=Depends(get_db
         "phone": body.contact if body.method == "mobile" else None,
         "guardian_name": body.guardian_name,
         "guardian_relationship": body.guardian_relationship,
+        "guardian_contact": body.guardian_contact,
     }
     patient = await PatientService(db).register(data, self_registered=True, cognito_sub=cognito_sub)
     if body.method == "email":
@@ -291,6 +292,7 @@ async def patient_receptionist_signup_complete(
         "phone": body.contact if body.method == "mobile" else None,
         "guardian_name": body.guardian_name,
         "guardian_relationship": body.guardian_relationship,
+        "guardian_contact": body.guardian_contact,
     }
     patient = await PatientService(db).register(
         data, self_registered=False, cognito_sub=cognito_sub, registered_by=UUID(ctx.user_id)

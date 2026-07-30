@@ -28,6 +28,7 @@ class PublicPatientRegister(BaseModel):
     # not the patient; same columns, no separate guardian identity/table.
     guardian_name: str | None = None
     guardian_relationship: str | None = None
+    guardian_contact: str | None = None
 
 
 class PatientSignupStart(BaseModel):
@@ -58,6 +59,7 @@ class PatientSignupStart(BaseModel):
     # field, even though only Complete actually persists it.
     guardian_name: str | None = None
     guardian_relationship: str | None = None
+    guardian_contact: str | None = None
 
 
 class PatientSignupResend(BaseModel):
@@ -91,6 +93,7 @@ class PatientSignupComplete(BaseModel):
     confirm_password: str
     guardian_name: str | None = None
     guardian_relationship: str | None = None
+    guardian_contact: str | None = None
 
 
 class VerifyChannelStart(BaseModel):

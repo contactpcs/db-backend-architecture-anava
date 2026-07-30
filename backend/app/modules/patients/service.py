@@ -27,6 +27,13 @@ def _is_minor(dob: date | None) -> bool:
     return age < 18
 
 
+_GUARDIAN_FIELDS = ("guardian_name", "guardian_relationship", "guardian_contact")
+
+
+def _guardian_fields_provided(data: dict) -> bool:
+    return any(data.get(f) for f in _GUARDIAN_FIELDS)
+
+
 # Registration status machine (Master Doc Section 6.2 / SQL/04_patient_tables.sql CHECK constraint)
 _REGISTRATION_STEPS = [
     "demographics_complete",
@@ -75,13 +82,17 @@ class PatientService:
             )
         if clinic["status"] in ("pending_closure", "closed"):
             raise BusinessRuleError("Cannot register a patient at a clinic that is closing/closed", code="CLINIC_NOT_OPEN")
-        # Under-18: email/phone above belong to the guardian, not the patient
-        # (no separate guardian identity/table — same columns either way, by
-        # design). Enforced here, not just as an optional schema field, so
-        # every registration route (self-service, receptionist) is covered
-        # by one check rather than trusting each caller to remember it.
-        if _is_minor(data.get("dob")) and not data.get("guardian_name"):
-            raise BusinessRuleError("Guardian name is required for a patient under 18", code="GUARDIAN_REQUIRED")
+        # Under-18: guardian details (name, relationship, contact) are always
+        # required — same columns for every route (self-service,
+        # receptionist), no separate guardian identity/table. 18+: optional,
+        # but once any one guardian field is provided, all three are —
+        # no half-filled guardian record either way. Enforced here, not just
+        # as an optional schema field, so every caller is covered by one
+        # check rather than trusting each to remember it.
+        if _is_minor(data.get("dob")) or _guardian_fields_provided(data):
+            missing = [f for f in _GUARDIAN_FIELDS if not data.get(f)]
+            if missing:
+                raise BusinessRuleError(f"Guardian details incomplete: {', '.join(missing)} required", code="GUARDIAN_REQUIRED")
         try:
             patient = await self.repo.create_profile_and_patient(
                 email=data["email"],
@@ -104,6 +115,7 @@ class PatientService:
                 registered_by=registered_by,
                 guardian_name=data.get("guardian_name"),
                 guardian_relationship=data.get("guardian_relationship"),
+                guardian_contact=data.get("guardian_contact"),
             )
         except IntegrityError as exc:
             raise ConflictError(f"Email {data['email']!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
