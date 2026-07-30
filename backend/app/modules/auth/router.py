@@ -323,9 +323,7 @@ async def patient_receptionist_signup_complete(
         "guardian_relationship": body.guardian_relationship,
         "guardian_contact": body.guardian_contact,
     }
-    patient = await PatientService(db).register(
-        data, self_registered=False, cognito_sub=cognito_sub, registered_by=UUID(ctx.user_id)
-    )
+    patient = await PatientService(db).register(data, self_registered=False, cognito_sub=cognito_sub, registered_by=UUID(ctx.user_id))
     if body.method == "email":
         await db.execute(text("UPDATE profiles SET email_verified = TRUE WHERE id = :id"), {"id": patient["profile_id"]})
     else:

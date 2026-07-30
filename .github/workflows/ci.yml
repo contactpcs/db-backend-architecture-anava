@@ -102,6 +102,14 @@ jobs:
         working-directory: .
         env:
           PGPASSWORD: anava_test_password
+          # 14_functions.sql's PL/pgSQL bodies use unqualified table names,
+          # resolved only via search_path — but 19_search_path.sql (which
+          # sets it) runs numerically AFTER file 14, and each psql -f call
+          # below is its own fresh connection anyway, so the persistent
+          # ALTER DATABASE in file 19 wouldn't retroactively cover earlier
+          # ones either. Setting it here applies to every connection this
+          # step makes, regardless of file order.
+          PGOPTIONS: "-c search_path=core,reference,compliance,analytics,ops,extensions,public"
         run: |
           set -euo pipefail
           psql -h localhost -U anava_migrate -d anava_test -c \
