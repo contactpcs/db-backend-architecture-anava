@@ -43,16 +43,21 @@ jobs:
     name: Unit & integration tests
     runs-on: ubuntu-latest
     services:
+      # POSTGRES_USER here is the bootstrap superuser (stands in for RDS's
+      # "postgres" role, i.e. settings.migration_database_url) — matches how
+      # SQL/v1/02_roles.sql itself describes the split: anava_app is a
+      # separate, less-privileged, RLS-enforced role created explicitly
+      # below, never the container's own bootstrap user.
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: anava
+          POSTGRES_USER: anava_migrate
           POSTGRES_PASSWORD: anava_test_password
           POSTGRES_DB: anava_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U anava -d anava_test"
+          --health-cmd "pg_isready -U anava_migrate -d anava_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -67,7 +72,11 @@ jobs:
           --health-retries 10
     env:
       ENVIRONMENT: test
-      DATABASE_URL: postgresql+asyncpg://anava:anava_test_password@localhost:5432/anava_test
+      # anava_app: scoped, RLS-enforced — what the app actually runs as.
+      DATABASE_URL: postgresql+asyncpg://anava_app:anava_app_test_password@localhost:5432/anava_test
+      # anava_migrate (the container's bootstrap superuser): DDL/schema role,
+      # same purpose MIGRATION_DATABASE_URL serves against the real RDS.
+      MIGRATION_DATABASE_URL: postgresql+asyncpg://anava_migrate:anava_test_password@localhost:5432/anava_test
       REDIS_URL: redis://localhost:6379/0
       AUTH_MODE: local
       LOCAL_JWT_SECRET: ci-test-secret
@@ -82,8 +91,35 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
       - run: pip install ".[dev]"
-      - name: Run alembic migrations
-        run: alembic upgrade head
+      - name: Provision SQL/v1 schema
+        # alembic/versions/0001_baseline_schema.py reads SQL/01_extensions.sql
+        # etc. directly off disk at migration-run time (SQL_DIR = .../"SQL").
+        # Those files were replaced by SQL/v1/ during the schema restructuring
+        # and no longer exist — `alembic upgrade head` cannot succeed as
+        # written (FileNotFoundError, not flaky). SQL/v1/*.sql is the real
+        # schema source of truth (see SQL/v1/NOTES.md), so CI provisions from
+        # there directly instead.
+        working-directory: .
+        env:
+          PGPASSWORD: anava_test_password
+        run: |
+          set -euo pipefail
+          psql -h localhost -U anava_migrate -d anava_test -c \
+            "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anava_app') THEN CREATE ROLE anava_app LOGIN PASSWORD 'anava_app_test_password' NOBYPASSRLS; END IF; END \$\$;"
+          for f in $(printf '%s\n' SQL/v1/*.sql | LC_ALL=C sort); do
+            base=$(basename "$f")
+            [ "$base" = "run_all.sql" ] && continue
+            echo "Applying $base"
+            if [ "$base" = "19_search_path.sql" ]; then
+              # Source file targets the real RDS database name; CI's
+              # ephemeral container uses a different one. Substituted only
+              # at apply-time — SQL/v1 files are generated source-of-truth,
+              # never hand-edited (see each file's own header comment).
+              sed 's/"Anava_App_v1"/"anava_test"/' "$f" | psql -h localhost -U anava_migrate -d anava_test -v ON_ERROR_STOP=1
+            else
+              psql -h localhost -U anava_migrate -d anava_test -v ON_ERROR_STOP=1 -f "$f"
+            fi
+          done
       - name: Run tests with coverage
         run: pytest --cov=app --cov-report=term-missing --cov-report=xml
       - name: Upload coverage
