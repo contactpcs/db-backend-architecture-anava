@@ -85,6 +85,11 @@ class ConsentRecordService:
             aggregate_id=record["consent_id"],
             event_type="consent_generated",
             payload={"consent_id": str(record["consent_id"]), "consent_type": consent_type},
+            # Only fills a gap for the genuinely anonymous caller (patient
+            # self-registration — no role ever set); no-op for every
+            # authenticated caller (staff create, admin assign-admin), see
+            # emit_event()'s own guard.
+            actor_role="patient" if consent_type == "patient_onboarding" else role,
         )
         return record
 
