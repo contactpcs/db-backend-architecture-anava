@@ -10,6 +10,8 @@ from app.core.permissions import get_current_context
 from app.core.security import create_local_token
 from app.modules.auth.schemas import (
     CurrentUserRead,
+    ForgotPasswordConfirm,
+    ForgotPasswordStart,
     LocalLoginRequest,
     LoginRequest,
     NewPasswordRequest,
@@ -106,6 +108,33 @@ async def login_new_password(body: NewPasswordRequest) -> TokenResponse:
 
     result = respond_new_password(username=body.username, new_password=body.new_password, session=body.session)
     return TokenResponse(access_token=result["AccessToken"], refresh_token=result.get("RefreshToken"))
+
+
+@router.post("/forgot-password/start", status_code=204)
+async def forgot_password_start(body: ForgotPasswordStart) -> None:
+    """Role-agnostic — same Cognito user pool for staff and patients alike,
+    no role branching needed. Always returns 204 whether or not the
+    username exists (see cognito.forgot_password's own docstring) — the
+    frontend shows the same "check your email/phone" message either way."""
+    if settings.auth_mode != "cognito":
+        raise NotFoundError("Not found", code="NOT_FOUND")
+    from app.core.cognito import forgot_password
+
+    forgot_password(username=body.username)
+
+
+@router.post("/forgot-password/confirm", status_code=204)
+async def forgot_password_confirm(body: ForgotPasswordConfirm) -> None:
+    """Sets the new password directly — Cognito's ConfirmForgotPassword does
+    both the code check and the password change in one call, unlike the
+    signup wizard's separate confirm/set-password steps."""
+    if settings.auth_mode != "cognito":
+        raise NotFoundError("Not found", code="NOT_FOUND")
+    if body.new_password != body.confirm_password:
+        raise ValidationError("Passwords do not match", code="PASSWORD_MISMATCH")
+    from app.core.cognito import confirm_forgot_password
+
+    confirm_forgot_password(username=body.username, code=body.code, new_password=body.new_password)
 
 
 def _bearer_token(request: Request) -> str:

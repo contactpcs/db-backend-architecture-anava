@@ -255,6 +255,50 @@ def initiate_auth(*, username: str, password: str) -> dict:
     return resp["AuthenticationResult"]
 
 
+def forgot_password(*, username: str) -> None:
+    """Starts Cognito's native forgot-password flow — sends a reset code to
+    whichever channel (email/phone) is on file. Deliberately silent on
+    UserNotFoundException: revealing "no such account" here is a classic
+    account-enumeration leak (an attacker learns which emails/phones are
+    registered just by trying this endpoint). Same reasoning applies at
+    confirm_forgot_password below — both steps look identical whether the
+    account exists or not."""
+    _require_cognito_mode()
+    try:
+        _client().forgot_password(ClientId=settings.cognito_app_client_id, SecretHash=_secret_hash(username), Username=username)
+    except _client().exceptions.UserNotFoundException:
+        pass
+    except _client().exceptions.LimitExceededException as exc:
+        raise BusinessRuleError("Too many attempts — try again later", code="RATE_LIMITED") from exc
+    except ClientError as exc:
+        raise BusinessRuleError(f"Could not start password reset: {exc}", code="COGNITO_FORGOT_PASSWORD_FAILED") from exc
+
+
+def confirm_forgot_password(*, username: str, code: str, new_password: str) -> None:
+    """Completes the reset — sets the new password directly (no separate
+    'set password' step, unlike the signup wizard, since Cognito's
+    ConfirmForgotPassword does both in one call). UserNotFoundException
+    mapped to the same INVALID_OTP shape as a wrong code — indistinguishable
+    to the caller, same enumeration reasoning as forgot_password above."""
+    _require_cognito_mode()
+    try:
+        _client().confirm_forgot_password(
+            ClientId=settings.cognito_app_client_id,
+            SecretHash=_secret_hash(username),
+            Username=username,
+            ConfirmationCode=code,
+            Password=new_password,
+        )
+    except (_client().exceptions.CodeMismatchException, _client().exceptions.UserNotFoundException) as exc:
+        raise PermissionError_("Incorrect or expired code", code="INVALID_OTP") from exc
+    except _client().exceptions.ExpiredCodeException as exc:
+        raise PermissionError_("Verification code expired — request a new one", code="OTP_EXPIRED") from exc
+    except _client().exceptions.InvalidPasswordException as exc:
+        raise BusinessRuleError("Password does not meet requirements", code="INVALID_PASSWORD") from exc
+    except ClientError as exc:
+        raise BusinessRuleError(f"Could not reset password: {exc}", code="COGNITO_RESET_PASSWORD_FAILED") from exc
+
+
 def respond_new_password(*, username: str, new_password: str, session: str) -> dict:
     """Completes the NEW_PASSWORD_REQUIRED challenge initiate_auth() raises
     on a staff account's first login (AdminCreateUser's temp password).

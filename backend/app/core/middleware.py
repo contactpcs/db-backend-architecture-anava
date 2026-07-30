@@ -31,6 +31,8 @@ PUBLIC_PATHS = {
     "/api/v1/auth/patients/signup/resend",
     "/api/v1/auth/patients/signup/verify",
     "/api/v1/auth/patients/signup/complete",
+    "/api/v1/auth/forgot-password/start",  # no session yet — that's the whole point
+    "/api/v1/auth/forgot-password/confirm",
     "/api/v1/webhooks/razorpay",  # authenticated via HMAC signature, not a user JWT
 }
 

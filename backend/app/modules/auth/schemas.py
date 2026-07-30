@@ -100,6 +100,21 @@ class VerifyChannelConfirm(BaseModel):
     value: str
 
 
+class ForgotPasswordStart(BaseModel):
+    """Role-agnostic — same Cognito user pool for every role, no branching
+    needed. username is email or phone, whichever the account was set up
+    with."""
+
+    username: str
+
+
+class ForgotPasswordConfirm(BaseModel):
+    username: str
+    code: str
+    new_password: str = Field(min_length=8)
+    confirm_password: str
+
+
 class LocalLoginRequest(BaseModel):
     """Dev-only. Real login (Stage 13) is POST /auth/login below — this
     backend calls Cognito's InitiateAuth directly with the same email/
