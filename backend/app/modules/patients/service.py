@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import text
@@ -16,6 +17,22 @@ from app.modules.patients.repository import (
     PatientTransferRepository,
 )
 from app.modules.staff.service import DoctorService
+
+
+def _is_minor(dob: date | None) -> bool:
+    if dob is None:
+        return False
+    today = date.today()
+    age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+    return age < 18
+
+
+_GUARDIAN_FIELDS = ("guardian_name", "guardian_relationship", "guardian_contact")
+
+
+def _guardian_fields_provided(data: dict) -> bool:
+    return any(data.get(f) for f in _GUARDIAN_FIELDS)
+
 
 # Registration status machine (Master Doc Section 6.2 / SQL/04_patient_tables.sql CHECK constraint)
 _REGISTRATION_STEPS = [
@@ -35,7 +52,9 @@ class PatientService:
         self.disease_repo = DiseaseSelectionRepository(session)
         self.assignments = DoctorPatientAssignmentRepository(session)
 
-    async def register(self, data: dict, *, self_registered: bool = False, cognito_sub: str | None = None) -> dict:
+    async def register(
+        self, data: dict, *, self_registered: bool = False, cognito_sub: str | None = None, registered_by: UUID | None = None
+    ) -> dict:
         clinic = (
             (
                 await self.session.execute(
@@ -63,6 +82,17 @@ class PatientService:
             )
         if clinic["status"] in ("pending_closure", "closed"):
             raise BusinessRuleError("Cannot register a patient at a clinic that is closing/closed", code="CLINIC_NOT_OPEN")
+        # Under-18: guardian details (name, relationship, contact) are always
+        # required — same columns for every route (self-service,
+        # receptionist), no separate guardian identity/table. 18+: optional,
+        # but once any one guardian field is provided, all three are —
+        # no half-filled guardian record either way. Enforced here, not just
+        # as an optional schema field, so every caller is covered by one
+        # check rather than trusting each to remember it.
+        if _is_minor(data.get("dob")) or _guardian_fields_provided(data):
+            missing = [f for f in _GUARDIAN_FIELDS if not data.get(f)]
+            if missing:
+                raise BusinessRuleError(f"Guardian details incomplete: {', '.join(missing)} required", code="GUARDIAN_REQUIRED")
         try:
             patient = await self.repo.create_profile_and_patient(
                 email=data["email"],
@@ -82,6 +112,10 @@ class PatientService:
                 self_registered=self_registered,
                 approval_status="pending" if self_registered else "not_required",
                 cognito_sub=cognito_sub,
+                registered_by=registered_by,
+                guardian_name=data.get("guardian_name"),
+                guardian_relationship=data.get("guardian_relationship"),
+                guardian_contact=data.get("guardian_contact"),
             )
         except IntegrityError as exc:
             raise ConflictError(f"Email {data['email']!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
@@ -101,6 +135,9 @@ class PatientService:
             aggregate_id=patient["patient_id"],
             event_type="patient_registered",
             payload={"patient_id": str(patient["patient_id"]), "mrn": patient["mrn"]},
+            # Only fills a gap for anonymous self-registration; no-op when a
+            # staff member (already authenticated) registered this patient.
+            actor_role="patient",
         )
         return patient
 

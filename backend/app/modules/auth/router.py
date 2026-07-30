@@ -6,7 +6,7 @@ from sqlalchemy import text
 from app.config import get_settings
 from app.core.db import RequestContext, engine, get_db
 from app.core.exceptions import AuthenticationError, NotFoundError, ValidationError
-from app.core.permissions import get_current_context
+from app.core.permissions import get_current_context, require_role
 from app.core.security import create_local_token
 from app.modules.auth.schemas import (
     CurrentUserRead,
@@ -19,10 +19,13 @@ from app.modules.auth.schemas import (
     PatientSignupVerify,
     PublicPatientRegister,
     PublicPatientRegisterResponse,
+    ReceptionistPatientSignupResponse,
     TokenResponse,
     VerifyChannelConfirm,
     VerifyChannelStart,
 )
+
+_RECEPTIONIST_SIGNUP_ROLES = ("receptionist", "clinic_admin", "regional_admin", "super_admin")
 
 router = APIRouter()
 settings = get_settings()
@@ -188,6 +191,9 @@ async def patient_signup_complete(body: PatientSignupComplete, db=Depends(get_db
         "primary_clinic_id": str(body.primary_clinic_id),
         "email": body.contact if body.method == "email" else f"pending-{uuid4()}@no-email.local",
         "phone": body.contact if body.method == "mobile" else None,
+        "guardian_name": body.guardian_name,
+        "guardian_relationship": body.guardian_relationship,
+        "guardian_contact": body.guardian_contact,
     }
     patient = await PatientService(db).register(data, self_registered=True, cognito_sub=cognito_sub)
     if body.method == "email":
@@ -198,6 +204,106 @@ async def patient_signup_complete(body: PatientSignupComplete, db=Depends(get_db
 
     result = initiate_auth(username=body.contact, password=body.password)
     return PublicPatientRegisterResponse(access_token=result["AccessToken"], patient_id=patient["patient_id"])
+
+
+# ---------------------------------------------------------------------------
+# Receptionist-initiated patient registration — same Cognito OTP wizard as
+# the public self-registration flow above (steps 1-3 identical: SignUp auto-
+# sends the OTP to the patient's own phone/email, ConfirmSignUp verifies it,
+# then the real password is set). Only who's calling and the resulting
+# self_registered flag differ. NOT in PUBLIC_PATHS — receptionist must be
+# authenticated, unlike the public wizard which has no caller identity yet.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/patients/receptionist-signup/start", status_code=204)
+async def patient_receptionist_signup_start(
+    body: PatientSignupStart, _ctx: RequestContext = Depends(require_role(*_RECEPTIONIST_SIGNUP_ROLES))
+) -> None:
+    if settings.auth_mode != "cognito":
+        raise NotFoundError("Not found", code="NOT_FOUND")
+    from app.core.cognito import sign_up_patient
+
+    sign_up_patient(
+        username=body.contact,
+        first_name=body.first_name,
+        last_name=body.last_name,
+        dob=body.dob.isoformat() if body.dob else None,
+        gender=body.gender,
+    )
+
+
+@router.post("/patients/receptionist-signup/resend", status_code=204)
+async def patient_receptionist_signup_resend(
+    body: PatientSignupResend, _ctx: RequestContext = Depends(require_role(*_RECEPTIONIST_SIGNUP_ROLES))
+) -> None:
+    if settings.auth_mode != "cognito":
+        raise NotFoundError("Not found", code="NOT_FOUND")
+    from app.core.cognito import resend_confirmation_code
+
+    resend_confirmation_code(body.contact)
+
+
+@router.post("/patients/receptionist-signup/verify", status_code=204)
+async def patient_receptionist_signup_verify(
+    body: PatientSignupVerify, _ctx: RequestContext = Depends(require_role(*_RECEPTIONIST_SIGNUP_ROLES))
+) -> None:
+    if settings.auth_mode != "cognito":
+        raise NotFoundError("Not found", code="NOT_FOUND")
+    from app.core.cognito import confirm_sign_up
+
+    confirm_sign_up(username=body.contact, code=body.code)
+
+
+@router.post("/patients/receptionist-signup/complete", response_model=ReceptionistPatientSignupResponse, status_code=201)
+async def patient_receptionist_signup_complete(
+    body: PatientSignupComplete,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_RECEPTIONIST_SIGNUP_ROLES)),
+) -> ReceptionistPatientSignupResponse:
+    """Step 3 — identical to /signup/complete except self_registered=False
+    (approval_status lands 'not_required', already auto-approved — same
+    behavior staff-registered patients get today) and registered_by is
+    stamped with the receptionist's own profile id. The patient still sets
+    their own real password here, same as self-service; they log in later
+    on their own device via the unchanged /auth/login — no token handed
+    back to the receptionist (see ReceptionistPatientSignupResponse)."""
+    if settings.auth_mode != "cognito":
+        raise NotFoundError("Not found", code="NOT_FOUND")
+    if body.password != body.confirm_password:
+        raise ValidationError("Passwords do not match", code="PASSWORD_MISMATCH")
+    from app.core.cognito import set_patient_password
+    from app.modules.patients.service import PatientService
+
+    cognito_sub = set_patient_password(username=body.contact, password=body.password)
+
+    data = {
+        "first_name": body.first_name,
+        "last_name": body.last_name,
+        "dob": body.dob,
+        "gender": body.gender,
+        "address": body.address,
+        "city": body.city,
+        "state": body.state,
+        "country": body.country,
+        "pincode": body.pincode,
+        "primary_clinic_id": str(body.primary_clinic_id),
+        "email": body.contact if body.method == "email" else f"pending-{uuid4()}@no-email.local",
+        "phone": body.contact if body.method == "mobile" else None,
+        "guardian_name": body.guardian_name,
+        "guardian_relationship": body.guardian_relationship,
+        "guardian_contact": body.guardian_contact,
+    }
+    patient = await PatientService(db).register(
+        data, self_registered=False, cognito_sub=cognito_sub, registered_by=UUID(ctx.user_id)
+    )
+    if body.method == "email":
+        await db.execute(text("UPDATE profiles SET email_verified = TRUE WHERE id = :id"), {"id": patient["profile_id"]})
+    else:
+        await db.execute(text("UPDATE profiles SET phone_verified = TRUE WHERE id = :id"), {"id": patient["profile_id"]})
+    await db.commit()
+
+    return ReceptionistPatientSignupResponse(patient_id=patient["patient_id"])
 
 
 @router.post("/patients/verify-channel/start", status_code=204)

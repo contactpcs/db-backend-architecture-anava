@@ -41,7 +41,7 @@ async def register_patient(
         cognito_sub = provision_staff_user(
             email=data["email"], first_name=data["first_name"], last_name=data["last_name"], phone=data.get("phone")
         )
-    return await PatientService(db).register(data, cognito_sub=cognito_sub)
+    return await PatientService(db).register(data, cognito_sub=cognito_sub, registered_by=UUID(ctx.user_id))
 
 
 @router.get("/patients", response_model=list[s.PatientRead])

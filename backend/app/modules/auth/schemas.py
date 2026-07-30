@@ -23,6 +23,12 @@ class PublicPatientRegister(BaseModel):
     country: str | None = None
     pincode: str | None = None
     primary_clinic_id: UUID
+    # Required (enforced in PatientService.register) when dob indicates the
+    # patient is under 18 — email/phone above then belong to the guardian,
+    # not the patient; same columns, no separate guardian identity/table.
+    guardian_name: str | None = None
+    guardian_relationship: str | None = None
+    guardian_contact: str | None = None
 
 
 class PatientSignupStart(BaseModel):
@@ -44,8 +50,16 @@ class PatientSignupStart(BaseModel):
     primary_clinic_id: UUID
     method: str = Field(pattern="^(email|mobile)$")
     # Email address (method=='email') or E.164 phone ("+91XXXXXXXXXX",
-    # method=='mobile') — whichever the patient chose to sign up with.
+    # method=='mobile') — whichever the patient chose to sign up with. When
+    # the patient is a minor (see guardian_name below), this is the
+    # guardian's own contact, not the patient's — same field either way.
     contact: str
+    # Required (enforced in PatientService.register) when dob indicates
+    # under 18 — carried through Start same as every other demographic
+    # field, even though only Complete actually persists it.
+    guardian_name: str | None = None
+    guardian_relationship: str | None = None
+    guardian_contact: str | None = None
 
 
 class PatientSignupResend(BaseModel):
@@ -77,6 +91,9 @@ class PatientSignupComplete(BaseModel):
     contact: str
     password: str = Field(min_length=8)
     confirm_password: str
+    guardian_name: str | None = None
+    guardian_relationship: str | None = None
+    guardian_contact: str | None = None
 
 
 class VerifyChannelStart(BaseModel):
@@ -150,6 +167,17 @@ class PublicPatientRegisterResponse(BaseModel):
     # patients.patient_id (public ID) — anamnesis/PRS/disease-selection
     # endpoints all key off this, not profiles.id, so the frontend needs it
     # up front to drive the rest of the self-registration wizard.
+    patient_id: UUID
+
+
+class ReceptionistPatientSignupResponse(BaseModel):
+    """No access_token — the caller here is the receptionist, not the
+    patient. Returning the patient's login token to the receptionist's own
+    browser session would let the receptionist silently act as the patient,
+    which nothing else in this codebase's permission model allows. The
+    patient logs in themselves later, on their own device, with the
+    password they set in this same request."""
+
     patient_id: UUID
 
 
