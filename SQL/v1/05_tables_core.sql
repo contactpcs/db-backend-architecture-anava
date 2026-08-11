@@ -52,7 +52,8 @@ CREATE TABLE core."appointment_audit_logs" (
 ) PARTITION BY RANGE ("changed_at");
 -- Partitioned by monthly range on changed_at. Initial partitions below;
 -- ongoing partition creation ahead of the current date is an operational job (Layer 7),
--- not a one-time setup step — see ops/PARTITION_MAINTENANCE.md.
+-- not a one-time setup step — automated by create_future_partitions() in
+-- backend/app/workers/retention_purge.py (daily).
 CREATE TABLE core."appointment_audit_logs_y2025m01" PARTITION OF core."appointment_audit_logs"
     FOR VALUES FROM ('2025-01-01') TO ('2025-02-01');
 CREATE TABLE core."appointment_audit_logs_y2025m02" PARTITION OF core."appointment_audit_logs"
@@ -408,7 +409,8 @@ CREATE TABLE core."notifications" (
 ) PARTITION BY RANGE ("created_at");
 -- Partitioned by monthly range on created_at. Initial partitions below;
 -- ongoing partition creation ahead of the current date is an operational job (Layer 7),
--- not a one-time setup step — see ops/PARTITION_MAINTENANCE.md.
+-- not a one-time setup step — automated by create_future_partitions() in
+-- backend/app/workers/retention_purge.py (daily).
 CREATE TABLE core."notifications_y2025m01" PARTITION OF core."notifications"
     FOR VALUES FROM ('2025-01-01') TO ('2025-02-01');
 CREATE TABLE core."notifications_y2025m02" PARTITION OF core."notifications"
@@ -886,7 +888,8 @@ CREATE TABLE core."treatment_sessions" (
 ) PARTITION BY RANGE ("created_at");
 -- Partitioned by yearly range on created_at. Initial partitions below;
 -- ongoing partition creation ahead of the current date is an operational job (Layer 7),
--- not a one-time setup step — see ops/PARTITION_MAINTENANCE.md.
+-- not a one-time setup step — automated by create_future_partitions() in
+-- backend/app/workers/retention_purge.py (daily).
 CREATE TABLE core."treatment_sessions_y2024" PARTITION OF core."treatment_sessions"
     FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
 CREATE TABLE core."treatment_sessions_y2025" PARTITION OF core."treatment_sessions"

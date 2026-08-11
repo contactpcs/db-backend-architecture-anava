@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     # AWS's official public bundle: https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
     db_ssl_ca_bundle: str | None = "certs/rds-global-bundle.pem"
 
+    # Partition maintenance runs inside the API process (app/main.py lifespan),
+    # so no separate worker deployment is needed. Off switch exists for tests
+    # and for the case where it's moved to a dedicated scheduled task instead.
+    partition_maintenance_enabled: bool = True
+
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 

@@ -1,3 +1,8 @@
+import asyncio
+import contextlib
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +29,7 @@ from app.modules.reception.router import router as reception_router
 from app.modules.scheduling.router import router as scheduling_router
 from app.modules.staff.router import router as staff_router
 from app.modules.store.router import router as store_router
+from app.workers.retention_purge import run_partition_maintenance_forever
 
 settings = get_settings()
 
@@ -36,7 +42,25 @@ structlog.configure(
     ]
 )
 
-app = FastAPI(title="Anava Clinic Backend", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Keeps monthly/yearly partitions created ahead of the current date so
+    inserts never fall through to the DEFAULT partition (see
+    SQL/v1/07_tables_compliance.sql). Runs in-process on every API instance —
+    a Postgres advisory lock inside the job makes that safe with multiple
+    uvicorn workers and multiple instances, so no separate worker deployment
+    is required."""
+    task = None
+    if settings.partition_maintenance_enabled:
+        task = asyncio.create_task(run_partition_maintenance_forever())
+    yield
+    if task is not None:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+app = FastAPI(title="Anava Clinic Backend", version="0.1.0", lifespan=lifespan)
 
 # Starlette wraps middleware in reverse add-order (last added = outermost),
 # so CORSMiddleware must be added LAST — otherwise AuthContextMiddleware

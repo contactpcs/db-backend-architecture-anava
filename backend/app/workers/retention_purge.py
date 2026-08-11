@@ -10,7 +10,8 @@ compliance policy Sections 6, 7). Two independent jobs, run on a schedule:
    cleared (the *latest* one, not the earliest — Section 7.2) and no
    legal_hold is set. Drops expired partitions on the 5 partitioned log/session
    tables once their entire date range is past retention (Section 7.3 — a
-   DROP, not a DELETE scan).
+   DROP, not a DELETE scan), and creates partitions ~6 months ahead of the
+   current date so inserts never fall through to the DEFAULT partition.
 
 `patients.retention_basis_cleared_at` / `last_clinical_contact_at` have no
 write-through from the app yet (flagged as future work in the v1 design doc)
@@ -261,6 +262,74 @@ def _partition_upper_bound(partition_name: str, parent: str) -> datetime | None:
     return datetime(year + 1, 1, 1, tzinfo=UTC)
 
 
+PARTITION_LEAD = timedelta(days=180)  # keep ~6 months of future partitions ready
+
+
+def _next_range(lower: datetime, monthly: bool) -> tuple[datetime, str]:
+    """Given a partition's lower bound, return its upper bound and the name
+    suffix for it — the inverse of _partition_upper_bound, same naming scheme."""
+    if monthly:
+        upper = datetime(lower.year + lower.month // 12, (lower.month % 12) + 1, 1, tzinfo=UTC)
+        return upper, f"y{lower.year}m{lower.month:02d}"
+    return datetime(lower.year + 1, 1, 1, tzinfo=UTC), f"y{lower.year}"
+
+
+async def create_future_partitions(session) -> list[str]:
+    """Job 2c — extend each partitioned table forward so inserts never fall
+    through to the DEFAULT partition. Must run *ahead* of the data: once rows
+    for a range are sitting in DEFAULT, Postgres refuses to attach a partition
+    covering them ("would be violated by some row") and it becomes a manual
+    detach/move/re-attach job.
+
+    Granularity, schema and naming are read from the partitions that already
+    exist rather than configured here — one less thing to keep in sync with the
+    DDL in SQL/v1/."""
+    created = []
+    horizon = datetime.now(UTC) + PARTITION_LEAD
+    for parent in PARTITION_RETENTION:
+        rows = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT c.relname, n.nspname FROM pg_inherits i "
+                        "JOIN pg_class c ON i.inhrelid = c.oid "
+                        "JOIN pg_class p ON i.inhparent = p.oid "
+                        "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                        "WHERE p.relname = :parent"
+                    ),
+                    {"parent": parent},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        bounds = [b for b in (_partition_upper_bound(r["relname"], parent) for r in rows) if b is not None]
+        if not bounds:
+            continue  # table absent, or only a DEFAULT partition — nothing to extend from
+        schema = rows[0]["nspname"]
+        monthly = any("m" in r["relname"][len(parent) + 1 :] for r in rows)
+        edge = max(bounds)
+
+        # savepoint per table: attaching over a non-empty DEFAULT fails, and one
+        # such table must not abort the transaction for the others
+        try:
+            async with session.begin_nested():
+                while edge < horizon:
+                    upper, suffix = _next_range(edge, monthly)
+                    name = f"{parent}_{suffix}"
+                    await session.execute(
+                        text(
+                            f'CREATE TABLE IF NOT EXISTS "{schema}"."{name}" PARTITION OF "{schema}"."{parent}" '
+                            f"FOR VALUES FROM ('{edge:%Y-%m-%d}') TO ('{upper:%Y-%m-%d}')"
+                        )
+                    )
+                    created.append(name)
+                    edge = upper
+        except Exception:
+            logger.exception("partition_create_failed", parent=parent, next_lower_bound=str(edge))
+    return created
+
+
 async def drop_expired_partitions(session) -> list[str]:
     """Job 2b — drop partitions whose entire range is past retention. A DROP,
     never a DELETE scan — the whole reason these tables were partitioned."""
@@ -292,6 +361,45 @@ async def drop_expired_partitions(session) -> list[str]:
     return dropped
 
 
+PARTITION_CHECK_INTERVAL_SECONDS = 12 * 60 * 60  # twice daily
+# Arbitrary but fixed app-wide key for pg_advisory_lock. Every API instance runs
+# the loop below, so without this N uvicorn workers x M instances would all
+# attempt the same DDL at once.
+PARTITION_LOCK_KEY = 8412771  # "anava:partition-maintenance"
+
+
+async def ensure_partitions() -> list[str]:
+    """One partition-maintenance pass, safe to call from every API instance
+    concurrently. pg_try_advisory_xact_lock is transaction-scoped — it releases
+    on commit/rollback/disconnect, so a crashed instance can't wedge the lock."""
+    async with _session_factory() as session:
+        async with session.begin():
+            got_lock = (await session.execute(text("SELECT pg_try_advisory_xact_lock(:k)"), {"k": PARTITION_LOCK_KEY})).scalar()
+            if not got_lock:
+                return []  # another instance is doing it right now
+            return await create_future_partitions(session)
+
+
+async def run_partition_maintenance_forever() -> None:
+    """Background loop started from the FastAPI lifespan — see app/main.py.
+    Deliberately only creates partitions; it never drops, anonymises or
+    deletes. Those live in run_once() and stay opt-in via the standalone
+    worker, because auto-running destructive retention on every API boot is a
+    policy decision, not a default."""
+    logger.info("partition_maintenance_started", interval_seconds=PARTITION_CHECK_INTERVAL_SECONDS)
+    while True:
+        try:
+            created = await ensure_partitions()
+            if created:
+                logger.info("partitions_created", partitions=created)
+        except Exception:
+            # never let this kill the API process — worst case is that
+            # partitions go stale and inserts land in DEFAULT, which is
+            # recoverable; a crashed app server is not
+            logger.exception("partition_maintenance_failed")
+        await asyncio.sleep(PARTITION_CHECK_INTERVAL_SECONDS)
+
+
 async def run_once() -> dict:
     async with _session_factory() as session:
         async with session.begin():
@@ -303,7 +411,17 @@ async def run_once() -> dict:
         async with session.begin():
             dropped = await drop_expired_partitions(session)
 
-    summary = {"classified_items": classified, "deleted_items": deleted, "anonymized_profiles": anonymized, "dropped_partitions": dropped}
+    # via ensure_partitions(), not create_future_partitions() directly, so the
+    # standalone worker takes the same advisory lock the API instances do
+    created = await ensure_partitions()
+
+    summary = {
+        "classified_items": classified,
+        "deleted_items": deleted,
+        "anonymized_profiles": anonymized,
+        "created_partitions": created,
+        "dropped_partitions": dropped,
+    }
     logger.info("retention_purge_run_complete", **summary)
     return summary
 

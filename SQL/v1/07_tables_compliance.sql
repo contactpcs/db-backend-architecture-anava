@@ -17,7 +17,8 @@ CREATE TABLE compliance."activity_logs" (
 ) PARTITION BY RANGE ("created_at");
 -- Partitioned by monthly range on created_at. Initial partitions below;
 -- ongoing partition creation ahead of the current date is an operational job (Layer 7),
--- not a one-time setup step — see ops/PARTITION_MAINTENANCE.md.
+-- not a one-time setup step — automated by create_future_partitions() in
+-- backend/app/workers/retention_purge.py (daily).
 CREATE TABLE compliance."activity_logs_y2025m01" PARTITION OF compliance."activity_logs"
     FOR VALUES FROM ('2025-01-01') TO ('2025-02-01');
 CREATE TABLE compliance."activity_logs_y2025m02" PARTITION OF compliance."activity_logs"
@@ -108,7 +109,8 @@ CREATE TABLE compliance."audit_logs" (
 ) PARTITION BY RANGE ("changed_at");
 -- Partitioned by monthly range on changed_at. Initial partitions below;
 -- ongoing partition creation ahead of the current date is an operational job (Layer 7),
--- not a one-time setup step — see ops/PARTITION_MAINTENANCE.md.
+-- not a one-time setup step — automated by create_future_partitions() in
+-- backend/app/workers/retention_purge.py (daily).
 CREATE TABLE compliance."audit_logs_y2025m01" PARTITION OF compliance."audit_logs"
     FOR VALUES FROM ('2025-01-01') TO ('2025-02-01');
 CREATE TABLE compliance."audit_logs_y2025m02" PARTITION OF compliance."audit_logs"
