@@ -1,0 +1,1698 @@
+// ###########################################################################
+// Anava — NeuroWellness
+// erd.dbml — dbdiagram.io import file
+//
+// Paste the whole file into https://dbdiagram.io (it replaces the editor
+// contents). This is DBML, NOT SQL — dbdiagram's own language. Do not try
+// to run it against a database; erd.sql is the real schema.
+//
+// 89 tables across 4 schemas, 89 primary keys, 259 foreign keys.
+//
+// Faithfully carried over from erd.sql:
+//   schemas (core / reference / compliance / ops) as real DBML schemas
+//   all 6 enum types as native Enum blocks
+//   primary keys, composite primary keys, unique constraints
+//   every foreign key, as a Ref: line
+//   not-null flags
+//
+// NOT represented (DBML has no equivalent; all still live in erd.sql):
+//   1,164 partitions, 197 RLS policies, 83 triggers, 13 functions,
+//   264 indexes, 23 grants, 80 CHECK constraints, 361 defaults
+// ###########################################################################
+
+Enum "core"."assessment_taken_by" {
+  "patient"
+  "doctor_on_behalf"
+}
+
+Enum "reference"."neuromod_modality" {
+  "tDCS"
+  "HD-tDCS"
+  "taVNS"
+  "TPS"
+  "rTMS"
+  "other"
+}
+
+Enum "reference"."neuromod_evidence_level" {
+  "A"
+  "B"
+  "C"
+}
+
+Enum "reference"."ear_side" {
+  "left"
+  "right"
+  "bilateral"
+}
+
+Enum "reference"."brain_hemisphere" {
+  "left"
+  "right"
+  "bilateral"
+  "midline"
+}
+
+Enum "core"."treatment_protocol_status" {
+  "draft"
+  "active"
+  "completed"
+  "cancelled"
+  "superseded"
+}
+
+Table "core"."admins" {
+  "admin_id" uuid [pk, not null]
+  "profile_id" uuid [not null, unique]
+  "admin_type" text [not null]
+  "region_id" uuid
+  "clinic_id" uuid
+  "force_password_change" boolean [not null]
+  "created_at" timestamptz [not null]
+}
+
+Table "core"."anamnesis_assessments" {
+  "anamnesis_id" text [pk, not null]
+  "patient_id" uuid [not null]
+  "submitted_by" uuid
+  "taken_by" "core.assessment_taken_by" [not null]
+  "cycle_id" uuid
+  "version" integer [not null]
+  "status" text [not null]
+  "completed_at" timestamptz
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+
+  Indexes {
+    ("patient_id", "version") [unique]
+  }
+}
+
+Table "core"."anamnesis_responses" {
+  "response_id" text [pk, not null]
+  "anamnesis_id" text [not null]
+  "question_id" text [not null]
+  "response_value" text
+  "response_values" "text[]"
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."appointment_audit_logs" {
+  "audit_id" uuid [not null]
+  "appointment_id" uuid [not null]
+  "changed_by" uuid
+  "changed_by_role" text
+  "previous_status" text
+  "new_status" text [not null]
+  "previous_date" date
+  "new_date" date
+  "previous_time" time
+  "new_time" time
+  "change_reason" text
+  "changed_at" timestamptz [not null]
+
+  Indexes {
+    ("audit_id", "changed_at") [pk]
+  }
+}
+
+Table "core"."appointment_requests" {
+  "request_id" uuid [pk, not null]
+  "clinic_id" uuid [not null]
+  "patient_id" uuid [not null]
+  "doctor_id" uuid
+  "cycle_id" uuid
+  "request_type" text [not null]
+  "parent_appointment_id" uuid
+  "preferred_date_1" date [not null]
+  "preferred_date_2" date
+  "preferred_date_3" date
+  "preferred_time_window" text [not null]
+  "patient_complaint" text
+  "reason" text
+  "urgency" text [not null]
+  "status" text [not null]
+  "approved_appointment_id" uuid
+  "submitted_by" uuid [not null]
+  "reviewed_by" uuid
+  "review_notes" text
+  "expires_at" timestamptz
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."appointments" {
+  "appointment_id" uuid [pk, not null]
+  "clinic_id" uuid [not null]
+  "patient_id" uuid [not null]
+  "doctor_id" uuid [not null]
+  "ca_id" uuid
+  "session_id" uuid
+  "cycle_id" uuid
+  "appointment_request_id" uuid
+  "appointment_date" date [not null]
+  "start_time" time [not null]
+  "end_time" time [not null]
+  "slot_duration_minutes" integer [not null]
+  "appointment_type" text [not null]
+  "session_phase" text
+  "status" text [not null]
+  "reason" text
+  "patient_complaint" text
+  "notes" text
+  "cancellation_reason" text
+  "booked_by" uuid [not null]
+  "booked_by_role" text [not null]
+  "cancelled_by" uuid
+  "rescheduled_from" uuid
+  "rescheduled_to" uuid
+  "checked_in_at" timestamptz
+  "started_at" timestamptz
+  "completed_at" timestamptz
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."assessment_protocol_requests" {
+  "request_id" uuid [pk, not null]
+  "patient_id" uuid [not null]
+  "clinical_assistant_id" uuid [not null]
+  "doctor_id" uuid [not null]
+  "clinic_id" uuid
+  "cycle_id" uuid
+  "protocol_details" jsonb [not null]
+  "status" text [not null]
+  "doctor_notes" text
+  "submitted_at" timestamptz [not null]
+  "reviewed_at" timestamptz
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."ca_doctor_assignments" {
+  "cda_id" uuid [pk, not null]
+  "ca_id" uuid [not null]
+  "doctor_id" uuid [not null]
+  "clinic_id" uuid [not null]
+  "is_primary" boolean [not null]
+  "assigned_at" timestamptz [not null]
+  "removed_at" timestamptz
+
+  Indexes {
+    ("ca_id", "doctor_id") [unique]
+  }
+}
+
+Table "core"."clinic_requests" {
+  "request_id" uuid [pk, not null]
+  "request_type" text [not null]
+  "clinic_type" text
+  "clinic_id" uuid
+  "region_id" uuid [not null]
+  "submitted_by" uuid [not null]
+  "status" text [not null]
+  "payload" jsonb [not null]
+  "reviewed_by" uuid
+  "review_notes" text
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."clinic_staff_assignments" {
+  "assignment_id" uuid [pk, not null]
+  "clinic_id" uuid [not null]
+  "profile_id" uuid [not null]
+  "staff_role" text [not null]
+  "is_active" boolean [not null]
+  "joined_at" timestamptz [not null]
+  "removed_at" timestamptz
+  "created_at" timestamptz [not null]
+
+  Indexes {
+    ("clinic_id", "profile_id") [unique]
+  }
+}
+
+Table "core"."clinical_assistants" {
+  "ca_id" uuid [pk, not null]
+  "profile_id" uuid [not null, unique]
+  "clinic_id" uuid [not null]
+  "qualification" text
+  "is_active" boolean [not null]
+  "deleted_by" uuid
+  "deleted_at" timestamptz
+  "created_at" timestamptz [not null]
+}
+
+Table "core"."clinics" {
+  "clinic_id" uuid [pk, not null]
+  "clinic_code" text [not null, unique]
+  "clinic_name" text [not null]
+  "clinic_type" text [not null]
+  "owner_name" text [not null]
+  "status" text [not null]
+  "region_id" uuid [not null]
+  "clinic_admin_id" uuid
+  "is_main_branch" boolean [not null]
+  "timezone" text [not null]
+  "address" text
+  "city" text
+  "state" text
+  "country" text [not null]
+  "phone" text
+  "email" text
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."device_assignments" {
+  "da_id" uuid [pk, not null]
+  "patient_id" uuid [not null]
+  "clinic_id" uuid [not null]
+  "plan_id" uuid [not null]
+  "assigned_by" uuid [not null]
+  "device_type" text [not null]
+  "purchase_status" text [not null]
+  "order_id" uuid
+  "prompted_at" timestamptz [not null]
+  "purchased_at" timestamptz
+  "collected_at" timestamptz
+  "returned_at" timestamptz
+  "returned_by" uuid
+  "return_reason" text
+  "created_at" timestamptz [not null]
+}
+
+Table "core"."doctor_patient_assignments" {
+  "assignment_id" uuid [pk, not null]
+  "doctor_id" uuid [not null]
+  "patient_id" uuid [not null]
+  "clinic_id" uuid [not null]
+  "status" text [not null]
+  "assigned_at" timestamptz [not null]
+  "ended_at" timestamptz
+}
+
+Table "core"."doctor_schedule_overrides" {
+  "override_id" uuid [pk, not null]
+  "doctor_id" uuid [not null]
+  "clinic_id" uuid [not null]
+  "override_date" date [not null]
+  "is_available" boolean [not null]
+  "start_time" time
+  "end_time" time
+  "slot_duration_minutes" integer
+  "reason" text
+  "created_by" uuid [not null]
+  "created_at" timestamptz [not null]
+
+  Indexes {
+    ("doctor_id", "override_date") [unique]
+  }
+}
+
+Table "core"."doctor_session_notes" {
+  "note_id" uuid [pk, not null]
+  "session_id" uuid [not null]
+  "cycle_id" uuid [not null]
+  "patient_id" uuid [not null]
+  "doctor_id" uuid [not null]
+  "session_number" integer [not null]
+  "session_phase" text [not null]
+  "chief_complaint" text
+  "clinical_observations" text
+  "assessment" text
+  "treatment_plan_notes" text
+  "follow_up_instructions" text
+  "referrals" text
+  "note_content" text
+  "is_confidential" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+
+  Indexes {
+    ("session_id", "doctor_id", "session_phase") [unique]
+  }
+}
+
+Table "core"."doctor_weekly_schedules" {
+  "schedule_id" uuid [pk, not null]
+  "doctor_id" uuid [not null]
+  "clinic_id" uuid [not null]
+  "day_of_week" smallint [not null]
+  "start_time" time [not null]
+  "end_time" time [not null]
+  "slot_duration_minutes" integer [not null]
+  "break_start" time
+  "break_end" time
+  "max_appointments" integer
+  "is_active" boolean [not null]
+  "effective_from" date
+  "effective_until" date
+  "created_by" uuid
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+
+  Indexes {
+    ("doctor_id", "clinic_id", "day_of_week") [unique]
+  }
+}
+
+Table "core"."doctors" {
+  "doctor_id" uuid [pk, not null]
+  "profile_id" uuid [not null, unique]
+  "specialization" text
+  "license_number" text
+  "hospital_affiliation" text
+  "max_patient_count" integer [not null]
+  "availability_status" text [not null]
+  "deleted_by" uuid
+  "deleted_at" timestamptz
+  "created_at" timestamptz [not null]
+  "clinic_id" uuid
+  "legal_hold" boolean [not null]
+}
+
+Table "core"."inventory" {
+  "inventory_id" uuid [pk, not null]
+  "product_id" uuid [not null]
+  "clinic_id" uuid [not null]
+  "quantity" integer [not null]
+  "updated_at" timestamptz [not null]
+
+  Indexes {
+    ("product_id", "clinic_id") [unique]
+  }
+}
+
+Table "core"."notifications" {
+  "notification_id" uuid [not null]
+  "recipient_id" uuid [not null]
+  "sender_id" uuid
+  "clinic_id" uuid
+  "type" text [not null]
+  "delivery_channel" text [not null]
+  "title" text [not null]
+  "body" text
+  "entity_type" text
+  "entity_id" uuid
+  "metadata" jsonb [not null]
+  "is_read" boolean [not null]
+  "read_at" timestamptz
+  "delivered_at" timestamptz
+  "delivery_attempts" integer [not null]
+  "expires_at" timestamptz
+  "created_at" timestamptz [not null]
+
+  Indexes {
+    ("notification_id", "created_at") [pk]
+  }
+}
+
+Table "core"."order_items" {
+  "item_id" uuid [pk, not null]
+  "order_id" uuid [not null]
+  "product_id" uuid [not null]
+  "quantity" integer [not null]
+  "unit_price" "numeric(10,2)" [not null]
+}
+
+Table "core"."patient_clinic_transfers" {
+  "pct_id" uuid [pk, not null]
+  "patient_id" uuid [not null]
+  "from_clinic_id" uuid [not null]
+  "to_clinic_id" uuid [not null]
+  "from_doctor_id" uuid
+  "to_doctor_id" uuid
+  "transfer_reason" text [not null]
+  "active_cycle_id" uuid
+  "status" text [not null]
+  "consent_id" uuid
+  "initiated_by" uuid [not null]
+  "notes" text
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."patient_disease_selection" {
+  "pds_id" uuid [pk, not null]
+  "patient_id" uuid [not null]
+  "disease_id" text
+  "disease_unknown" boolean [not null]
+  "is_primary" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."patient_eeg_files" {
+  "eeg_id" uuid [pk, not null]
+  "patient_id" uuid [not null]
+  "clinic_id" uuid [not null]
+  "cycle_id" uuid
+  "session_id" uuid
+  "performed_by" uuid [not null]
+  "reviewed_by" uuid
+  "eeg_type" text [not null]
+  "duration_minutes" integer
+  "raw_data_s3_key" text [unique]
+  "raw_file_name" text
+  "raw_file_size" bigint
+  "raw_checksum" text
+  "raw_checksum_algorithm" text [not null]
+  "report_s3_key" text [unique]
+  "report_file_name" text
+  "report_file_size" bigint
+  "report_checksum" text
+  "report_checksum_algorithm" text [not null]
+  "superseded_by" uuid
+  "recording_notes" text
+  "clinical_findings" text
+  "is_abnormal" boolean
+  "status" text [not null]
+  "performed_at" timestamptz [not null]
+  "reviewed_at" timestamptz
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."patient_medical_history_files" {
+  "mhf_id" uuid [pk, not null]
+  "patient_id" uuid [not null]
+  "clinic_id" uuid [not null]
+  "cycle_id" uuid
+  "uploaded_by" uuid [not null]
+  "document_type" text [not null]
+  "s3_key" text [not null, unique]
+  "file_name" text [not null]
+  "file_size" bigint
+  "mime_type" text
+  "checksum" text
+  "checksum_algorithm" text [not null]
+  "description" text
+  "document_date" date
+  "source_provider" text
+  "is_deleted" boolean [not null]
+  "deleted_by" uuid
+  "deleted_at" timestamptz
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."patient_scale_assignments" {
+  "psa_id" uuid [pk, not null]
+  "patient_id" uuid [not null]
+  "scale_id" text [not null]
+  "assessment_stage" text [not null]
+  "assigned_by" uuid [not null]
+  "assignment_reason" text
+  "is_active" boolean [not null]
+  "deactivated_at" timestamptz
+  "deactivated_by" uuid
+  "created_at" timestamptz [not null]
+  "disease_id" text
+}
+
+Table "core"."patients" {
+  "patient_id" uuid [pk, not null]
+  "profile_id" uuid [not null, unique]
+  "mrn" text [not null, unique]
+  "registration_status" text [not null]
+  "primary_clinic_id" uuid
+  "primary_doctor_id" uuid
+  "blood_group" text
+  "allergies" text
+  "occupation" text
+  "marital_status" text
+  "insurance_provider" text
+  "insurance_policy" text
+  "referred_by" text
+  "emergency_contact_name" text
+  "emergency_contact_phone" text
+  "registration_completed_at" timestamptz
+  "deleted_by" uuid
+  "deleted_at" timestamptz
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+  "self_registered" boolean [not null]
+  "approval_status" text [not null]
+  "approved_by" uuid
+  "approved_at" timestamptz
+  "rejection_reason" text
+  "retention_basis_cleared_at" timestamptz
+  "legal_hold" boolean [not null]
+  "closure_type" text
+  "closure_reason" text
+  "closed_at" timestamptz
+  "rejoin_deadline" timestamptz
+  "portal_access_mode" text [not null]
+  "last_clinical_contact_at" timestamptz
+  "registered_by" uuid
+  "guardian_name" text
+  "guardian_relationship" text
+  "guardian_contact" text
+}
+
+Table "core"."payments" {
+  "payment_id" uuid [pk, not null]
+  "session_id" uuid
+  "order_id" uuid
+  "idempotency_key" text [not null, unique]
+  "razorpay_order_id" text [unique]
+  "razorpay_payment_id" text [unique]
+  "amount" "numeric(10,2)" [not null]
+  "currency" text [not null]
+  "payment_method" text
+  "status" text [not null]
+  "gateway_response" jsonb [not null]
+  "waived_by" uuid
+  "waived_reason" text
+  "paid_at" timestamptz
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."profiles" {
+  "id" uuid [pk, not null]
+  "cognito_sub" text [not null, unique]
+  "email" text [not null, unique]
+  "first_name" text [not null]
+  "last_name" text [not null]
+  "phone" text
+  "role" text [not null]
+  "gender" text
+  "dob" date
+  "address" text
+  "city" text
+  "state" text
+  "country" text
+  "profile_photo_s3_key" text
+  "pincode" text
+  "language_pref" text [not null]
+  "is_active" boolean [not null]
+  "deleted_by" uuid
+  "deleted_at" timestamptz
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+  "consent_signed" boolean [not null]
+  "email_verified" boolean [not null]
+  "phone_verified" boolean [not null]
+  "is_anonymized" boolean [not null]
+  "anonymized_at" timestamptz
+}
+
+Table "core"."prs_assessment_instances" {
+  "instance_id" text [pk, not null]
+  "disease_id" text [not null]
+  "patient_id" uuid [not null]
+  "session_id" uuid
+  "cycle_id" uuid
+  "initiated_by" "core.assessment_taken_by" [not null]
+  "administered_by" uuid
+  "assessment_stage" text [not null]
+  "status" text [not null]
+  "started_at" timestamptz [not null]
+  "completed_at" timestamptz
+  "final_result" text
+  "created_at" timestamptz [not null]
+  "language_code" "varchar(10)" [not null]
+}
+
+Table "core"."prs_final_results" {
+  "final_result_id" text [pk, not null]
+  "instance_id" text [not null, unique]
+  "calculated_value" numeric
+  "max_possible" numeric
+  "percentage" numeric
+  "scales_completed" integer [not null]
+  "scales_total" integer [not null]
+  "overall_severity" text
+  "overall_severity_label" text
+  "scale_summaries" jsonb [not null]
+  "all_risk_flags" jsonb [not null]
+  "composite_summary" text
+  "time_stamp" timestamptz [not null]
+}
+
+Table "core"."prs_responses" {
+  "response_id" text [pk, not null]
+  "instance_id" text [not null]
+  "question_id" text [not null]
+  "given_response" text
+  "response_value" numeric
+  "time_stamp" timestamptz [not null]
+  "language_code" "varchar(10)" [not null]
+
+  Indexes {
+    ("instance_id", "question_id") [unique]
+  }
+}
+
+Table "core"."prs_scale_results" {
+  "scale_result_id" text [pk, not null]
+  "instance_id" text [not null]
+  "scale_id" text [not null]
+  "calculated_value" numeric
+  "max_possible" numeric
+  "percentage" numeric
+  "severity_level" text
+  "severity_label" text
+  "subscale_scores" jsonb [not null]
+  "risk_flags" jsonb [not null]
+  "raw_score_data" jsonb [not null]
+  "time_stamp" timestamptz [not null]
+
+  Indexes {
+    ("instance_id", "scale_id") [unique]
+  }
+}
+
+Table "core"."receptionists" {
+  "receptionist_id" uuid [pk, not null]
+  "profile_id" uuid [not null, unique]
+  "clinic_id" uuid [not null]
+  "is_active" boolean [not null]
+  "deleted_by" uuid
+  "deleted_at" timestamptz
+  "created_at" timestamptz [not null]
+}
+
+Table "core"."regions" {
+  "region_id" uuid [pk, not null]
+  "region_name" text [not null]
+  "country" text [not null]
+  "state" text [not null]
+  "regional_admin_id" uuid
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+
+  Indexes {
+    ("country", "state") [unique]
+  }
+}
+
+Table "core"."sessions" {
+  "session_id" uuid [pk, not null]
+  "patient_id" uuid [not null]
+  "doctor_id" uuid
+  "session_date" timestamptz [not null]
+  "session_type" text [not null]
+  "notes" text
+  "status" text [not null]
+  "cycle_id" uuid
+  "clinic_id" uuid
+  "ca_id" uuid
+  "session_phase" text
+  "session_number_in_cycle" integer
+  "outcome" text
+  "started_at" timestamptz
+  "completed_at" timestamptz
+  "payment_status" text
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."staff_requests" {
+  "request_id" uuid [pk, not null]
+  "clinic_id" uuid [not null]
+  "regional_admin_id" uuid
+  "request_type" text [not null]
+  "position_role" text [not null]
+  "candidate_name" text
+  "candidate_email" text
+  "candidate_phone" text
+  "candidate_credentials" jsonb [not null]
+  "target_staff_id" uuid
+  "status" text [not null]
+  "submitted_by" uuid [not null]
+  "reviewed_by" uuid
+  "review_notes" text
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+  "fulfilled_profile_id" uuid
+  "fulfilled_at" timestamptz
+}
+
+Table "core"."stock_transfers" {
+  "st_id" uuid [pk, not null]
+  "product_id" uuid [not null]
+  "from_type" text [not null]
+  "from_clinic_id" uuid
+  "to_clinic_id" uuid [not null]
+  "quantity" integer [not null]
+  "order_id" uuid
+  "status" text [not null]
+  "initiated_by" uuid [not null]
+  "received_by" uuid
+  "notes" text
+  "created_at" timestamptz [not null]
+  "dispatched_at" timestamptz
+  "received_at" timestamptz
+}
+
+Table "core"."store_orders" {
+  "order_id" uuid [pk, not null]
+  "patient_id" uuid [not null]
+  "clinic_id" uuid [not null]
+  "initiated_by" uuid [not null]
+  "approved_by" uuid
+  "order_type" text [not null]
+  "status" text [not null]
+  "total_amount" "numeric(10,2)"
+  "treatment_plan_id" uuid
+  "cancelled_by" uuid
+  "cancelled_at" timestamptz
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."treatment_cycles" {
+  "cycle_id" uuid [pk, not null]
+  "patient_id" uuid [not null]
+  "doctor_id" uuid [not null]
+  "ca_id" uuid
+  "clinic_id" uuid [not null]
+  "cycle_type" text [not null]
+  "cycle_number" integer [not null]
+  "scheduled_date" date
+  "status" text [not null]
+  "notes" text
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."treatment_plans" {
+  "plan_id" uuid [pk, not null]
+  "patient_id" uuid [not null]
+  "doctor_id" uuid [not null]
+  "cycle_id" uuid [not null]
+  "device_type" text [not null]
+  "protocol_details" jsonb [not null]
+  "sessions_prescribed" integer [not null]
+  "standard_sessions" integer [not null]
+  "extended_sessions" integer
+  "status" text [not null]
+  "parent_plan_id" uuid
+  "demo_phase_status" text [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."treatment_sessions" {
+  "ts_id" uuid [not null]
+  "plan_id" uuid [not null]
+  "session_id" uuid [not null]
+  "patient_id" uuid [not null]
+  "ca_id" uuid [not null]
+  "session_number" integer [not null]
+  "billing_type" text [not null]
+  "status" text [not null]
+  "payment_status" text [not null]
+  "session_notes" text
+  "patient_feedback" text
+  "started_at" timestamptz
+  "completed_at" timestamptz
+  "created_at" timestamptz [not null]
+
+  Indexes {
+    ("ts_id", "created_at") [pk]
+  }
+}
+
+Table "reference"."anamnesis_options" {
+  "option_id" text [pk, not null]
+  "question_id" text [not null]
+  "option_label" text [not null]
+  "option_value" text [not null]
+  "display_order" integer [not null]
+
+  Indexes {
+    ("question_id", "option_value") [unique]
+  }
+}
+
+Table "reference"."anamnesis_questions" {
+  "question_id" text [pk, not null]
+  "section_number" integer [not null]
+  "section_title" text [not null]
+  "question_code" text [not null, unique]
+  "question_text" text [not null]
+  "answer_type" text [not null]
+  "is_required" boolean [not null]
+  "display_order" integer [not null]
+  "depends_on_question_id" text
+  "depends_on_value" text
+  "helper_text" text
+  "status" boolean [not null]
+}
+
+Table "reference"."consent_templates" {
+  "template_id" uuid [pk, not null]
+  "consent_type" text [not null]
+  "version" integer [not null]
+  "title" text [not null]
+  "content" text [not null]
+  "content_hash" text
+  "effective_date" date
+  "expiry_date" date
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "role" text
+
+  Indexes {
+    ("consent_type", "role", "version") [unique]
+  }
+}
+
+Table "reference"."products" {
+  "product_id" uuid [pk, not null]
+  "name" text [not null]
+  "description" text
+  "category" text [not null]
+  "price" "numeric(10,2)" [not null]
+  "sku" text [unique]
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "reference"."prs_disease_question_map" {
+  "dq_map_id" text [pk, not null]
+  "disease_id" text [not null]
+  "question_id" text [not null]
+  "display_order" integer [not null]
+  "created_at" timestamptz [not null]
+
+  Indexes {
+    ("disease_id", "question_id") [unique]
+  }
+}
+
+Table "reference"."prs_disease_scale_map" {
+  "ds_map_id" text [pk, not null]
+  "disease_id" text [not null]
+  "scale_id" text [not null]
+  "display_order" integer [not null]
+  "is_required" boolean [not null]
+  "created_at" timestamptz [not null]
+
+  Indexes {
+    ("disease_id", "scale_id") [unique]
+  }
+}
+
+Table "reference"."prs_diseases" {
+  "disease_id" text [pk, not null]
+  "disease_code" text [not null, unique]
+  "disease_name" text [not null]
+  "version" text [not null]
+  "status" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "reference"."prs_option_translations" {
+  "option_id" text [not null]
+  "language_code" "varchar(10)" [not null]
+  "option_label" text [not null]
+  "created_at" timestamptz [not null]
+
+  Indexes {
+    ("option_id", "language_code") [pk]
+  }
+}
+
+Table "reference"."prs_options" {
+  "option_id" text [pk, not null]
+  "question_id" text [not null]
+  "option_label" text [not null]
+  "option_value" text [not null]
+  "points" numeric [not null]
+  "display_order" integer [not null]
+  "status" boolean [not null]
+  "created_at" timestamptz [not null]
+
+  Indexes {
+    ("question_id", "option_value") [unique]
+  }
+}
+
+Table "reference"."prs_question_translations" {
+  "question_id" text [not null]
+  "language_code" "varchar(10)" [not null]
+  "question_text" text [not null]
+  "created_at" timestamptz [not null]
+
+  Indexes {
+    ("question_id", "language_code") [pk]
+  }
+}
+
+Table "reference"."prs_questions" {
+  "question_id" text [pk, not null]
+  "question_code" text [not null, unique]
+  "disease_id" text
+  "scale_id" text
+  "ds_map_id" text
+  "question_text" text [not null]
+  "answer_type" text [not null]
+  "min_value" numeric
+  "max_value" numeric
+  "is_required" boolean [not null]
+  "skip_logic" text
+  "display_order" integer [not null]
+  "is_common_scale" boolean [not null]
+  "created_at" timestamptz [not null]
+}
+
+Table "reference"."prs_scale_question_map" {
+  "sq_map_id" text [pk, not null]
+  "scale_id" text [not null]
+  "question_id" text [not null]
+  "display_order" integer [not null]
+  "created_at" timestamptz [not null]
+
+  Indexes {
+    ("scale_id", "question_id") [unique]
+  }
+}
+
+Table "reference"."prs_scales" {
+  "scale_id" text [pk, not null]
+  "scale_code" text [not null, unique]
+  "scale_name" text [not null]
+  "is_common_scale" boolean [not null]
+  "num_diseases_used" integer [not null]
+  "applicable_for" text [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "compliance"."activity_logs" {
+  "log_id" uuid [not null]
+  "actor_id" uuid [not null]
+  "actor_role" text [not null]
+  "request_id" text
+  "category" text [not null]
+  "event_type" text [not null]
+  "entity_type" text
+  "entity_id" uuid
+  "clinic_id" uuid
+  "region_id" uuid
+  "metadata" jsonb [not null]
+  "ip_address" inet
+  "created_at" timestamptz [not null]
+
+  Indexes {
+    ("log_id", "created_at") [pk]
+  }
+}
+
+Table "compliance"."audit_logs" {
+  "log_id" uuid [not null]
+  "table_name" text [not null]
+  "operation" text [not null]
+  "record_id" text
+  "old_data" jsonb
+  "new_data" jsonb
+  "changed_by" uuid
+  "clinic_id" uuid
+  "ip_address" inet
+  "request_id" text
+  "changed_at" timestamptz [not null]
+
+  Indexes {
+    ("log_id", "changed_at") [pk]
+  }
+}
+
+Table "compliance"."consent_records" {
+  "consent_id" uuid [pk, not null]
+  "consent_type" text [not null]
+  "template_id" uuid [not null]
+  "patient_id" uuid
+  "staff_id" uuid
+  "clinic_id" uuid
+  "status" text [not null]
+  "signed_at" timestamptz
+  "signed_by" uuid
+  "witness_id" uuid
+  "ip_address" inet
+  "signature_data" text
+  "pdf_s3_key" text
+  "content_hash_at_signing" text
+  "revoked_at" timestamptz
+  "revoked_by" uuid
+  "created_at" timestamptz [not null]
+  "region_id" uuid
+  "guardian_id" uuid
+}
+
+Table "ops"."alembic_version" {
+  "version_num" "varchar(32)" [pk, not null]
+}
+
+Table "ops"."outbox_events" {
+  "outbox_id" uuid [pk, not null]
+  "aggregate_type" text [not null]
+  "aggregate_id" text [not null]
+  "event_type" text [not null]
+  "payload" jsonb [not null]
+  "published_at" timestamptz
+  "publish_attempts" integer [not null]
+  "created_at" timestamptz [not null]
+}
+
+Table "ops"."schema_migrations" {
+  "version" text [pk, not null]
+  "applied_at" timestamptz [not null]
+}
+
+Table "reference"."neuromod_devices" {
+  "device_id" uuid [pk, not null]
+  "device_code" text [not null, unique]
+  "device_name" text [not null]
+  "modality" "reference.neuromod_modality" [not null, unique]
+  "phase" smallint [not null]
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "reference"."neuromod_conditions" {
+  "condition_id" uuid [pk, not null]
+  "condition_name" text [not null, unique]
+  "display_order" integer [not null]
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "reference"."neuromod_diagnoses" {
+  "diagnosis_id" uuid [pk, not null]
+  "condition_id" uuid [not null]
+  "icd10_code" text [not null, unique]
+  "icd10_description" text [not null]
+  "created_at" timestamptz [not null]
+}
+
+Table "reference"."neuromod_scales" {
+  "scale_id" uuid [pk, not null]
+  "scale_code" text [not null, unique]
+  "scale_name" text [not null]
+  "prs_scale_id" text
+  "created_at" timestamptz [not null]
+}
+
+Table "reference"."neuromod_condition_scales" {
+  "cs_map_id" uuid [pk, not null]
+  "condition_id" uuid [not null]
+  "scale_id" uuid [not null]
+  "display_order" integer [not null]
+  "created_at" timestamptz [not null]
+
+  Indexes {
+    ("condition_id", "scale_id") [unique]
+  }
+}
+
+Table "reference"."tdcs_placements" {
+  "tdcs_placement_id" uuid [pk, not null]
+  "condition_id" uuid [not null]
+  "device_id" uuid [not null]
+  "montage_label" text [not null]
+  "anode_site" text
+  "cathode_site" text
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "reference"."hd_tdcs_placements" {
+  "hd_tdcs_placement_id" uuid [pk, not null]
+  "condition_id" uuid [not null]
+  "device_id" uuid [not null]
+  "montage_label" text [not null]
+  "anode_site" text
+  "return_sites" "text[]" [not null]
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "reference"."tavns_placements" {
+  "tavns_placement_id" uuid [pk, not null]
+  "condition_id" uuid [not null]
+  "device_id" uuid [not null]
+  "montage_label" text [not null]
+  "ear_side" "reference.ear_side"
+  "auricular_site" text
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "reference"."tps_placements" {
+  "tps_placement_id" uuid [pk, not null]
+  "condition_id" uuid [not null]
+  "device_id" uuid [not null]
+  "montage_label" text [not null]
+  "target_region" text
+  "hemisphere" "reference.brain_hemisphere"
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "reference"."rtms_placements" {
+  "rtms_placement_id" uuid [pk, not null]
+  "condition_id" uuid [not null]
+  "device_id" uuid [not null]
+  "montage_label" text [not null]
+  "coil_target" text
+  "coil_type" text
+  "hemisphere" "reference.brain_hemisphere"
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "reference"."other_placements" {
+  "other_placement_id" uuid [pk, not null]
+  "condition_id" uuid [not null]
+  "device_id" uuid [not null]
+  "montage_label" text [not null]
+  "placement_details" jsonb [not null]
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "reference"."tdcs_dosing" {
+  "tdcs_dosing_id" uuid [pk, not null]
+  "condition_id" uuid [not null]
+  "device_id" uuid [not null]
+  "tdcs_placement_id" uuid [not null]
+  "evidence_level" "reference.neuromod_evidence_level" [not null]
+  "current_ma_min" "numeric(3,1)"
+  "current_ma_max" "numeric(3,1)"
+  "session_duration_min" integer
+  "sessions_per_day" integer
+  "num_sessions_text" text
+  "notes" text
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "reference"."hd_tdcs_dosing" {
+  "hd_tdcs_dosing_id" uuid [pk, not null]
+  "condition_id" uuid [not null]
+  "device_id" uuid [not null]
+  "hd_tdcs_placement_id" uuid [not null]
+  "evidence_level" "reference.neuromod_evidence_level" [not null]
+  "total_current_ma" "numeric(3,1)"
+  "per_return_current_ma" "numeric(3,1)"
+  "session_duration_min" integer
+  "sessions_per_day" integer
+  "num_sessions_text" text
+  "notes" text
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "reference"."tavns_dosing" {
+  "tavns_dosing_id" uuid [pk, not null]
+  "condition_id" uuid [not null]
+  "device_id" uuid [not null]
+  "tavns_placement_id" uuid [not null]
+  "evidence_level" "reference.neuromod_evidence_level" [not null]
+  "intensity_ma" "numeric(4,2)"
+  "pulse_width_us" integer
+  "frequency_hz" "numeric(6,2)"
+  "duty_cycle_on_sec" integer
+  "duty_cycle_off_sec" integer
+  "session_duration_min" integer
+  "num_sessions_text" text
+  "notes" text
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "reference"."tps_dosing" {
+  "tps_dosing_id" uuid [pk, not null]
+  "condition_id" uuid [not null]
+  "device_id" uuid [not null]
+  "tps_placement_id" uuid [not null]
+  "evidence_level" "reference.neuromod_evidence_level" [not null]
+  "energy_mj" "numeric(6,3)"
+  "pulses_per_session" integer
+  "pulse_rate_hz" "numeric(6,2)"
+  "num_sessions_text" text
+  "notes" text
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "reference"."rtms_dosing" {
+  "rtms_dosing_id" uuid [pk, not null]
+  "condition_id" uuid [not null]
+  "device_id" uuid [not null]
+  "rtms_placement_id" uuid [not null]
+  "evidence_level" "reference.neuromod_evidence_level" [not null]
+  "frequency_hz" "numeric(6,2)"
+  "pct_motor_threshold" "numeric(5,2)"
+  "train_count" integer
+  "pulses_per_train" integer
+  "pulses_per_session" integer
+  "inter_train_interval_sec" "numeric(6,2)"
+  "num_sessions_text" text
+  "notes" text
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "reference"."other_dosing" {
+  "other_dosing_id" uuid [pk, not null]
+  "condition_id" uuid [not null]
+  "device_id" uuid [not null]
+  "other_placement_id" uuid [not null]
+  "evidence_level" "reference.neuromod_evidence_level" [not null]
+  "dose_details" jsonb [not null]
+  "num_sessions_text" text
+  "notes" text
+  "is_active" boolean [not null]
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."treatment_protocols" {
+  "protocol_id" uuid [pk, not null]
+  "plan_id" uuid [not null]
+  "device_id" uuid [not null]
+  "set_by" uuid [not null]
+  "tdcs_placement_id" uuid
+  "hd_tdcs_placement_id" uuid
+  "tavns_placement_id" uuid
+  "tps_placement_id" uuid
+  "rtms_placement_id" uuid
+  "other_placement_id" uuid
+  "tdcs_dosing_id" uuid
+  "hd_tdcs_dosing_id" uuid
+  "tavns_dosing_id" uuid
+  "tps_dosing_id" uuid
+  "rtms_dosing_id" uuid
+  "other_dosing_id" uuid
+  "session_count" integer [not null]
+  "follow_up_every_n" integer
+  "status" "core.treatment_protocol_status" [not null]
+  "device_settings" jsonb [not null]
+  "notes" text
+  "activated_at" timestamptz
+  "completed_at" timestamptz
+  "created_at" timestamptz [not null]
+  "updated_at" timestamptz [not null]
+}
+
+Table "core"."protocol_sessions" {
+  "protocol_session_id" uuid [pk, not null]
+  "protocol_id" uuid [not null]
+  "appointment_id" uuid [not null, unique]
+  "session_number" integer [not null]
+  "created_at" timestamptz [not null]
+
+  Indexes {
+    ("protocol_id", "session_number") [unique]
+  }
+}
+
+Table "core"."protocol_followups" {
+  "protocol_followup_id" uuid [pk, not null]
+  "protocol_id" uuid [not null]
+  "appointment_id" uuid [not null, unique]
+  "after_session_number" integer [not null]
+  "created_at" timestamptz [not null]
+
+  Indexes {
+    ("protocol_id", "after_session_number") [unique]
+  }
+}
+
+Table "core"."device_session_prs_responses" {
+  "ds_prs_id" uuid [pk, not null]
+  "protocol_session_id" uuid [not null, unique]
+  "instance_id" text [not null, unique]
+  "patient_id" uuid [not null]
+  "recorded_at" timestamptz [not null]
+  "created_at" timestamptz [not null]
+}
+
+Table "core"."followup_prs_responses" {
+  "fu_prs_id" uuid [pk, not null]
+  "protocol_followup_id" uuid [not null, unique]
+  "instance_id" text [not null, unique]
+  "patient_id" uuid [not null]
+  "recorded_at" timestamptz [not null]
+  "created_at" timestamptz [not null]
+}
+
+Table "compliance"."erasure_requests" {
+  "request_id" uuid [pk, not null]
+  "patient_id" uuid [not null]
+  "requested_by" uuid [not null]
+  "requester_verification_method" text
+  "status" text [not null]
+  "received_at" timestamptz [not null]
+  "response_due_at" timestamptz [not null]
+  "responded_at" timestamptz
+  "response_summary" text
+  "created_at" timestamptz [not null]
+}
+
+Table "compliance"."erasure_request_items" {
+  "item_id" uuid [pk, not null]
+  "request_id" uuid [not null]
+  "data_category" text [not null]
+  "bucket" text [not null]
+  "legal_basis" text
+  "retention_expires_at" timestamptz
+  "deleted_at" timestamptz
+  "created_at" timestamptz [not null]
+}
+
+Table "compliance"."data_portability_requests" {
+  "request_id" uuid [pk, not null]
+  "patient_id" uuid [not null]
+  "requested_by" uuid [not null]
+  "format" text [not null]
+  "status" text [not null]
+  "delivery_method" text
+  "delivered_at" timestamptz
+  "download_expires_at" timestamptz
+  "created_at" timestamptz [not null]
+}
+
+Table "compliance"."staff_termination_authorizations" {
+  "termination_id" uuid [pk, not null]
+  "staff_profile_id" uuid [not null]
+  "termination_type" text [not null]
+  "reason" text
+  "primary_authorizer_id" uuid [not null]
+  "secondary_authorizer_id" uuid
+  "authorized_at" timestamptz [not null]
+  "effective_at" timestamptz
+  "created_at" timestamptz [not null]
+}
+
+Table "compliance"."compliance_incidents" {
+  "incident_id" uuid [pk, not null]
+  "detected_at" timestamptz [not null]
+  "detected_by" uuid
+  "category" text [not null]
+  "affected_data_categories" jsonb [not null]
+  "affected_patient_count" integer
+  "severity" text
+  "containment_actions" text
+  "board_notified_at" timestamptz
+  "patients_notified_at" timestamptz
+  "eu_authority_notified_at" timestamptz
+  "remediation_summary" text
+  "post_incident_review_at" timestamptz
+  "status" text [not null]
+  "created_at" timestamptz [not null]
+}
+
+Table "compliance"."manual_snapshots" {
+  "snapshot_id" uuid [pk, not null]
+  "purpose" text [not null]
+  "created_by" uuid
+  "created_at" timestamptz [not null]
+  "intended_deletion_at" timestamptz [not null]
+  "deleted_at" timestamptz
+}
+
+// ---- Foreign keys (all ON DELETE RESTRICT in erd.sql) ----
+Ref "fk_erasure_requests_patient_id": "compliance"."erasure_requests"."patient_id" > "core"."profiles"."id"
+Ref "fk_erasure_requests_requested_by": "compliance"."erasure_requests"."requested_by" > "core"."profiles"."id"
+Ref "fk_erasure_request_items_request_id": "compliance"."erasure_request_items"."request_id" > "compliance"."erasure_requests"."request_id"
+Ref "fk_data_portability_requests_patient_id": "compliance"."data_portability_requests"."patient_id" > "core"."profiles"."id"
+Ref "fk_data_portability_requests_requested_by": "compliance"."data_portability_requests"."requested_by" > "core"."profiles"."id"
+Ref "fk_staff_term_staff_profile_id": "compliance"."staff_termination_authorizations"."staff_profile_id" > "core"."profiles"."id"
+Ref "fk_staff_term_primary_authorizer": "compliance"."staff_termination_authorizations"."primary_authorizer_id" > "core"."profiles"."id"
+Ref "fk_staff_term_secondary_authorizer": "compliance"."staff_termination_authorizations"."secondary_authorizer_id" > "core"."profiles"."id"
+Ref "fk_compliance_incidents_detected_by": "compliance"."compliance_incidents"."detected_by" > "core"."profiles"."id"
+Ref "fk_manual_snapshots_created_by": "compliance"."manual_snapshots"."created_by" > "core"."profiles"."id"
+Ref "fk_consent_records_guardian_id": "compliance"."consent_records"."guardian_id" > "core"."profiles"."id"
+Ref "fk_activity_logs_actor_id": "compliance"."activity_logs"."actor_id" > "core"."profiles"."id"
+Ref "fk_activity_logs_clinic_id": "compliance"."activity_logs"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_activity_logs_region_id": "compliance"."activity_logs"."region_id" > "core"."regions"."region_id"
+Ref "fk_admins_profile_id": "core"."admins"."profile_id" > "core"."profiles"."id"
+Ref "fk_admins_region_id": "core"."admins"."region_id" > "core"."regions"."region_id"
+Ref "fk_admins_clinic_id": "core"."admins"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_anamnesis_assessments_patient_id": "core"."anamnesis_assessments"."patient_id" > "core"."profiles"."id"
+Ref "fk_anamnesis_assessments_submitted_by": "core"."anamnesis_assessments"."submitted_by" > "core"."profiles"."id"
+Ref "fk_anamnesis_assessments_cycle_id": "core"."anamnesis_assessments"."cycle_id" > "core"."treatment_cycles"."cycle_id"
+Ref "fk_anamnesis_options_question_id": "reference"."anamnesis_options"."question_id" > "reference"."anamnesis_questions"."question_id"
+Ref "fk_anamnesis_questions_depends_on_question_id": "reference"."anamnesis_questions"."depends_on_question_id" > "reference"."anamnesis_questions"."question_id"
+Ref "fk_anamnesis_responses_anamnesis_id": "core"."anamnesis_responses"."anamnesis_id" > "core"."anamnesis_assessments"."anamnesis_id"
+Ref "fk_anamnesis_responses_question_id": "core"."anamnesis_responses"."question_id" > "reference"."anamnesis_questions"."question_id"
+Ref "fk_appointment_audit_logs_appointment_id": "core"."appointment_audit_logs"."appointment_id" > "core"."appointments"."appointment_id"
+Ref "fk_appointment_audit_logs_changed_by": "core"."appointment_audit_logs"."changed_by" > "core"."profiles"."id"
+Ref "fk_appointment_requests_clinic_id": "core"."appointment_requests"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_appointment_requests_patient_id": "core"."appointment_requests"."patient_id" > "core"."profiles"."id"
+Ref "fk_appointment_requests_doctor_id": "core"."appointment_requests"."doctor_id" > "core"."profiles"."id"
+Ref "fk_appointment_requests_cycle_id": "core"."appointment_requests"."cycle_id" > "core"."treatment_cycles"."cycle_id"
+Ref "fk_appointment_requests_parent_appointment_id": "core"."appointment_requests"."parent_appointment_id" > "core"."appointments"."appointment_id"
+Ref "fk_appointment_requests_approved_appointment_id": "core"."appointment_requests"."approved_appointment_id" > "core"."appointments"."appointment_id"
+Ref "fk_appointment_requests_submitted_by": "core"."appointment_requests"."submitted_by" > "core"."profiles"."id"
+Ref "fk_appointment_requests_reviewed_by": "core"."appointment_requests"."reviewed_by" > "core"."profiles"."id"
+Ref "fk_appointments_clinic_id": "core"."appointments"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_appointments_patient_id": "core"."appointments"."patient_id" > "core"."profiles"."id"
+Ref "fk_appointments_doctor_id": "core"."appointments"."doctor_id" > "core"."profiles"."id"
+Ref "fk_appointments_ca_id": "core"."appointments"."ca_id" > "core"."profiles"."id"
+Ref "fk_appointments_session_id": "core"."appointments"."session_id" > "core"."sessions"."session_id"
+Ref "fk_appointments_cycle_id": "core"."appointments"."cycle_id" > "core"."treatment_cycles"."cycle_id"
+Ref "fk_appointments_appointment_request_id": "core"."appointments"."appointment_request_id" > "core"."appointment_requests"."request_id"
+Ref "fk_appointments_booked_by": "core"."appointments"."booked_by" > "core"."profiles"."id"
+Ref "fk_appointments_cancelled_by": "core"."appointments"."cancelled_by" > "core"."profiles"."id"
+Ref "fk_appointments_rescheduled_from": "core"."appointments"."rescheduled_from" > "core"."appointments"."appointment_id"
+Ref "fk_appointments_rescheduled_to": "core"."appointments"."rescheduled_to" > "core"."appointments"."appointment_id"
+Ref "fk_assessment_protocol_requests_patient_id": "core"."assessment_protocol_requests"."patient_id" > "core"."profiles"."id"
+Ref "fk_assessment_protocol_requests_clinical_assistant_id": "core"."assessment_protocol_requests"."clinical_assistant_id" > "core"."profiles"."id"
+Ref "fk_assessment_protocol_requests_doctor_id": "core"."assessment_protocol_requests"."doctor_id" > "core"."profiles"."id"
+Ref "fk_assessment_protocol_requests_clinic_id": "core"."assessment_protocol_requests"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_assessment_protocol_requests_cycle_id": "core"."assessment_protocol_requests"."cycle_id" > "core"."treatment_cycles"."cycle_id"
+Ref "fk_audit_logs_changed_by": "compliance"."audit_logs"."changed_by" > "core"."profiles"."id"
+Ref "fk_audit_logs_clinic_id": "compliance"."audit_logs"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_ca_doctor_assignments_ca_id": "core"."ca_doctor_assignments"."ca_id" > "core"."clinical_assistants"."ca_id"
+Ref "fk_ca_doctor_assignments_doctor_id": "core"."ca_doctor_assignments"."doctor_id" > "core"."doctors"."doctor_id"
+Ref "fk_ca_doctor_assignments_clinic_id": "core"."ca_doctor_assignments"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_clinic_requests_clinic_id": "core"."clinic_requests"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_clinic_requests_region_id": "core"."clinic_requests"."region_id" > "core"."regions"."region_id"
+Ref "fk_clinic_requests_submitted_by": "core"."clinic_requests"."submitted_by" > "core"."profiles"."id"
+Ref "fk_clinic_requests_reviewed_by": "core"."clinic_requests"."reviewed_by" > "core"."profiles"."id"
+Ref "fk_clinic_staff_assignments_clinic_id": "core"."clinic_staff_assignments"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_clinic_staff_assignments_profile_id": "core"."clinic_staff_assignments"."profile_id" > "core"."profiles"."id"
+Ref "fk_clinical_assistants_profile_id": "core"."clinical_assistants"."profile_id" > "core"."profiles"."id"
+Ref "fk_clinical_assistants_clinic_id": "core"."clinical_assistants"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_clinical_assistants_deleted_by": "core"."clinical_assistants"."deleted_by" > "core"."profiles"."id"
+Ref "fk_clinics_region_id": "core"."clinics"."region_id" > "core"."regions"."region_id"
+Ref "fk_clinics_clinic_admin_id": "core"."clinics"."clinic_admin_id" > "core"."profiles"."id"
+Ref "fk_consent_records_template_id": "compliance"."consent_records"."template_id" > "reference"."consent_templates"."template_id"
+Ref "fk_consent_records_patient_id": "compliance"."consent_records"."patient_id" > "core"."profiles"."id"
+Ref "fk_consent_records_staff_id": "compliance"."consent_records"."staff_id" > "core"."profiles"."id"
+Ref "fk_consent_records_clinic_id": "compliance"."consent_records"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_consent_records_signed_by": "compliance"."consent_records"."signed_by" > "core"."profiles"."id"
+Ref "fk_consent_records_witness_id": "compliance"."consent_records"."witness_id" > "core"."profiles"."id"
+Ref "fk_consent_records_revoked_by": "compliance"."consent_records"."revoked_by" > "core"."profiles"."id"
+Ref "fk_consent_records_region_id": "compliance"."consent_records"."region_id" > "core"."regions"."region_id"
+Ref "fk_device_assignments_patient_id": "core"."device_assignments"."patient_id" > "core"."profiles"."id"
+Ref "fk_device_assignments_clinic_id": "core"."device_assignments"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_device_assignments_plan_id": "core"."device_assignments"."plan_id" > "core"."treatment_plans"."plan_id"
+Ref "fk_device_assignments_assigned_by": "core"."device_assignments"."assigned_by" > "core"."profiles"."id"
+Ref "fk_device_assignments_order_id": "core"."device_assignments"."order_id" > "core"."store_orders"."order_id"
+Ref "fk_device_assignments_returned_by": "core"."device_assignments"."returned_by" > "core"."profiles"."id"
+Ref "fk_doctor_patient_assignments_doctor_id": "core"."doctor_patient_assignments"."doctor_id" > "core"."profiles"."id"
+Ref "fk_doctor_patient_assignments_patient_id": "core"."doctor_patient_assignments"."patient_id" > "core"."profiles"."id"
+Ref "fk_doctor_patient_assignments_clinic_id": "core"."doctor_patient_assignments"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_doctor_schedule_overrides_doctor_id": "core"."doctor_schedule_overrides"."doctor_id" > "core"."profiles"."id"
+Ref "fk_doctor_schedule_overrides_clinic_id": "core"."doctor_schedule_overrides"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_doctor_schedule_overrides_created_by": "core"."doctor_schedule_overrides"."created_by" > "core"."profiles"."id"
+Ref "fk_doctor_session_notes_session_id": "core"."doctor_session_notes"."session_id" > "core"."sessions"."session_id"
+Ref "fk_doctor_session_notes_cycle_id": "core"."doctor_session_notes"."cycle_id" > "core"."treatment_cycles"."cycle_id"
+Ref "fk_doctor_session_notes_patient_id": "core"."doctor_session_notes"."patient_id" > "core"."profiles"."id"
+Ref "fk_doctor_session_notes_doctor_id": "core"."doctor_session_notes"."doctor_id" > "core"."profiles"."id"
+Ref "fk_doctor_weekly_schedules_doctor_id": "core"."doctor_weekly_schedules"."doctor_id" > "core"."profiles"."id"
+Ref "fk_doctor_weekly_schedules_clinic_id": "core"."doctor_weekly_schedules"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_doctor_weekly_schedules_created_by": "core"."doctor_weekly_schedules"."created_by" > "core"."profiles"."id"
+Ref "fk_doctors_profile_id": "core"."doctors"."profile_id" > "core"."profiles"."id"
+Ref "fk_doctors_clinic_id": "core"."doctors"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_doctors_deleted_by": "core"."doctors"."deleted_by" > "core"."profiles"."id"
+Ref "fk_inventory_product_id": "core"."inventory"."product_id" > "reference"."products"."product_id"
+Ref "fk_inventory_clinic_id": "core"."inventory"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_notifications_recipient_id": "core"."notifications"."recipient_id" > "core"."profiles"."id"
+Ref "fk_notifications_sender_id": "core"."notifications"."sender_id" > "core"."profiles"."id"
+Ref "fk_notifications_clinic_id": "core"."notifications"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_order_items_order_id": "core"."order_items"."order_id" > "core"."store_orders"."order_id"
+Ref "fk_order_items_product_id": "core"."order_items"."product_id" > "reference"."products"."product_id"
+Ref "fk_patient_clinic_transfers_patient_id": "core"."patient_clinic_transfers"."patient_id" > "core"."profiles"."id"
+Ref "fk_patient_clinic_transfers_from_clinic_id": "core"."patient_clinic_transfers"."from_clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_patient_clinic_transfers_to_clinic_id": "core"."patient_clinic_transfers"."to_clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_patient_clinic_transfers_from_doctor_id": "core"."patient_clinic_transfers"."from_doctor_id" > "core"."profiles"."id"
+Ref "fk_patient_clinic_transfers_to_doctor_id": "core"."patient_clinic_transfers"."to_doctor_id" > "core"."profiles"."id"
+Ref "fk_patient_clinic_transfers_active_cycle_id": "core"."patient_clinic_transfers"."active_cycle_id" > "core"."treatment_cycles"."cycle_id"
+Ref "fk_patient_clinic_transfers_consent_id": "core"."patient_clinic_transfers"."consent_id" > "compliance"."consent_records"."consent_id"
+Ref "fk_patient_clinic_transfers_initiated_by": "core"."patient_clinic_transfers"."initiated_by" > "core"."profiles"."id"
+Ref "fk_patient_disease_selection_patient_id": "core"."patient_disease_selection"."patient_id" > "core"."profiles"."id"
+Ref "fk_patient_disease_selection_disease_id": "core"."patient_disease_selection"."disease_id" > "reference"."prs_diseases"."disease_id"
+Ref "fk_patient_eeg_files_patient_id": "core"."patient_eeg_files"."patient_id" > "core"."profiles"."id"
+Ref "fk_patient_eeg_files_clinic_id": "core"."patient_eeg_files"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_patient_eeg_files_cycle_id": "core"."patient_eeg_files"."cycle_id" > "core"."treatment_cycles"."cycle_id"
+Ref "fk_patient_eeg_files_session_id": "core"."patient_eeg_files"."session_id" > "core"."sessions"."session_id"
+Ref "fk_patient_eeg_files_performed_by": "core"."patient_eeg_files"."performed_by" > "core"."profiles"."id"
+Ref "fk_patient_eeg_files_reviewed_by": "core"."patient_eeg_files"."reviewed_by" > "core"."profiles"."id"
+Ref "fk_patient_eeg_files_superseded_by": "core"."patient_eeg_files"."superseded_by" > "core"."patient_eeg_files"."eeg_id"
+Ref "fk_patient_medical_history_files_patient_id": "core"."patient_medical_history_files"."patient_id" > "core"."profiles"."id"
+Ref "fk_patient_medical_history_files_clinic_id": "core"."patient_medical_history_files"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_patient_medical_history_files_cycle_id": "core"."patient_medical_history_files"."cycle_id" > "core"."treatment_cycles"."cycle_id"
+Ref "fk_patient_medical_history_files_uploaded_by": "core"."patient_medical_history_files"."uploaded_by" > "core"."profiles"."id"
+Ref "fk_patient_medical_history_files_deleted_by": "core"."patient_medical_history_files"."deleted_by" > "core"."profiles"."id"
+Ref "fk_patient_scale_assignments_patient_id": "core"."patient_scale_assignments"."patient_id" > "core"."profiles"."id"
+Ref "fk_patient_scale_assignments_scale_id": "core"."patient_scale_assignments"."scale_id" > "reference"."prs_scales"."scale_id"
+Ref "fk_patient_scale_assignments_assigned_by": "core"."patient_scale_assignments"."assigned_by" > "core"."profiles"."id"
+Ref "fk_patient_scale_assignments_deactivated_by": "core"."patient_scale_assignments"."deactivated_by" > "core"."profiles"."id"
+Ref "fk_patient_scale_assignments_disease_id": "core"."patient_scale_assignments"."disease_id" > "reference"."prs_diseases"."disease_id"
+Ref "fk_patients_profile_id": "core"."patients"."profile_id" > "core"."profiles"."id"
+Ref "fk_patients_primary_clinic_id": "core"."patients"."primary_clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_patients_primary_doctor_id": "core"."patients"."primary_doctor_id" > "core"."profiles"."id"
+Ref "fk_patients_deleted_by": "core"."patients"."deleted_by" > "core"."profiles"."id"
+Ref "fk_patients_approved_by": "core"."patients"."approved_by" > "core"."profiles"."id"
+Ref "fk_payments_session_id": "core"."payments"."session_id" > "core"."sessions"."session_id"
+Ref "fk_payments_order_id": "core"."payments"."order_id" > "core"."store_orders"."order_id"
+Ref "fk_payments_waived_by": "core"."payments"."waived_by" > "core"."profiles"."id"
+Ref "fk_profiles_deleted_by": "core"."profiles"."deleted_by" > "core"."profiles"."id"
+Ref "fk_prs_assessment_instances_disease_id": "core"."prs_assessment_instances"."disease_id" > "reference"."prs_diseases"."disease_id"
+Ref "fk_prs_assessment_instances_patient_id": "core"."prs_assessment_instances"."patient_id" > "core"."profiles"."id"
+Ref "fk_prs_assessment_instances_session_id": "core"."prs_assessment_instances"."session_id" > "core"."sessions"."session_id"
+Ref "fk_prs_assessment_instances_cycle_id": "core"."prs_assessment_instances"."cycle_id" > "core"."treatment_cycles"."cycle_id"
+Ref "fk_prs_assessment_instances_administered_by": "core"."prs_assessment_instances"."administered_by" > "core"."profiles"."id"
+Ref "fk_prs_disease_question_map_disease_id": "reference"."prs_disease_question_map"."disease_id" > "reference"."prs_diseases"."disease_id"
+Ref "fk_prs_disease_question_map_question_id": "reference"."prs_disease_question_map"."question_id" > "reference"."prs_questions"."question_id"
+Ref "fk_prs_disease_scale_map_disease_id": "reference"."prs_disease_scale_map"."disease_id" > "reference"."prs_diseases"."disease_id"
+Ref "fk_prs_disease_scale_map_scale_id": "reference"."prs_disease_scale_map"."scale_id" > "reference"."prs_scales"."scale_id"
+Ref "fk_prs_final_results_instance_id": "core"."prs_final_results"."instance_id" > "core"."prs_assessment_instances"."instance_id"
+Ref "fk_prs_option_translations_option_id": "reference"."prs_option_translations"."option_id" > "reference"."prs_options"."option_id"
+Ref "fk_prs_options_question_id": "reference"."prs_options"."question_id" > "reference"."prs_questions"."question_id"
+Ref "fk_prs_question_translations_question_id": "reference"."prs_question_translations"."question_id" > "reference"."prs_questions"."question_id"
+Ref "fk_prs_questions_disease_id": "reference"."prs_questions"."disease_id" > "reference"."prs_diseases"."disease_id"
+Ref "fk_prs_questions_scale_id": "reference"."prs_questions"."scale_id" > "reference"."prs_scales"."scale_id"
+Ref "fk_prs_questions_ds_map_id": "reference"."prs_questions"."ds_map_id" > "reference"."prs_disease_scale_map"."ds_map_id"
+Ref "fk_prs_responses_instance_id": "core"."prs_responses"."instance_id" > "core"."prs_assessment_instances"."instance_id"
+Ref "fk_prs_responses_question_id": "core"."prs_responses"."question_id" > "reference"."prs_questions"."question_id"
+Ref "fk_prs_scale_question_map_scale_id": "reference"."prs_scale_question_map"."scale_id" > "reference"."prs_scales"."scale_id"
+Ref "fk_prs_scale_question_map_question_id": "reference"."prs_scale_question_map"."question_id" > "reference"."prs_questions"."question_id"
+Ref "fk_prs_scale_results_instance_id": "core"."prs_scale_results"."instance_id" > "core"."prs_assessment_instances"."instance_id"
+Ref "fk_prs_scale_results_scale_id": "core"."prs_scale_results"."scale_id" > "reference"."prs_scales"."scale_id"
+Ref "fk_receptionists_profile_id": "core"."receptionists"."profile_id" > "core"."profiles"."id"
+Ref "fk_receptionists_clinic_id": "core"."receptionists"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_receptionists_deleted_by": "core"."receptionists"."deleted_by" > "core"."profiles"."id"
+Ref "fk_regions_regional_admin_id": "core"."regions"."regional_admin_id" > "core"."profiles"."id"
+Ref "fk_sessions_patient_id": "core"."sessions"."patient_id" > "core"."profiles"."id"
+Ref "fk_sessions_doctor_id": "core"."sessions"."doctor_id" > "core"."profiles"."id"
+Ref "fk_sessions_cycle_id": "core"."sessions"."cycle_id" > "core"."treatment_cycles"."cycle_id"
+Ref "fk_sessions_clinic_id": "core"."sessions"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_sessions_ca_id": "core"."sessions"."ca_id" > "core"."profiles"."id"
+Ref "fk_staff_requests_clinic_id": "core"."staff_requests"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_staff_requests_regional_admin_id": "core"."staff_requests"."regional_admin_id" > "core"."profiles"."id"
+Ref "fk_staff_requests_submitted_by": "core"."staff_requests"."submitted_by" > "core"."profiles"."id"
+Ref "fk_staff_requests_reviewed_by": "core"."staff_requests"."reviewed_by" > "core"."profiles"."id"
+Ref "fk_staff_requests_fulfilled_profile_id": "core"."staff_requests"."fulfilled_profile_id" > "core"."profiles"."id"
+Ref "fk_stock_transfers_product_id": "core"."stock_transfers"."product_id" > "reference"."products"."product_id"
+Ref "fk_stock_transfers_from_clinic_id": "core"."stock_transfers"."from_clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_stock_transfers_to_clinic_id": "core"."stock_transfers"."to_clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_stock_transfers_order_id": "core"."stock_transfers"."order_id" > "core"."store_orders"."order_id"
+Ref "fk_stock_transfers_initiated_by": "core"."stock_transfers"."initiated_by" > "core"."profiles"."id"
+Ref "fk_stock_transfers_received_by": "core"."stock_transfers"."received_by" > "core"."profiles"."id"
+Ref "fk_store_orders_patient_id": "core"."store_orders"."patient_id" > "core"."profiles"."id"
+Ref "fk_store_orders_clinic_id": "core"."store_orders"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_store_orders_initiated_by": "core"."store_orders"."initiated_by" > "core"."profiles"."id"
+Ref "fk_store_orders_approved_by": "core"."store_orders"."approved_by" > "core"."profiles"."id"
+Ref "fk_store_orders_treatment_plan_id": "core"."store_orders"."treatment_plan_id" > "core"."treatment_plans"."plan_id"
+Ref "fk_store_orders_cancelled_by": "core"."store_orders"."cancelled_by" > "core"."profiles"."id"
+Ref "fk_treatment_cycles_patient_id": "core"."treatment_cycles"."patient_id" > "core"."profiles"."id"
+Ref "fk_treatment_cycles_doctor_id": "core"."treatment_cycles"."doctor_id" > "core"."profiles"."id"
+Ref "fk_treatment_cycles_ca_id": "core"."treatment_cycles"."ca_id" > "core"."profiles"."id"
+Ref "fk_treatment_cycles_clinic_id": "core"."treatment_cycles"."clinic_id" > "core"."clinics"."clinic_id"
+Ref "fk_treatment_plans_patient_id": "core"."treatment_plans"."patient_id" > "core"."profiles"."id"
+Ref "fk_treatment_plans_doctor_id": "core"."treatment_plans"."doctor_id" > "core"."profiles"."id"
+Ref "fk_treatment_plans_cycle_id": "core"."treatment_plans"."cycle_id" > "core"."treatment_cycles"."cycle_id"
+Ref "fk_treatment_plans_parent_plan_id": "core"."treatment_plans"."parent_plan_id" > "core"."treatment_plans"."plan_id"
+Ref "fk_treatment_sessions_plan_id": "core"."treatment_sessions"."plan_id" > "core"."treatment_plans"."plan_id"
+Ref "fk_treatment_sessions_session_id": "core"."treatment_sessions"."session_id" > "core"."sessions"."session_id"
+Ref "fk_treatment_sessions_patient_id": "core"."treatment_sessions"."patient_id" > "core"."profiles"."id"
+Ref "fk_treatment_sessions_ca_id": "core"."treatment_sessions"."ca_id" > "core"."profiles"."id"
+Ref "fk_patients_registered_by": "core"."patients"."registered_by" > "core"."profiles"."id"
+Ref "fk_neuromod_diagnoses_condition_id": "reference"."neuromod_diagnoses"."condition_id" > "reference"."neuromod_conditions"."condition_id"
+Ref "fk_neuromod_scales_prs_scale_id": "reference"."neuromod_scales"."prs_scale_id" > "reference"."prs_scales"."scale_id"
+Ref "fk_neuromod_condition_scales_condition_id": "reference"."neuromod_condition_scales"."condition_id" > "reference"."neuromod_conditions"."condition_id"
+Ref "fk_neuromod_condition_scales_scale_id": "reference"."neuromod_condition_scales"."scale_id" > "reference"."neuromod_scales"."scale_id"
+Ref "fk_tdcs_placements_condition_id": "reference"."tdcs_placements"."condition_id" > "reference"."neuromod_conditions"."condition_id"
+Ref "fk_tdcs_placements_device_id": "reference"."tdcs_placements"."device_id" > "reference"."neuromod_devices"."device_id"
+Ref "fk_hd_tdcs_placements_condition_id": "reference"."hd_tdcs_placements"."condition_id" > "reference"."neuromod_conditions"."condition_id"
+Ref "fk_hd_tdcs_placements_device_id": "reference"."hd_tdcs_placements"."device_id" > "reference"."neuromod_devices"."device_id"
+Ref "fk_tavns_placements_condition_id": "reference"."tavns_placements"."condition_id" > "reference"."neuromod_conditions"."condition_id"
+Ref "fk_tavns_placements_device_id": "reference"."tavns_placements"."device_id" > "reference"."neuromod_devices"."device_id"
+Ref "fk_tps_placements_condition_id": "reference"."tps_placements"."condition_id" > "reference"."neuromod_conditions"."condition_id"
+Ref "fk_tps_placements_device_id": "reference"."tps_placements"."device_id" > "reference"."neuromod_devices"."device_id"
+Ref "fk_rtms_placements_condition_id": "reference"."rtms_placements"."condition_id" > "reference"."neuromod_conditions"."condition_id"
+Ref "fk_rtms_placements_device_id": "reference"."rtms_placements"."device_id" > "reference"."neuromod_devices"."device_id"
+Ref "fk_other_placements_condition_id": "reference"."other_placements"."condition_id" > "reference"."neuromod_conditions"."condition_id"
+Ref "fk_other_placements_device_id": "reference"."other_placements"."device_id" > "reference"."neuromod_devices"."device_id"
+Ref "fk_tdcs_dosing_condition_id": "reference"."tdcs_dosing"."condition_id" > "reference"."neuromod_conditions"."condition_id"
+Ref "fk_tdcs_dosing_device_id": "reference"."tdcs_dosing"."device_id" > "reference"."neuromod_devices"."device_id"
+Ref "fk_tdcs_dosing_tdcs_placement_id": "reference"."tdcs_dosing"."tdcs_placement_id" > "reference"."tdcs_placements"."tdcs_placement_id"
+Ref "fk_hd_tdcs_dosing_condition_id": "reference"."hd_tdcs_dosing"."condition_id" > "reference"."neuromod_conditions"."condition_id"
+Ref "fk_hd_tdcs_dosing_device_id": "reference"."hd_tdcs_dosing"."device_id" > "reference"."neuromod_devices"."device_id"
+Ref "fk_hd_tdcs_dosing_placement_id": "reference"."hd_tdcs_dosing"."hd_tdcs_placement_id" > "reference"."hd_tdcs_placements"."hd_tdcs_placement_id"
+Ref "fk_tavns_dosing_condition_id": "reference"."tavns_dosing"."condition_id" > "reference"."neuromod_conditions"."condition_id"
+Ref "fk_tavns_dosing_device_id": "reference"."tavns_dosing"."device_id" > "reference"."neuromod_devices"."device_id"
+Ref "fk_tavns_dosing_placement_id": "reference"."tavns_dosing"."tavns_placement_id" > "reference"."tavns_placements"."tavns_placement_id"
+Ref "fk_tps_dosing_condition_id": "reference"."tps_dosing"."condition_id" > "reference"."neuromod_conditions"."condition_id"
+Ref "fk_tps_dosing_device_id": "reference"."tps_dosing"."device_id" > "reference"."neuromod_devices"."device_id"
+Ref "fk_tps_dosing_placement_id": "reference"."tps_dosing"."tps_placement_id" > "reference"."tps_placements"."tps_placement_id"
+Ref "fk_rtms_dosing_condition_id": "reference"."rtms_dosing"."condition_id" > "reference"."neuromod_conditions"."condition_id"
+Ref "fk_rtms_dosing_device_id": "reference"."rtms_dosing"."device_id" > "reference"."neuromod_devices"."device_id"
+Ref "fk_rtms_dosing_placement_id": "reference"."rtms_dosing"."rtms_placement_id" > "reference"."rtms_placements"."rtms_placement_id"
+Ref "fk_other_dosing_condition_id": "reference"."other_dosing"."condition_id" > "reference"."neuromod_conditions"."condition_id"
+Ref "fk_other_dosing_device_id": "reference"."other_dosing"."device_id" > "reference"."neuromod_devices"."device_id"
+Ref "fk_other_dosing_placement_id": "reference"."other_dosing"."other_placement_id" > "reference"."other_placements"."other_placement_id"
+Ref "fk_treatment_protocols_plan_id": "core"."treatment_protocols"."plan_id" > "core"."treatment_plans"."plan_id"
+Ref "fk_treatment_protocols_device_id": "core"."treatment_protocols"."device_id" > "reference"."neuromod_devices"."device_id"
+Ref "fk_treatment_protocols_set_by": "core"."treatment_protocols"."set_by" > "core"."profiles"."id"
+Ref "fk_treatment_protocols_tdcs_placement_id": "core"."treatment_protocols"."tdcs_placement_id" > "reference"."tdcs_placements"."tdcs_placement_id"
+Ref "fk_treatment_protocols_hd_tdcs_placement_id": "core"."treatment_protocols"."hd_tdcs_placement_id" > "reference"."hd_tdcs_placements"."hd_tdcs_placement_id"
+Ref "fk_treatment_protocols_tavns_placement_id": "core"."treatment_protocols"."tavns_placement_id" > "reference"."tavns_placements"."tavns_placement_id"
+Ref "fk_treatment_protocols_tps_placement_id": "core"."treatment_protocols"."tps_placement_id" > "reference"."tps_placements"."tps_placement_id"
+Ref "fk_treatment_protocols_rtms_placement_id": "core"."treatment_protocols"."rtms_placement_id" > "reference"."rtms_placements"."rtms_placement_id"
+Ref "fk_treatment_protocols_other_placement_id": "core"."treatment_protocols"."other_placement_id" > "reference"."other_placements"."other_placement_id"
+Ref "fk_treatment_protocols_tdcs_dosing_id": "core"."treatment_protocols"."tdcs_dosing_id" > "reference"."tdcs_dosing"."tdcs_dosing_id"
+Ref "fk_treatment_protocols_hd_tdcs_dosing_id": "core"."treatment_protocols"."hd_tdcs_dosing_id" > "reference"."hd_tdcs_dosing"."hd_tdcs_dosing_id"
+Ref "fk_treatment_protocols_tavns_dosing_id": "core"."treatment_protocols"."tavns_dosing_id" > "reference"."tavns_dosing"."tavns_dosing_id"
+Ref "fk_treatment_protocols_tps_dosing_id": "core"."treatment_protocols"."tps_dosing_id" > "reference"."tps_dosing"."tps_dosing_id"
+Ref "fk_treatment_protocols_rtms_dosing_id": "core"."treatment_protocols"."rtms_dosing_id" > "reference"."rtms_dosing"."rtms_dosing_id"
+Ref "fk_treatment_protocols_other_dosing_id": "core"."treatment_protocols"."other_dosing_id" > "reference"."other_dosing"."other_dosing_id"
+Ref "fk_protocol_sessions_protocol_id": "core"."protocol_sessions"."protocol_id" > "core"."treatment_protocols"."protocol_id"
+Ref "fk_protocol_sessions_appointment_id": "core"."protocol_sessions"."appointment_id" > "core"."appointments"."appointment_id"
+Ref "fk_protocol_followups_protocol_id": "core"."protocol_followups"."protocol_id" > "core"."treatment_protocols"."protocol_id"
+Ref "fk_protocol_followups_appointment_id": "core"."protocol_followups"."appointment_id" > "core"."appointments"."appointment_id"
+Ref "fk_ds_prs_protocol_session_id": "core"."device_session_prs_responses"."protocol_session_id" > "core"."protocol_sessions"."protocol_session_id"
+Ref "fk_ds_prs_instance_id": "core"."device_session_prs_responses"."instance_id" > "core"."prs_assessment_instances"."instance_id"
+Ref "fk_ds_prs_patient_id": "core"."device_session_prs_responses"."patient_id" > "core"."profiles"."id"
+Ref "fk_fu_prs_protocol_followup_id": "core"."followup_prs_responses"."protocol_followup_id" > "core"."protocol_followups"."protocol_followup_id"
+Ref "fk_fu_prs_instance_id": "core"."followup_prs_responses"."instance_id" > "core"."prs_assessment_instances"."instance_id"
+Ref "fk_fu_prs_patient_id": "core"."followup_prs_responses"."patient_id" > "core"."profiles"."id"
