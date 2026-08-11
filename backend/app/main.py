@@ -42,6 +42,7 @@ structlog.configure(
     ]
 )
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Keeps monthly/yearly partitions created ahead of the current date so
