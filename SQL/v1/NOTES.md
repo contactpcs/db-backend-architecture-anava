@@ -413,3 +413,115 @@ either — same Bucket-3-style pattern as the Layer 5 tables).
 against the API key secret, not a dedicated Razorpay webhook secret) and the
 Flow Pivot dependency for the `treatment_sessions`/`appointments` gating
 question — both still open, unrelated to this fix.
+
+## Appointments spine — COMPLETE (2026-08-11)
+
+`30_appointments_spine.sql` — first file in `SQL/v1/` that is **hand-written net-new
+DDL** rather than introspected from a live schema. Resolves the Flow Pivot decision
+that every prior section flagged as blocking ("Blocker 1 (Flow Pivot model decision)
+... must be resolved before any *new* data is written through either flow").
+
+**The decision:** `core.appointments` becomes the single spine for every clinic
+visit — initial appointment, follow-up appointment, and device session (protocol
+session) are all rows in one table, with one status FSM and one payment path.
+Clinical detail stays in child tables that point *up* at the spine. Direction is
+forced by the schema, not chosen: `treatment_sessions` is partitioned yearly, so
+its PK is composite `(ts_id, created_at)` and nothing can cleanly reference it.
+
+**Applied as expand-only.** Every `session_id` column and `core.sessions` itself
+are untouched, so the running application keeps working with no code change. The
+contract step (drop them) is deliberately deferred — see below.
+
+### What landed
+
+- **`appointments`** — `doctor_id`, `start_time`, `end_time` dropped to nullable;
+  `plan_id` + FK to `treatment_plans` added; three CHECKs (`time_pair`,
+  `slotted_has_time`, `device_session_has_plan`); indexes on `plan_id` and
+  `(patient_id, appointment_date, status)`.
+  - `doctor_id` nullable because a device session is CA-run and has no doctor of
+    its own — the supervising doctor is reachable via `plan_id`. This also keeps
+    such rows out of the doctor overlap guard for free (NULL is never equal to
+    NULL in a GIST exclusion), rather than needing a special case.
+  - `start_time`/`end_time` nullable because a protocol prescribes sessions on
+    planned *dates*; the patient picks the *time* later. Those rows exist in the
+    spine as `status = 'planned'`, which is what makes "show me my next visit" a
+    single query on a single table.
+- **Overlap guards split by resource.** The original `excl_doctor_overlap` (12b)
+  keyed on `doctor_id` alone. Once device sessions live in this table, that guard
+  would have refused to book a CA-run device session whenever the supervising
+  doctor was busy at the same hour — a doctor not involved in that visit at all.
+  Rebuilt as one guard per occupied resource: `excl_doctor_overlap` and the new
+  `excl_ca_overlap`. Both skip `planned` rows and NULL start times.
+- **`appointment_id` + FK + index** on `treatment_sessions`, `doctor_session_notes`,
+  `patient_eeg_files`, `prs_assessment_instances`, `payments`.
+- **`payments` can finally pay for a consultation.** Before this, `core.payments`
+  could only reference `sessions` or `store_orders` — the initial appointment, the
+  first step of the entire patient journey, had no payment path in the schema at
+  all. Added `chk_payments_single_target`
+  (`num_nonnulls(appointment_id, session_id, order_id) = 1`): all three targets
+  were previously nullable with no constraint, so a payment attached to nothing —
+  or to two things at once — was a valid row.
+- **`reference.billable_items`** — superadmin-owned price catalogue. One table
+  covers both billable things: appointments (priced per `appointment_type`) and
+  device sessions (priced per `device_type`), with a CHECK enforcing that exactly
+  one of the two keys is set per row. Adding an appointment type or a new device
+  is an INSERT, never a migration. Partial unique indexes keep one active price
+  per thing while archived rows retain history. RLS mirrors `reference.products`
+  (read by all, write by `super_admin` only) — **policies written in the same file
+  as the `ENABLE`**, per the lockout lesson above. Explicit grants too, since
+  `18_grants.sql`'s `ON ALL TABLES` ran before this table existed.
+  - Placed in `reference` rather than a new `billing` schema: it is catalogue
+    data alongside `products` and the PRS catalogue, and inherits the right
+    grant defaults.
+  - **No seed rows on purpose.** Prices are the superadmin's to set. A placeholder
+    price is worse than no price — pricing a real consultation at a made-up number
+    is a silent error, whereas an empty catalogue fails loudly the first time
+    someone tries to book.
+  - **Deliberately not built:** per-clinic/doctor/region price scoping, seasonal
+    price lists, bulk packages. The earlier `Payments_System_Master_Plan_v1.md`
+    specced 18 tables across 7 phases; the agreed model — one payment per visit,
+    one price per item — needs none of it. Scoping gets added when a clinic
+    actually charges differently, not before.
+
+### Safety
+
+Verified immediately before applying: `appointments`, `sessions`,
+`treatment_sessions`, `treatment_plans`, `payments`, `doctor_session_notes`,
+`patient_eeg_files`, `treatment_cycles`, `appointment_requests` all held **0 rows**;
+`prs_assessment_instances` held 28 rows, **all with `session_id IS NULL`**. No
+backfill needed, no data at risk — the cheapest possible moment to make this change.
+Applied in a single transaction (all-or-nothing rollback on any error), then
+verified: nullability, all six new/rebuilt constraints, `appointment_id` on all
+five child tables, both guard definitions read back verbatim, RLS enabled+forced
+with 3 policies, 4 grants, and row counts unchanged (28 / 17 profiles / 10 patients).
+
+### Deliberately NOT done — each needs the application code to move first
+
+1. **CHECK on `appointments.appointment_type`** (`initial` / `follow_up` /
+   `device_session`). The running code still writes seven older values
+   (`initial_assessment`, `doctor_consultation`, `ca_session`, `treatment_session`,
+   `follow_up`, `demo_visit`, `teleconsult` — `scheduling/schemas.py`) and has **two
+   different defaults for the same field** (`scheduling/service.py:393` writes
+   `doctor_consultation`, `:488` writes `initial_assessment`). Adding the constraint
+   now would break every booking. Lands with the code change — and note this is
+   exactly the "enum/CHECK constraints on ~20 status-shaped columns" item deferred
+   in Phase A above, now with the value-set audit actually done for this column.
+2. **CHECK on `appointments.status`** — needs `planned` and `pending_payment` added
+   to the eight-value FSM in `scheduling/service.py` first.
+3. **Dropping `core.sessions` and the five `session_id` columns.** Contract step of
+   expand-contract: only after the code reads and writes `appointment_id` everywhere.
+   Nothing is lost by waiting; a great deal is lost by dropping a table the running
+   app still queries.
+4. **Reservation holds, refunds, packages, ledger, settlements** — not modelled at
+   all. The agreed model is one payment per visit; none of it is required for that.
+
+### Still open — product decisions, not schema
+
+- Are follow-ups generated from a rule on the protocol (e.g. every 5th session), or
+  placed one by one by the doctor?
+- Patient skips or fails to pay for a session mid-protocol — does the remaining
+  schedule shift, or stay fixed?
+- Paid device session cancelled — gateway refund, or credit toward the next session?
+- `standard_sessions` (default 5) / `extended_sessions` / `demo_phase_status` /
+  `session_phase` are leftovers of the old Session1-4 model and are dead under this
+  design. Keep unused, or drop in the contract step?
