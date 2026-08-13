@@ -29,6 +29,7 @@ from app.modules.reception.router import router as reception_router
 from app.modules.scheduling.router import router as scheduling_router
 from app.modules.staff.router import router as staff_router
 from app.modules.store.router import router as store_router
+from app.modules.treatment_protocols.router import router as treatment_protocols_router
 from app.workers.retention_purge import run_partition_maintenance_forever
 
 settings = get_settings()
@@ -122,6 +123,7 @@ app.include_router(patients_router, prefix="/api/v1", tags=["patients"])
 app.include_router(files_router, prefix="/api/v1", tags=["files"])
 app.include_router(clinical_router, prefix="/api/v1", tags=["clinical"])
 app.include_router(scheduling_router, prefix="/api/v1", tags=["scheduling"])
+app.include_router(treatment_protocols_router, prefix="/api/v1", tags=["treatment-protocols"])
 app.include_router(payments_router, prefix="/api/v1", tags=["payments"])
 app.include_router(store_router, prefix="/api/v1", tags=["store"])
 app.include_router(inventory_router, prefix="/api/v1", tags=["inventory"])
