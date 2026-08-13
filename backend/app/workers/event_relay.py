@@ -198,65 +198,6 @@ async def _handle_appointment_rescheduled(session, payload: dict[str, Any]) -> l
     ]
 
 
-async def _handle_appointment_request_submitted(session, payload: dict[str, Any]) -> list[dict]:
-    """Notifies every active receptionist at the request's clinic."""
-    req = (
-        (
-            await session.execute(
-                text("SELECT clinic_id, request_type FROM appointment_requests WHERE request_id = :id"), {"id": payload["request_id"]}
-            )
-        )
-        .mappings()
-        .first()
-    )
-    if not req:
-        return []
-    receptionists = (
-        await session.execute(
-            text(
-                "SELECT profile_id FROM clinic_staff_assignments "
-                "WHERE clinic_id = :cid AND staff_role = 'receptionist' AND is_active = TRUE"
-            ),
-            {"cid": req["clinic_id"]},
-        )
-    ).all()
-    return [
-        {
-            "recipient_id": str(r.profile_id),
-            "type": "appointment",
-            "title": "New appointment request",
-            "body": f"A patient submitted a {req['request_type']} appointment request.",
-            "entity_type": "appointment_request",
-            "entity_id": payload["request_id"],
-        }
-        for r in receptionists
-    ]
-
-
-async def _handle_appointment_request_decided(session, payload: dict[str, Any]) -> list[dict]:
-    req = (
-        (
-            await session.execute(
-                text("SELECT patient_id, review_notes FROM appointment_requests WHERE request_id = :id"), {"id": payload["request_id"]}
-            )
-        )
-        .mappings()
-        .first()
-    )
-    if not req:
-        return []
-    return [
-        {
-            "recipient_id": str(req["patient_id"]),
-            "type": "appointment",
-            "title": f"Your appointment request was {payload['decision']}",
-            "body": req["review_notes"],
-            "entity_type": "appointment_request",
-            "entity_id": payload["request_id"],
-        }
-    ]
-
-
 async def _handle_staff_request_submitted(session, payload: dict[str, Any]) -> list[dict]:
     """Notifies the reviewing regional_admin — staff_requests.regional_admin_id
     when set (the normal case, bound at region/clinic setup); falls back to
@@ -336,8 +277,6 @@ EVENT_HANDLERS = {
     "appointment_cancelled": _handle_appointment_cancelled,
     "appointment_status_changed": _handle_appointment_status_changed,
     "appointment_rescheduled": _handle_appointment_rescheduled,
-    "appointment_request_submitted": _handle_appointment_request_submitted,
-    "appointment_request_decided": _handle_appointment_request_decided,
     "staff_request_submitted": _handle_staff_request_submitted,
     "staff_request_decided": _handle_staff_request_decided,
     "registration_completed": _handle_registration_completed,

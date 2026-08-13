@@ -17,7 +17,6 @@ from app.core.scoping import assert_clinic_scope, assert_owns_profile
 from app.modules.scheduling.repository import (
     AppointmentAuditLogRepository,
     AppointmentRepository,
-    AppointmentRequestRepository,
     ScheduleOverrideRepository,
     WeeklyScheduleRepository,
 )
@@ -28,7 +27,6 @@ from app.modules.scheduling.repository import (
 ACTIVE_STATUSES = {"scheduled", "confirmed", "checked_in", "in_progress"}
 CANCEL_MIN_HOURS = 2
 RESCHEDULE_REQUEST_MIN_HOURS = 24
-REQUEST_EXPIRY_HOURS = 72
 DEFAULT_SLOT_MINUTES = 30
 
 # Which statuses a transition is legal FROM (v1's AppointmentDetailModal
@@ -222,218 +220,6 @@ class AvailabilityService:
         return False, DEFAULT_SLOT_MINUTES
 
 
-class AppointmentRequestService:
-    def __init__(self, session: AsyncSession):
-        self.session = session
-        self.repo = AppointmentRequestRepository(session)
-        self.appointments = AppointmentService(session)
-
-    async def create(
-        self,
-        data: dict,
-        *,
-        submitted_by: UUID,
-        ctx: RequestContext,
-        _patient_profile_id_override=None,
-        _doctor_profile_id_override: bool = False,
-    ) -> dict:
-        patient_profile_id = _patient_profile_id_override or await _resolve_patient_profile_id(self.session, data["patient_id"])
-        if ctx.role == "patient":
-            assert_owns_profile(ctx, patient_profile_id)
-
-        patient_row = await _get_patient_row(self.session, profile_id=patient_profile_id)
-        clinic_id = data.get("clinic_id") or patient_row.get("primary_clinic_id")
-        if not clinic_id:
-            raise BusinessRuleError("Patient has no primary clinic on file — clinic_id is required", code="CLINIC_REQUIRED")
-
-        doctor_profile_id = None
-        if data.get("doctor_id"):
-            doctor_profile_id = (
-                data["doctor_id"] if _doctor_profile_id_override else await _resolve_doctor_profile_id(self.session, data["doctor_id"])
-            )
-        elif data.get("request_type", "new") == "new":
-            # v1: "resolves assigned_doctor_id from the patient row (errors
-            # if no assigned doctor)" — a first-visit request has to land on
-            # someone's calendar.
-            doctor_profile_id = patient_row.get("primary_doctor_id")
-            if not doctor_profile_id:
-                raise BusinessRuleError("Patient has no assigned doctor — doctor_id is required", code="DOCTOR_REQUIRED")
-
-        request_type = data.get("request_type", "new")
-        existing = await self.repo.find_pending(
-            patient_id=patient_profile_id,
-            request_type=request_type,
-            parent_appointment_id=data.get("parent_appointment_id"),
-        )
-        if existing:
-            raise ConflictError("You already have a pending request of this type", code="APPOINTMENT_REQUEST_ALREADY_PENDING")
-
-        payload = {
-            "clinic_id": str(clinic_id),
-            "patient_id": str(patient_profile_id),
-            "doctor_id": str(doctor_profile_id) if doctor_profile_id else None,
-            "cycle_id": str(data["cycle_id"]) if data.get("cycle_id") else None,
-            "request_type": request_type,
-            "parent_appointment_id": (str(data["parent_appointment_id"]) if data.get("parent_appointment_id") else None),
-            "preferred_date_1": data["preferred_date_1"],
-            "preferred_date_2": data.get("preferred_date_2"),
-            "preferred_date_3": data.get("preferred_date_3"),
-            "preferred_time_window": data.get("preferred_time_window", "any"),
-            "patient_complaint": data.get("patient_complaint"),
-            "reason": data.get("reason"),
-            "urgency": data.get("urgency", "normal"),
-            "submitted_by": str(submitted_by),
-            "expires_at": dt.datetime.now(dt.UTC) + dt.timedelta(hours=REQUEST_EXPIRY_HOURS),
-        }
-        req = await self.repo.create(payload)
-        await emit_event(
-            self.session,
-            aggregate_type="appointment_request",
-            aggregate_id=req["request_id"],
-            event_type="appointment_request_submitted",
-            payload={"request_id": str(req["request_id"])},
-        )
-        return req
-
-    async def create_reschedule_request(self, appointment_id: UUID, data: dict, *, submitted_by: UUID, ctx: RequestContext) -> dict:
-        """POST /appointments/{id}/request-reschedule — the patient-facing
-        counterpart to staff's direct AppointmentService.reschedule. v1:
-        patients can never reschedule directly, only ask; appointment must
-        still be scheduled/confirmed and at least RESCHEDULE_REQUEST_MIN_HOURS
-        out."""
-        appt = await self.appointments.get(appointment_id)
-        assert_owns_profile(ctx, appt["patient_id"])
-        if appt["status"] not in ("scheduled", "confirmed"):
-            raise BusinessRuleError("Only a scheduled or confirmed appointment can be rescheduled", code="APPOINTMENT_NOT_ACTIVE")
-        if _hours_until(appt["appointment_date"], appt["start_time"]) < RESCHEDULE_REQUEST_MIN_HOURS:
-            raise BusinessRuleError(
-                f"Reschedule requests must be made at least {RESCHEDULE_REQUEST_MIN_HOURS} hours in advance",
-                code="RESCHEDULE_WINDOW_PASSED",
-            )
-        return await self.create(
-            {
-                "clinic_id": appt["clinic_id"],
-                "doctor_id": appt["doctor_id"],
-                "request_type": "reschedule",
-                "parent_appointment_id": appointment_id,
-                "preferred_date_1": data["preferred_date_1"],
-                "preferred_date_2": data.get("preferred_date_2"),
-                "preferred_date_3": data.get("preferred_date_3"),
-                "preferred_time_window": data.get("preferred_time_window", "any"),
-                "reason": data.get("reason"),
-            },
-            submitted_by=submitted_by,
-            ctx=ctx,
-            # appt["patient_id"]/["doctor_id"] are already profiles.id (the
-            # appointments row stores them directly) — passing them through
-            # create()'s normal resolution path (which expects
-            # patients.patient_id / doctors.doctor_id row ids) would 404.
-            _patient_profile_id_override=appt["patient_id"],
-            _doctor_profile_id_override=True,
-        )
-
-    async def get(self, request_id: UUID) -> dict:
-        req = await self.repo.get(request_id)
-        if not req:
-            raise NotFoundError("Appointment request not found", code="APPOINTMENT_REQUEST_NOT_FOUND")
-        return req
-
-    async def list(self, *, ctx: RequestContext, clinic_id=None, doctor_id=None, status=None) -> list[dict]:
-        if ctx.role == "patient":
-            return await self.repo.list(patient_id=UUID(ctx.user_id), status=status)
-        if ctx.role == "doctor":
-            return await self.repo.list(doctor_id=UUID(ctx.user_id), status=status)
-        region_id = None
-        if ctx.role in ("clinic_admin", "receptionist", "clinical_assistant") and not clinic_id:
-            clinic_id = UUID(ctx.clinic_id) if ctx.clinic_id else None
-        elif ctx.role == "regional_admin" and not clinic_id:
-            region_id = UUID(ctx.region_id) if ctx.region_id else None
-        return await self.repo.list(clinic_id=clinic_id, region_id=region_id, doctor_id=doctor_id, status=status)
-
-    async def cancel_own(self, request_id: UUID, *, ctx: RequestContext) -> dict:
-        """Patient withdrawing their own pending request — v1's cancel_request."""
-        req = await self.get(request_id)
-        assert_owns_profile(ctx, req["patient_id"])
-        if req["status"] != "pending":
-            raise BusinessRuleError(f"Request already {req['status']}", code="APPOINTMENT_REQUEST_ALREADY_DECIDED")
-        updated = await self.repo.set_decision(request_id, status="cancelled_by_patient", reviewed_by=UUID(ctx.user_id), review_notes=None)
-        await emit_event(
-            self.session,
-            aggregate_type="appointment_request",
-            aggregate_id=request_id,
-            event_type="appointment_request_cancelled",
-            payload={"request_id": str(request_id)},
-        )
-        return updated  # type: ignore[return-value]
-
-    async def decide(self, request_id: UUID, data: dict, *, reviewed_by: UUID, ctx: RequestContext) -> dict:
-        # A patient hitting this same endpoint can only ever withdraw their
-        # own pending request — everything else (approve/reject, deciding
-        # on someone else's request) is a staff-only action gated below.
-        if ctx.role == "patient":
-            if data["decision"] != "cancelled_by_patient":
-                raise PermissionError_("Patients can only withdraw their own request", code="PATIENT_ACTION_NOT_ALLOWED")
-            return await self.cancel_own(request_id, ctx=ctx)
-
-        req = await self.get(request_id)
-        if req["status"] != "pending":
-            raise BusinessRuleError(f"Appointment request already {req['status']}", code="APPOINTMENT_REQUEST_ALREADY_DECIDED")
-        await assert_clinic_scope(ctx, self.session, req["clinic_id"])
-
-        if data["decision"] == "approved":
-            if not all([data.get("appointment_date"), data.get("start_time")]):
-                raise BusinessRuleError("appointment_date/start_time required to approve", code="APPOINTMENT_SLOT_REQUIRED")
-            doctor_id_override = data.get("doctor_id")
-            create_data = {
-                "clinic_id": req["clinic_id"],
-                "doctor_id": doctor_id_override or req["doctor_id"],
-                "appointment_date": data["appointment_date"],
-                "start_time": data["start_time"],
-                "end_time": data.get("end_time"),
-                "appointment_type": data.get("appointment_type", "doctor_consultation"),
-                "reason": req.get("reason"),
-                "patient_complaint": req.get("patient_complaint"),
-            }
-            if req["request_type"] == "reschedule" and req["parent_appointment_id"]:
-                new_appointment = await self.appointments.reschedule(
-                    req["parent_appointment_id"],
-                    create_data,
-                    changed_by=reviewed_by,
-                    changed_by_role=ctx.role,
-                    ctx=ctx,
-                    appointment_request_id=request_id,
-                )
-            else:
-                new_appointment = await self.appointments.create(
-                    {**create_data, "patient_id": None},
-                    booked_by=reviewed_by,
-                    booked_by_role=ctx.role,
-                    _patient_profile_id_override=req["patient_id"],
-                    _doctor_profile_id_override=doctor_id_override is None,
-                    appointment_request_id=request_id,
-                    ctx=ctx,
-                )
-            approved_appointment_id = new_appointment["appointment_id"]
-        else:
-            approved_appointment_id = None
-
-        updated = await self.repo.set_decision(
-            request_id,
-            status=data["decision"],
-            reviewed_by=reviewed_by,
-            review_notes=data.get("review_notes"),
-            approved_appointment_id=approved_appointment_id,
-        )
-        await emit_event(
-            self.session,
-            aggregate_type="appointment_request",
-            aggregate_id=request_id,
-            event_type="appointment_request_decided",
-            payload={"request_id": str(request_id), "decision": data["decision"]},
-        )
-        return updated  # type: ignore[return-value]
-
-
 class AppointmentService:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -449,7 +235,6 @@ class AppointmentService:
         ctx: RequestContext | None = None,
         _patient_profile_id_override=None,
         _doctor_profile_id_override=False,
-        appointment_request_id: UUID | None = None,
     ) -> dict:
         patient_profile_id = _patient_profile_id_override or await _resolve_patient_profile_id(self.session, data["patient_id"])
         doctor_profile_id = (
@@ -480,13 +265,11 @@ class AppointmentService:
             "doctor_id": str(doctor_profile_id),
             "ca_id": str(data["ca_id"]) if data.get("ca_id") else None,
             "cycle_id": str(data["cycle_id"]) if data.get("cycle_id") else None,
-            "appointment_request_id": str(appointment_request_id) if appointment_request_id else None,
             "appointment_date": data["appointment_date"],
             "start_time": data["start_time"],
             "end_time": end_time,
             "slot_duration_minutes": duration,
             "appointment_type": data.get("appointment_type", "initial_assessment"),
-            "session_phase": data.get("session_phase"),
             "reason": data.get("reason"),
             "patient_complaint": data.get("patient_complaint"),
             "booked_by": str(booked_by),
@@ -672,7 +455,6 @@ class AppointmentService:
         changed_by: UUID,
         changed_by_role: str,
         ctx: RequestContext,
-        appointment_request_id: UUID | None = None,
     ) -> dict:
         old = await self.get(appointment_id)
         if ctx.role == "patient":
@@ -702,7 +484,6 @@ class AppointmentService:
             booked_by_role=changed_by_role,
             _patient_profile_id_override=old["patient_id"],
             _doctor_profile_id_override=True,
-            appointment_request_id=appointment_request_id,
         )
         await self.repo.reschedule(appointment_id, new_appointment_id=new_appointment["appointment_id"])
         await self.repo.update_fields(new_appointment["appointment_id"], {"rescheduled_from": str(appointment_id)})

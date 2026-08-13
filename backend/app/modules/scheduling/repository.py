@@ -9,40 +9,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.sql_helpers import fetch_one, fetch_optional, insert_returning
 
-# appointments.patient_id / appointments.doctor_id / appointment_requests.
-# patient_id / .doctor_id all store profiles(id) directly (doctors.profile_id
-# IS a profiles.id) — so hydrating a name is always a plain join on
-# profiles.id, never a second hop through patients/doctors.
+# appointments.patient_id and appointments.doctor_id both store profiles(id)
+# directly (doctors.profile_id IS a profiles.id) — so hydrating a name is always
+# a plain join on profiles.id, never a second hop through patients/doctors.
 _APPT_SELECT = (
     "SELECT a.*, pp.first_name || ' ' || pp.last_name AS patient_name, "
     "dp.first_name || ' ' || dp.last_name AS doctor_name, "
     # doctors.doctor_id (public ID) — /doctors/{doctor_id}/availability and
-    # similar path params expect this, not a.doctor_id (profiles.id). Same
-    # gap as _REQ_SELECT's doctor_public_id, fixed for the same reason.
+    # similar path params expect this, not a.doctor_id (profiles.id).
     "dd.doctor_id AS doctor_public_id "
     "FROM appointments a "
     "JOIN profiles pp ON pp.id = a.patient_id "
     "JOIN profiles dp ON dp.id = a.doctor_id "
     "LEFT JOIN doctors dd ON dd.profile_id = a.doctor_id "
 )
-
-_REQ_SELECT = (
-    "SELECT r.*, pp.first_name || ' ' || pp.last_name AS patient_name, "
-    "dp.first_name || ' ' || dp.last_name AS doctor_name, "
-    # doctors.doctor_id (public ID) — path params like /doctors/{doctor_id}/
-    # availability expect this, not r.doctor_id (which is profiles.id, same
-    # value space as doctors.profile_id). Without this, a caller resolving
-    # slots straight from a request row 404s against the availability
-    # endpoint (see doctor/schedule page's identical bug, fixed via /auth/me).
-    "dd.doctor_id AS doctor_public_id, "
-    "rp.first_name || ' ' || rp.last_name AS reviewer_name "
-    "FROM appointment_requests r "
-    "JOIN profiles pp ON pp.id = r.patient_id "
-    "LEFT JOIN profiles dp ON dp.id = r.doctor_id "
-    "LEFT JOIN doctors dd ON dd.profile_id = r.doctor_id "
-    "LEFT JOIN profiles rp ON rp.id = r.reviewed_by "
-)
-
 
 class WeeklyScheduleRepository:
     def __init__(self, session: AsyncSession):
@@ -131,73 +111,6 @@ class ScheduleOverrideRepository:
     async def delete(self, override_id: UUID) -> bool:
         result = await self.session.execute(text("DELETE FROM doctor_schedule_overrides WHERE override_id = :id"), {"id": str(override_id)})
         return result.rowcount > 0  # type: ignore[attr-defined]  # CursorResult has rowcount; async Result stubs don't expose it
-
-
-class AppointmentRequestRepository:
-    def __init__(self, session: AsyncSession):
-        self.session = session
-
-    async def create(self, data: dict) -> dict:
-        sql, params = insert_returning("appointment_requests", data)
-        return await fetch_one(self.session, sql, params)
-
-    async def get(self, request_id: UUID) -> dict | None:
-        return await fetch_optional(self.session, text(_REQ_SELECT + "WHERE r.request_id = :id"), {"id": str(request_id)})
-
-    async def list(
-        self,
-        *,
-        clinic_id: UUID | None = None,
-        region_id: UUID | None = None,
-        patient_id: UUID | None = None,
-        doctor_id: UUID | None = None,
-        status: str | None = None,
-    ) -> list[dict]:
-        clauses, params = [], {}
-        if clinic_id:
-            clauses.append("r.clinic_id = :cid")
-            params["cid"] = str(clinic_id)
-        elif region_id:
-            clauses.append("r.clinic_id IN (SELECT clinic_id FROM clinics WHERE region_id = :rid)")
-            params["rid"] = str(region_id)
-        if patient_id:
-            clauses.append("r.patient_id = :pid")
-            params["pid"] = str(patient_id)
-        if doctor_id:
-            clauses.append("r.doctor_id = :did")
-            params["did"] = str(doctor_id)
-        if status:
-            clauses.append("r.status = :status")
-            params["status"] = status
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        rows = (await self.session.execute(text(f"{_REQ_SELECT}{where} ORDER BY r.created_at DESC"), params)).mappings().all()
-        return [dict(r) for r in rows]
-
-    async def find_pending(self, *, patient_id: UUID, request_type: str, parent_appointment_id: UUID | None = None) -> dict | None:
-        clause = "patient_id = :pid AND request_type = :rt AND status = 'pending'"
-        params = {"pid": str(patient_id), "rt": request_type}
-        if parent_appointment_id:
-            clause += " AND parent_appointment_id = :parent"
-            params["parent"] = str(parent_appointment_id)
-        return await fetch_optional(self.session, text(f"SELECT * FROM appointment_requests WHERE {clause} LIMIT 1"), params)
-
-    async def set_decision(
-        self, request_id: UUID, *, status: str, reviewed_by: UUID, review_notes, approved_appointment_id=None
-    ) -> dict | None:
-        return await fetch_optional(
-            self.session,
-            text(
-                "UPDATE appointment_requests SET status = :status, reviewed_by = :reviewed_by, review_notes = :notes, "
-                "approved_appointment_id = :appt_id, updated_at = NOW() WHERE request_id = :id RETURNING *"
-            ),
-            {
-                "status": status,
-                "reviewed_by": str(reviewed_by),
-                "notes": review_notes,
-                "appt_id": str(approved_appointment_id) if approved_appointment_id else None,
-                "id": str(request_id),
-            },
-        )
 
 
 class AppointmentRepository:
@@ -329,12 +242,6 @@ class AppointmentRepository:
                 "updated_at = NOW() WHERE appointment_id = :id RETURNING *"
             ),
             {"new_id": str(new_appointment_id), "id": str(appointment_id)},
-        )
-
-    async def link_session(self, appointment_id: UUID, *, session_id: UUID) -> None:
-        await self.session.execute(
-            text("UPDATE appointments SET session_id = :sid WHERE appointment_id = :id"),
-            {"sid": str(session_id), "id": str(appointment_id)},
         )
 
 

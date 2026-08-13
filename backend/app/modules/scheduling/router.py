@@ -8,7 +8,6 @@ from app.core.exceptions import NotFoundError, PermissionError_
 from app.core.permissions import require_role
 from app.modules.scheduling import schemas as s
 from app.modules.scheduling.service import (
-    AppointmentRequestService,
     AppointmentService,
     AvailabilityService,
     ScheduleOverrideService,
@@ -124,46 +123,6 @@ async def delete_my_override(override_id: UUID, db=Depends(get_db), ctx: Request
     await ScheduleOverrideService(db).delete_own(override_id, doctor_profile_id=UUID(ctx.user_id))
 
 
-@router.post("/appointment-requests", response_model=s.AppointmentRequestRead, status_code=201)
-async def create_appointment_request(
-    body: s.AppointmentRequestCreate,
-    db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
-):
-    return await AppointmentRequestService(db).create(body.model_dump(), submitted_by=UUID(ctx.user_id), ctx=ctx)
-
-
-@router.get("/appointment-requests", response_model=list[s.AppointmentRequestRead])
-async def list_appointment_requests(
-    clinic_id: UUID | None = None,
-    doctor_id: UUID | None = None,
-    status: str | None = None,
-    db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
-):
-    return await AppointmentRequestService(db).list(ctx=ctx, clinic_id=clinic_id, doctor_id=doctor_id, status=status)
-
-
-@router.get("/appointment-requests/{request_id}", response_model=s.AppointmentRequestRead)
-async def get_appointment_request(
-    request_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))
-):
-    req = await AppointmentRequestService(db).get(request_id)
-    if ctx.role == "patient" and str(req["patient_id"]) != ctx.user_id:
-        raise PermissionError_("You can only view your own request", code="PATIENT_SCOPE_MISMATCH")
-    return req
-
-
-@router.patch("/appointment-requests/{request_id}/decision", response_model=s.AppointmentRequestRead)
-async def decide_appointment_request(
-    request_id: UUID,
-    body: s.AppointmentRequestDecision,
-    db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
-):
-    return await AppointmentRequestService(db).decide(request_id, body.model_dump(), reviewed_by=UUID(ctx.user_id), ctx=ctx)
-
-
 @router.post("/appointments", response_model=s.AppointmentRead, status_code=201)
 async def create_appointment(body: s.AppointmentCreate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
     return await AppointmentService(db).create(body.model_dump(), booked_by=UUID(ctx.user_id), booked_by_role=ctx.role, ctx=ctx)
@@ -234,18 +193,6 @@ async def reschedule_appointment(
 ):
     return await AppointmentService(db).reschedule(
         appointment_id, body.model_dump(), changed_by=UUID(ctx.user_id), changed_by_role=ctx.role, ctx=ctx
-    )
-
-
-@router.post("/appointments/{appointment_id}/request-reschedule", response_model=s.AppointmentRequestRead, status_code=201)
-async def request_reschedule(
-    appointment_id: UUID,
-    body: s.AppointmentRescheduleRequestCreate,
-    db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role("patient")),
-):
-    return await AppointmentRequestService(db).create_reschedule_request(
-        appointment_id, body.model_dump(), submitted_by=UUID(ctx.user_id), ctx=ctx
     )
 
 
