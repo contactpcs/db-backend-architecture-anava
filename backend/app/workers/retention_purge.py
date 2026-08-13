@@ -55,6 +55,14 @@ DATA_CATEGORIES: list[tuple[str, str, str | None, str]] = [
     ("doctor_session_notes", "doctor_session_notes", "patient_id", "retain_locked"),
     ("disease_selection", "patient_disease_selection", "patient_id", "retain_locked"),
     ("appointments", "appointments", "patient_id", "retain_locked"),
+    # Protocol module (SQL/v1/32). All three are annotated Bucket 2 in their
+    # table comments; without these entries an erasure request would walk right
+    # past a patient's prescribed protocol and their post-session assessments.
+    # treatment_protocols carries no patient_id of its own — reached through
+    # treatment_plans, the same way payments is reached through sessions.
+    ("treatment_protocols", "treatment_protocols", None, "retain_locked"),
+    ("device_session_prs", "device_session_prs_responses", "patient_id", "retain_locked"),
+    ("followup_prs", "followup_prs_responses", "patient_id", "retain_locked"),
     ("sessions", "sessions", "patient_id", "retain_locked"),
     ("payments", "payments", None, "retain_locked"),  # joined via session_id, see _classify_payments
     ("store_orders", "store_orders", "patient_id", "retain_locked"),
@@ -113,6 +121,19 @@ async def classify_erasure_requests(session) -> int:
                 exists = (
                     await session.execute(
                         text("SELECT 1 FROM payments p JOIN sessions s ON s.session_id = p.session_id WHERE s.patient_id = :pid LIMIT 1"),
+                        {"pid": req["patient_id"]},
+                    )
+                ).first()
+            elif table == "treatment_protocols":
+                # No patient_id column — a protocol belongs to a plan, and the
+                # plan names the patient.
+                exists = (
+                    await session.execute(
+                        text(
+                            "SELECT 1 FROM treatment_protocols tp "
+                            "JOIN treatment_plans pl ON pl.plan_id = tp.plan_id "
+                            "WHERE pl.patient_id = :pid LIMIT 1"
+                        ),
                         {"pid": req["patient_id"]},
                     )
                 ).first()

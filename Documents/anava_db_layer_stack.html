@@ -1,0 +1,628 @@
+<title>Anava DB Layer Stack</title>
+<style>
+  /* Palette and type inherited from the onboarding reference page so this
+     reads as the same document family. */
+  :root {
+    --bg: #EEF0F0;
+    --bg-raise: #F7F8F7;
+    --ink: #14181D;
+    --ink-soft: #4A5158;
+    --ink-faint: #7B828A;
+    --border: #D7D9D3;
+    --border-soft: #E3E5DF;
+    --accent: #2B6E68;
+    --accent-soft: #E4EDEC;
+    --brass: #9C6229;
+    --brass-soft: #F3E7D8;
+    --good: #33714B;
+    --good-soft: #E3EEE5;
+    --crit: #96393C;
+    --crit-soft: #F5E4E4;
+    --code-bg: #E7E9E4;
+    --shadow: 0 1px 2px rgba(20,24,29,.06), 0 8px 24px -12px rgba(20,24,29,.12);
+    --mono: "JetBrains Mono", "SF Mono", "Cascadia Code", ui-monospace, Menlo, Consolas, monospace;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14181B; --bg-raise: #1B2024; --ink: #E7E5DF; --ink-soft: #B7BCC0; --ink-faint: #7D848B;
+      --border: #2B3136; --border-soft: #23282C; --accent: #59B0A8; --accent-soft: #1C2E2C;
+      --brass: #D99A56; --brass-soft: #322820; --good: #6FBE84; --good-soft: #1E2E22;
+      --crit: #D9797C; --crit-soft: #332021; --code-bg: #20262A;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14181B; --bg-raise: #1B2024; --ink: #E7E5DF; --ink-soft: #B7BCC0; --ink-faint: #7D848B;
+    --border: #2B3136; --border-soft: #23282C; --accent: #59B0A8; --accent-soft: #1C2E2C;
+    --brass: #D99A56; --brass-soft: #322820; --good: #6FBE84; --good-soft: #1E2E22;
+    --crit: #D9797C; --crit-soft: #332021; --code-bg: #20262A;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sheet { max-width: 1120px; margin: 0 auto; padding: 30px 26px 56px; }
+
+  /* ---------------- header ---------------- */
+  .head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 22px; flex-wrap: wrap;
+    padding-bottom: 16px; margin-bottom: 22px;
+    border-bottom: 1px solid var(--border);
+  }
+  .eyebrow {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 7px;
+  }
+  h1 { font-size: 27px; margin: 0; letter-spacing: -.01em; font-weight: 600; text-wrap: balance; }
+  .sub { color: var(--ink-soft); font-size: 14px; margin: 5px 0 0; max-width: 56ch; }
+  .facts { display: flex; gap: 16px; flex-wrap: wrap; font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); }
+  .facts b { color: var(--ink); font-weight: 600; display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+
+  /* ---------------- stack frame ---------------- */
+  .frame { display: grid; grid-template-columns: 76px 1fr; gap: 14px; align-items: stretch; }
+  @media (max-width: 800px) { .frame { grid-template-columns: 1fr; } .spine { display: none; } }
+
+  .spine { display: flex; flex-direction: column; gap: 4px; }
+  .zone {
+    flex: 1; border-radius: 7px; padding: 10px 8px;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    text-align: center; border: 1px solid var(--border-soft);
+  }
+  .zone .zt {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+    font-weight: 600; writing-mode: vertical-rl; transform: rotate(180deg);
+  }
+  .zone.proof { background: var(--crit-soft); border-color: var(--crit); }
+  .zone.proof .zt { color: var(--crit); }
+  .zone.how { background: var(--accent-soft); border-color: var(--accent); }
+  .zone.how .zt { color: var(--accent); }
+  .zone.what { background: var(--brass-soft); border-color: var(--brass); }
+  .zone.what .zt { color: var(--brass); }
+
+  /* ---------------- the layers ---------------- */
+  .stack { display: flex; flex-direction: column; gap: 4px; }
+  .layer {
+    background: var(--bg-raise);
+    border: 1px solid var(--border-soft);
+    border-left: 4px solid var(--accent);
+    border-radius: 7px;
+    padding: 12px 16px;
+    display: grid;
+    grid-template-columns: 44px 250px 1fr auto;
+    gap: 16px;
+    align-items: start;
+    box-shadow: var(--shadow);
+  }
+  @media (max-width: 800px) {
+    .layer { grid-template-columns: 40px 1fr; gap: 10px 12px; }
+    .layer .body { grid-column: 1 / -1; }
+    .layer .stat { grid-column: 1 / -1; justify-self: start; }
+  }
+  .layer.proof { border-left-color: var(--crit); }
+  .layer.what  { border-left-color: var(--brass); }
+
+  .num {
+    font-family: var(--mono); font-size: 15px; font-weight: 700;
+    color: var(--accent); background: var(--accent-soft);
+    border-radius: 6px; width: 40px; height: 40px;
+    display: flex; align-items: center; justify-content: center;
+    letter-spacing: -.03em;
+  }
+  .layer.proof .num { color: var(--crit); background: var(--crit-soft); }
+  .layer.what  .num { color: var(--brass); background: var(--brass-soft); }
+
+  .title h2 { font-size: 17px; margin: 0 0 2px; font-weight: 600; letter-spacing: -.005em; }
+  .title p {
+    margin: 0; font-family: var(--mono); font-size: 10.5px; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--ink-faint);
+  }
+
+  .body { font-size: 13.5px; color: var(--ink-soft); }
+  .body > p { margin: 0 0 7px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip {
+    font-family: var(--mono); font-size: 10.5px;
+    background: var(--code-bg); color: var(--ink);
+    border: 1px solid var(--border-soft);
+    border-radius: 4px; padding: 2px 6px; white-space: nowrap;
+  }
+  .chip.n { border-color: var(--good); color: var(--good); background: var(--good-soft); }
+  .chip.x { border-color: var(--crit); color: var(--crit); background: var(--crit-soft); }
+
+  .stat { text-align: right; min-width: 96px; }
+  .bar { width: 84px; height: 5px; border-radius: 3px; background: var(--border-soft); overflow: hidden; margin-left: auto; }
+  .bar > span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .layer.proof .bar > span { background: var(--crit); }
+  .layer.what  .bar > span { background: var(--brass); }
+  .pct {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-soft);
+    font-variant-numeric: tabular-nums; display: block; margin-bottom: 4px;
+  }
+
+  /* ---------------- legend + notes ---------------- */
+  .foot { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 22px; }
+  .note {
+    border-left: 3px solid var(--brass); background: var(--brass-soft);
+    border-radius: 6px; padding: 11px 14px; font-size: 13px; line-height: 1.5;
+  }
+  .note.bad { border-left-color: var(--crit); background: var(--crit-soft); }
+  .note b { font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; display: block; margin-bottom: 4px; }
+  .note.bad b { color: var(--crit); }
+  .note b { color: var(--brass); }
+
+  .key {
+    display: flex; gap: 16px; flex-wrap: wrap; margin-top: 18px;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+    padding-top: 14px; border-top: 1px solid var(--border);
+  }
+  .key i { font-style: normal; display: inline-flex; align-items: center; gap: 5px; }
+  .sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; border: 1px solid var(--border); }
+
+  code {
+    font-family: var(--mono); font-size: .85em; background: var(--code-bg);
+    padding: .1em .35em; border-radius: 4px;
+  }
+
+  /* ---------------- namespace detail ---------------- */
+  .ns { margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--border); }
+  .ns > h2 {
+    font-size: 20px; margin: 0 0 4px; font-weight: 600; letter-spacing: -.005em;
+  }
+  .ns > p.intro { margin: 0 0 18px; color: var(--ink-soft); font-size: 13.5px; max-width: 74ch; }
+
+  .schema {
+    background: var(--bg-raise); border: 1px solid var(--border-soft);
+    border-left: 4px solid var(--accent);
+    border-radius: 7px; padding: 13px 16px; margin-bottom: 10px;
+    box-shadow: var(--shadow);
+  }
+  .schema.ref  { border-left-color: var(--brass); }
+  .schema.comp { border-left-color: var(--crit); }
+  .schema.ops  { border-left-color: var(--ink-faint); }
+
+  .schema-head {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed var(--border-soft);
+  }
+  .schema-head h3 {
+    margin: 0; font-family: var(--mono); font-size: 14px; font-weight: 700; color: var(--accent);
+  }
+  .schema.ref  .schema-head h3 { color: var(--brass); }
+  .schema.comp .schema-head h3 { color: var(--crit); }
+  .schema.ops  .schema-head h3 { color: var(--ink-faint); }
+  .schema-head .ct {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+    background: var(--code-bg); border-radius: 4px; padding: 1px 7px;
+  }
+  .schema-head .what { font-size: 13px; color: var(--ink-soft); flex: 1 1 260px; }
+
+  .grp { display: grid; grid-template-columns: 138px 1fr; gap: 10px; padding: 5px 0; align-items: start; }
+  @media (max-width: 700px) { .grp { grid-template-columns: 1fr; gap: 4px; } }
+  .grp + .grp { border-top: 1px dotted var(--border-soft); }
+  .grp .gl {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--ink-faint); padding-top: 3px;
+  }
+  .tbl {
+    font-family: var(--mono); font-size: 11px;
+    background: var(--code-bg); color: var(--ink);
+    border: 1px solid var(--border-soft);
+    border-radius: 4px; padding: 2px 6px; white-space: nowrap;
+  }
+  .tbl.spine  { border-color: var(--brass); color: var(--brass); background: var(--brass-soft); }
+  .tbl.proto  { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .tbl.dead   { color: var(--ink-faint); text-decoration: line-through; opacity: .7; }
+  .tbl.part::after { content: " ▤"; opacity: .55; }
+</style>
+
+<div class="sheet">
+
+  <div class="head">
+    <div>
+      <p class="eyebrow">Reference — Anava_App_v1 · PostgreSQL 15 · AWS RDS ap-south-1</p>
+      <h1>The eight layers, bottom up</h1>
+      <p class="sub">
+        Layer 1 is the only one that is a literal place. Everything above it changes how
+        tables already sitting there behave — under load, under attack, or under a legal
+        retention clock.
+      </p>
+    </div>
+    <div class="facts">
+      <span><b>88</b>tables</span>
+      <span><b>5</b>schemas</span>
+      <span><b>8</b>layers</span>
+      <span><b>~62%</b>overall</span>
+    </div>
+  </div>
+
+  <div class="frame">
+
+    <div class="spine">
+      <div class="zone proof" style="flex:2"><span class="zt">Proof</span></div>
+      <div class="zone how" style="flex:5"><span class="zt">How</span></div>
+      <div class="zone what" style="flex:1"><span class="zt">What</span></div>
+    </div>
+
+    <div class="stack">
+
+      <!-- 08 -->
+      <div class="layer proof">
+        <div class="num">08</div>
+        <div class="title">
+          <h2>Durability &amp; DR</h2>
+          <p>Getting it back</p>
+        </div>
+        <div class="body">
+          <p>Automated RDS snapshots exist. A tested restore path does not.</p>
+          <div class="chips">
+            <span class="chip">rds automated backups</span>
+            <span class="chip">manual_snapshots</span>
+            <span class="chip x">no restore drill</span>
+            <span class="chip x">no PITR target</span>
+          </div>
+        </div>
+        <div class="stat"><span class="pct">15%</span><div class="bar"><span style="width:15%"></span></div></div>
+      </div>
+
+      <!-- 07 -->
+      <div class="layer proof">
+        <div class="num">07</div>
+        <div class="title">
+          <h2>Observability</h2>
+          <p>Knowing it broke</p>
+        </div>
+        <div class="body">
+          <p>Nothing built. No slow-query capture, no bloat or partition-drift alerting.</p>
+          <div class="chips">
+            <span class="chip x">pg_stat_statements</span>
+            <span class="chip x">slow query log</span>
+            <span class="chip x">partition drift alert</span>
+            <span class="chip x">connection saturation</span>
+          </div>
+        </div>
+        <div class="stat"><span class="pct">0%</span><div class="bar"><span style="width:0%"></span></div></div>
+      </div>
+
+      <!-- 06 -->
+      <div class="layer">
+        <div class="num">06</div>
+        <div class="title">
+          <h2>Migration discipline</h2>
+          <p>Changing it without downtime</p>
+        </div>
+        <div class="body">
+          <p>Expand-then-contract, with <code>NOT VALID</code> before <code>VALIDATE</code> on populated tables. Files 00–29 are introspection output and never hand-edited.</p>
+          <div class="chips">
+            <span class="chip">expand / contract</span>
+            <span class="chip">NOT VALID → VALIDATE</span>
+            <span class="chip n">files 30–34</span>
+            <span class="chip x">alembic drift</span>
+          </div>
+        </div>
+        <div class="stat"><span class="pct">40%</span><div class="bar"><span style="width:40%"></span></div></div>
+      </div>
+
+      <!-- 05 -->
+      <div class="layer">
+        <div class="num">05</div>
+        <div class="title">
+          <h2>Retention &amp; archival</h2>
+          <p>What happens when its purpose ends</p>
+        </div>
+        <div class="body">
+          <p>Compliance is a scheduled job, not a document. Three retention buckets drive what an erasure request may actually delete.</p>
+          <div class="chips">
+            <span class="chip">erasure_requests</span>
+            <span class="chip">data_portability_requests</span>
+            <span class="chip">compliance_incidents</span>
+            <span class="chip">retention_purge.py</span>
+            <span class="chip n">+3 protocol tables registered</span>
+          </div>
+        </div>
+        <div class="stat"><span class="pct">70%</span><div class="bar"><span style="width:70%"></span></div></div>
+      </div>
+
+      <!-- 04 -->
+      <div class="layer">
+        <div class="num">04</div>
+        <div class="title">
+          <h2>Storage tiering</h2>
+          <p>Why it is still fast in year six</p>
+        </div>
+        <div class="body">
+          <p>Five tables partitioned by range on their timestamp, plus a <code>DEFAULT</code> catch-all. The planner prunes everything outside the queried window.</p>
+          <div class="chips">
+            <span class="chip">treatment_sessions · yearly</span>
+            <span class="chip">audit_logs · monthly</span>
+            <span class="chip">activity_logs · monthly</span>
+            <span class="chip">appointment_audit_logs · monthly</span>
+            <span class="chip">notifications · monthly</span>
+            <span class="chip x">appointments · deferred</span>
+            <span class="chip x">payments · deferred</span>
+          </div>
+        </div>
+        <div class="stat"><span class="pct">65%</span><div class="bar"><span style="width:65%"></span></div></div>
+      </div>
+
+      <!-- 03 -->
+      <div class="layer">
+        <div class="num">03</div>
+        <div class="title">
+          <h2>Access control</h2>
+          <p>Who can touch what</p>
+        </div>
+        <div class="body">
+          <p><code>ENABLE</code> + <code>FORCE</code> row-level security on every table — it applies even to the owner. Policies live in the same file as the enable, because enabling without them returns zero rows silently.</p>
+          <div class="chips">
+            <span class="chip">anava_app</span>
+            <span class="chip">anava_readonly</span>
+            <span class="chip">anava_compliance</span>
+            <span class="chip">'system' role value</span>
+            <span class="chip n">+63 protocol policies</span>
+            <span class="chip x">rls_clinic_id() returns NULL</span>
+          </div>
+        </div>
+        <div class="stat"><span class="pct">90%</span><div class="bar"><span style="width:90%"></span></div></div>
+      </div>
+
+      <!-- 02 -->
+      <div class="layer">
+        <div class="num">02</div>
+        <div class="title">
+          <h2>Integrity</h2>
+          <p>What the database refuses</p>
+        </div>
+        <div class="body">
+          <p>Correctness enforced by Postgres, not left to backend validation. A rule the database can hold is never delegated to application code. Where a <code>CHECK</code> cannot read another table, it becomes a trigger.</p>
+          <div class="chips">
+            <span class="chip">247 foreign keys · all RESTRICT</span>
+            <span class="chip">2 GIST exclusions</span>
+            <span class="chip n">15 CHECKs on the spine</span>
+            <span class="chip n">3 cross-table triggers</span>
+            <span class="chip x">type / status CHECKs deferred</span>
+          </div>
+        </div>
+        <div class="stat"><span class="pct">80%</span><div class="bar"><span style="width:80%"></span></div></div>
+      </div>
+
+      <!-- 01 -->
+      <div class="layer what">
+        <div class="num">01</div>
+        <div class="title">
+          <h2>Namespace</h2>
+          <p>Where a table lives · the foundation</p>
+        </div>
+        <div class="body">
+          <p>Every table sits in exactly one schema, grouped by how it is used — not by which module wrote it. A database-level <code>search_path</code> means unqualified queries keep resolving with no code rewrites.</p>
+          <div class="chips">
+            <span class="chip">core · 44</span>
+            <span class="chip">reference · 32</span>
+            <span class="chip">compliance · 9</span>
+            <span class="chip">ops · 3</span>
+            <span class="chip">analytics · 0</span>
+            <span class="chip">archive · 0</span>
+            <span class="chip">extensions</span>
+          </div>
+        </div>
+        <div class="stat"><span class="pct">100%</span><div class="bar"><span style="width:100%"></span></div></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============ LAYER 01 IN FULL ============ -->
+  <div class="ns">
+    <h2>Layer 01 in full — every table, by schema</h2>
+    <p class="intro">
+      All 88 logical tables (partitions excluded). Placement follows one rule: grouped by
+      <em>how the table is used</em>, never by which backend module wrote it. Within each schema
+      the tables are grouped by domain here for reading only — that grouping is not a database
+      object, just a way to see 44 names without them turning into a wall.
+    </p>
+
+    <!-- ---- core ---- -->
+    <div class="schema">
+      <div class="schema-head">
+        <h3>core</h3>
+        <span class="ct">44</span>
+        <span class="what">Live operational data — the records the clinic creates and changes every day.</span>
+      </div>
+
+      <div class="grp"><span class="gl">Identity &amp; org</span><div class="chips">
+        <span class="tbl">profiles</span><span class="tbl">patients</span><span class="tbl">doctors</span>
+        <span class="tbl">clinical_assistants</span><span class="tbl">receptionists</span><span class="tbl">admins</span>
+        <span class="tbl">clinics</span><span class="tbl">regions</span>
+      </div></div>
+
+      <div class="grp"><span class="gl">Assignments</span><div class="chips">
+        <span class="tbl">doctor_patient_assignments</span><span class="tbl">ca_doctor_assignments</span>
+        <span class="tbl">clinic_staff_assignments</span><span class="tbl">patient_clinic_transfers</span>
+        <span class="tbl">device_assignments</span>
+      </div></div>
+
+      <div class="grp"><span class="gl">Workflow requests</span><div class="chips">
+        <span class="tbl">clinic_requests</span><span class="tbl">staff_requests</span>
+        <span class="tbl">assessment_protocol_requests</span>
+      </div></div>
+
+      <div class="grp"><span class="gl">Scheduling</span><div class="chips">
+        <span class="tbl spine">appointments</span>
+        <span class="tbl spine part">appointment_audit_logs</span>
+        <span class="tbl spine">doctor_weekly_schedules</span>
+        <span class="tbl spine">doctor_schedule_overrides</span>
+      </div></div>
+
+      <div class="grp"><span class="gl">Treatment</span><div class="chips">
+        <span class="tbl">treatment_cycles</span><span class="tbl">treatment_plans</span>
+        <span class="tbl proto">treatment_protocols</span>
+        <span class="tbl dead part">treatment_sessions</span>
+        <span class="tbl dead">sessions</span>
+        <span class="tbl">doctor_session_notes</span>
+      </div></div>
+
+      <div class="grp"><span class="gl">Assessment</span><div class="chips">
+        <span class="tbl">anamnesis_assessments</span><span class="tbl">anamnesis_responses</span>
+        <span class="tbl">prs_assessment_instances</span><span class="tbl">prs_responses</span>
+        <span class="tbl">prs_scale_results</span><span class="tbl">prs_final_results</span>
+        <span class="tbl">patient_scale_assignments</span><span class="tbl">patient_disease_selection</span>
+        <span class="tbl proto">device_session_prs_responses</span>
+        <span class="tbl proto">followup_prs_responses</span>
+      </div></div>
+
+      <div class="grp"><span class="gl">Patient files</span><div class="chips">
+        <span class="tbl">patient_eeg_files</span><span class="tbl">patient_medical_history_files</span>
+      </div></div>
+
+      <div class="grp"><span class="gl">Commerce</span><div class="chips">
+        <span class="tbl spine">payments</span><span class="tbl">store_orders</span>
+        <span class="tbl">order_items</span><span class="tbl">inventory</span><span class="tbl">stock_transfers</span>
+      </div></div>
+
+      <div class="grp"><span class="gl">Messaging</span><div class="chips">
+        <span class="tbl part">notifications</span>
+      </div></div>
+    </div>
+
+    <!-- ---- reference ---- -->
+    <div class="schema ref">
+      <div class="schema-head">
+        <h3>reference</h3>
+        <span class="ct">32</span>
+        <span class="what">Static catalogue — superadmin-owned, read-mostly, read-only to the application.</span>
+      </div>
+
+      <div class="grp"><span class="gl">Device registry</span><div class="chips">
+        <span class="tbl proto">device_companies</span><span class="tbl proto">neuromod_devices</span>
+        <span class="tbl proto">neuromod_conditions</span><span class="tbl proto">neuromod_diagnoses</span>
+        <span class="tbl proto">neuromod_scales</span><span class="tbl proto">neuromod_condition_scales</span>
+      </div></div>
+
+      <div class="grp"><span class="gl">Placements</span><div class="chips">
+        <span class="tbl proto">tdcs_placements</span><span class="tbl proto">hd_tdcs_placements</span>
+        <span class="tbl proto">tavns_placements</span><span class="tbl proto">tps_placements</span>
+        <span class="tbl proto">rtms_placements</span><span class="tbl proto">other_placements</span>
+      </div></div>
+
+      <div class="grp"><span class="gl">Dosing</span><div class="chips">
+        <span class="tbl proto">tdcs_dosing</span><span class="tbl proto">hd_tdcs_dosing</span>
+        <span class="tbl proto">tavns_dosing</span><span class="tbl proto">tps_dosing</span>
+        <span class="tbl proto">rtms_dosing</span><span class="tbl proto">other_dosing</span>
+      </div></div>
+
+      <div class="grp"><span class="gl">PRS engine</span><div class="chips">
+        <span class="tbl">prs_diseases</span><span class="tbl">prs_scales</span><span class="tbl">prs_questions</span>
+        <span class="tbl">prs_options</span><span class="tbl">prs_question_translations</span>
+        <span class="tbl">prs_option_translations</span><span class="tbl">prs_disease_scale_map</span>
+        <span class="tbl">prs_disease_question_map</span><span class="tbl">prs_scale_question_map</span>
+      </div></div>
+
+      <div class="grp"><span class="gl">Anamnesis</span><div class="chips">
+        <span class="tbl">anamnesis_questions</span><span class="tbl">anamnesis_options</span>
+      </div></div>
+
+      <div class="grp"><span class="gl">Catalogue</span><div class="chips">
+        <span class="tbl">products</span><span class="tbl spine">billable_items</span>
+        <span class="tbl">consent_templates</span>
+      </div></div>
+    </div>
+
+    <!-- ---- compliance ---- -->
+    <div class="schema comp">
+      <div class="schema-head">
+        <h3>compliance</h3>
+        <span class="ct">9</span>
+        <span class="what">Legal and audit evidence — retained independently of the records it describes.</span>
+      </div>
+
+      <div class="grp"><span class="gl">Audit trail</span><div class="chips">
+        <span class="tbl part">audit_logs</span><span class="tbl part">activity_logs</span>
+      </div></div>
+
+      <div class="grp"><span class="gl">Consent</span><div class="chips">
+        <span class="tbl">consent_records</span>
+      </div></div>
+
+      <div class="grp"><span class="gl">DPDP requests</span><div class="chips">
+        <span class="tbl">erasure_requests</span><span class="tbl">erasure_request_items</span>
+        <span class="tbl">data_portability_requests</span>
+        <span class="tbl">staff_termination_authorizations</span>
+      </div></div>
+
+      <div class="grp"><span class="gl">Incidents &amp; backup</span><div class="chips">
+        <span class="tbl">compliance_incidents</span><span class="tbl">manual_snapshots</span>
+      </div></div>
+    </div>
+
+    <!-- ---- ops ---- -->
+    <div class="schema ops">
+      <div class="schema-head">
+        <h3>ops</h3>
+        <span class="ct">3</span>
+        <span class="what">Infrastructure plumbing — no clinical or patient data.</span>
+      </div>
+      <div class="grp"><span class="gl">Plumbing</span><div class="chips">
+        <span class="tbl">outbox_events</span><span class="tbl">alembic_version</span>
+        <span class="tbl">schema_migrations</span>
+      </div></div>
+    </div>
+
+    <!-- ---- empty ---- -->
+    <div class="schema ops">
+      <div class="schema-head">
+        <h3>analytics · archive · extensions</h3>
+        <span class="ct">0</span>
+        <span class="what">Reserved. <code>analytics</code> awaits a de-identified ETL target; <code>archive</code> is a lifecycle state for detached cold partitions, not a fixed table set; <code>extensions</code> holds <code>pgcrypto</code> and <code>btree_gist</code>, kept out of <code>core</code>.</span>
+      </div>
+    </div>
+
+    <div class="key" style="margin-top:14px">
+      <i><span class="sw" style="background:var(--brass-soft);border-color:var(--brass)"></span> appointment spine &amp; its feeders</i>
+      <i><span class="sw" style="background:var(--accent-soft);border-color:var(--accent)"></span> treatment-protocol module (21)</i>
+      <i><span class="sw" style="background:var(--code-bg)"></span> ▤ partitioned</i>
+      <i style="text-decoration:line-through;opacity:.7">legacy — awaiting a contract step</i>
+    </div>
+  </div>
+
+  <div class="foot">
+    <div class="note">
+      <b>Since onboarding</b>
+      Tables 67 → 88. The appointment spine (30–31), the treatment-protocol module (32, 21 tables),
+      device pricing (33), and the legacy drop (34). Layer 2 and Layer 5 moved up; Layer 6 did not.
+    </div>
+    <div class="note bad">
+      <b>Layer 3 defect</b>
+      <code>ops.rls_clinic_id()</code> reads a session variable the middleware never sets, so it
+      returns NULL for every caller and every policy branch built on it is dead. New policies route
+      around it. Masked today only because the app connects as a superuser, which bypasses RLS.
+    </div>
+    <div class="note bad">
+      <b>Layer 6 defect</b>
+      Alembic's baseline still recreates <code>appointment_requests</code> and three dropped columns.
+      A database built from migrations no longer matches one built from the numbered files.
+    </div>
+    <div class="note bad">
+      <b>Not yet executed</b>
+      Files 30–34 are written against the schema as recorded and verified by reading, not by running.
+      Restore a snapshot and apply them there before they go near <code>Anava_App_v1</code>.
+    </div>
+  </div>
+
+  <div class="key">
+    <i><span class="sw" style="background:var(--brass-soft);border-color:var(--brass)"></span> What — a literal place</i>
+    <i><span class="sw" style="background:var(--accent-soft);border-color:var(--accent)"></span> How — behaviour over that place</i>
+    <i><span class="sw" style="background:var(--crit-soft);border-color:var(--crit)"></span> Proof — still ahead of us</i>
+    <i><span class="sw" style="background:var(--good-soft);border-color:var(--good)"></span> added this pass</i>
+    <i><span class="sw" style="background:var(--crit-soft);border-color:var(--crit)"></span> gap or defect</i>
+  </div>
+
+</div>

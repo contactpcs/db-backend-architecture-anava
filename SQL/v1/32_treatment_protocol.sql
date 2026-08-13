@@ -51,7 +51,7 @@
 -- So this file does NOT create protocol_sessions or protocol_followups. A
 -- prescribed device session is an appointments row with
 -- appointment_type = 'device_session' and status = 'planned'; a follow-up is an
--- appointments row with appointment_type = 'follow_up'. Building the standalone
+-- appointments row with appointment_type = 'protocol_followup'. Building the standalone
 -- tables now would create a second home for data the spine already owns, and
 -- every "what is this patient's next visit" query would have to read both.
 --
@@ -244,7 +244,7 @@ CREATE TABLE IF NOT EXISTS reference."hd_tdcs_placements" (
     "updated_at"            TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- Electrode rule: HD-tDCS = 1 anode + up to 4 return cathodes (4x1 ring).
     CONSTRAINT "chk_hd_tdcs_placements_electrode_rule" CHECK (
-        ("anode_site" IS NOT NULL AND array_length("return_sites", 1) BETWEEN 1 AND 4)
+        ("anode_site" IS NOT NULL AND COALESCE(array_length("return_sites", 1), 0) BETWEEN 1 AND 4)
         OR ("anode_site" IS NULL AND "return_sites" = '{}')
     )
 );
@@ -679,10 +679,10 @@ CREATE UNIQUE INDEX uq_appointments_protocol_session
 
 -- One PRS per device session, and one per follow-up. If a patient can retake a
 -- PRS within a single visit, these two become non-unique — see OPEN ITEM 2.
-ALTER TABLE core."device_session_prs_responses" DROP CONSTRAINT IF EXISTS "uq_ds_prs_appointment";
-ALTER TABLE core."device_session_prs_responses" ADD CONSTRAINT "uq_ds_prs_appointment" UNIQUE ("appointment_id");
-ALTER TABLE core."followup_prs_responses"       DROP CONSTRAINT IF EXISTS "uq_fu_prs_appointment";
-ALTER TABLE core."followup_prs_responses"       ADD CONSTRAINT "uq_fu_prs_appointment" UNIQUE ("appointment_id");
+ALTER TABLE core."device_session_prs_responses" DROP CONSTRAINT IF EXISTS "uq_device_session_prs_responses_appointment_id";
+ALTER TABLE core."device_session_prs_responses" ADD CONSTRAINT "uq_device_session_prs_responses_appointment_id" UNIQUE ("appointment_id");
+ALTER TABLE core."followup_prs_responses"       DROP CONSTRAINT IF EXISTS "uq_followup_prs_responses_appointment_id";
+ALTER TABLE core."followup_prs_responses"       ADD CONSTRAINT "uq_followup_prs_responses_appointment_id" UNIQUE ("appointment_id");
 
 
 -- ###########################################################################
@@ -754,43 +754,43 @@ ALTER TABLE reference."tdcs_dosing"    DROP CONSTRAINT IF EXISTS "fk_tdcs_dosing
 ALTER TABLE reference."tdcs_dosing"    ADD CONSTRAINT "fk_tdcs_dosing_condition_id"    FOREIGN KEY ("condition_id")       REFERENCES reference."neuromod_conditions" ("condition_id")        ON DELETE RESTRICT;
 ALTER TABLE reference."tdcs_dosing"    DROP CONSTRAINT IF EXISTS "fk_tdcs_dosing_device_id";
 ALTER TABLE reference."tdcs_dosing"    ADD CONSTRAINT "fk_tdcs_dosing_device_id"       FOREIGN KEY ("device_id")          REFERENCES reference."neuromod_devices" ("device_id")              ON DELETE RESTRICT;
-ALTER TABLE reference."tdcs_dosing"    DROP CONSTRAINT IF EXISTS "fk_tdcs_dosing_placement_id";
-ALTER TABLE reference."tdcs_dosing"    ADD CONSTRAINT "fk_tdcs_dosing_placement_id"    FOREIGN KEY ("tdcs_placement_id")  REFERENCES reference."tdcs_placements" ("tdcs_placement_id")       ON DELETE RESTRICT;
+ALTER TABLE reference."tdcs_dosing"    DROP CONSTRAINT IF EXISTS "fk_tdcs_dosing_tdcs_placement_id";
+ALTER TABLE reference."tdcs_dosing"    ADD CONSTRAINT "fk_tdcs_dosing_tdcs_placement_id"    FOREIGN KEY ("tdcs_placement_id")  REFERENCES reference."tdcs_placements" ("tdcs_placement_id")       ON DELETE RESTRICT;
 
 ALTER TABLE reference."hd_tdcs_dosing" DROP CONSTRAINT IF EXISTS "fk_hd_tdcs_dosing_condition_id";
 ALTER TABLE reference."hd_tdcs_dosing" ADD CONSTRAINT "fk_hd_tdcs_dosing_condition_id" FOREIGN KEY ("condition_id")          REFERENCES reference."neuromod_conditions" ("condition_id")     ON DELETE RESTRICT;
 ALTER TABLE reference."hd_tdcs_dosing" DROP CONSTRAINT IF EXISTS "fk_hd_tdcs_dosing_device_id";
 ALTER TABLE reference."hd_tdcs_dosing" ADD CONSTRAINT "fk_hd_tdcs_dosing_device_id"    FOREIGN KEY ("device_id")             REFERENCES reference."neuromod_devices" ("device_id")           ON DELETE RESTRICT;
-ALTER TABLE reference."hd_tdcs_dosing" DROP CONSTRAINT IF EXISTS "fk_hd_tdcs_dosing_placement_id";
-ALTER TABLE reference."hd_tdcs_dosing" ADD CONSTRAINT "fk_hd_tdcs_dosing_placement_id" FOREIGN KEY ("hd_tdcs_placement_id")  REFERENCES reference."hd_tdcs_placements" ("hd_tdcs_placement_id") ON DELETE RESTRICT;
+ALTER TABLE reference."hd_tdcs_dosing" DROP CONSTRAINT IF EXISTS "fk_hd_tdcs_dosing_hd_tdcs_placement_id";
+ALTER TABLE reference."hd_tdcs_dosing" ADD CONSTRAINT "fk_hd_tdcs_dosing_hd_tdcs_placement_id" FOREIGN KEY ("hd_tdcs_placement_id")  REFERENCES reference."hd_tdcs_placements" ("hd_tdcs_placement_id") ON DELETE RESTRICT;
 
 ALTER TABLE reference."tavns_dosing"   DROP CONSTRAINT IF EXISTS "fk_tavns_dosing_condition_id";
 ALTER TABLE reference."tavns_dosing"   ADD CONSTRAINT "fk_tavns_dosing_condition_id"   FOREIGN KEY ("condition_id")        REFERENCES reference."neuromod_conditions" ("condition_id")       ON DELETE RESTRICT;
 ALTER TABLE reference."tavns_dosing"   DROP CONSTRAINT IF EXISTS "fk_tavns_dosing_device_id";
 ALTER TABLE reference."tavns_dosing"   ADD CONSTRAINT "fk_tavns_dosing_device_id"      FOREIGN KEY ("device_id")           REFERENCES reference."neuromod_devices" ("device_id")             ON DELETE RESTRICT;
-ALTER TABLE reference."tavns_dosing"   DROP CONSTRAINT IF EXISTS "fk_tavns_dosing_placement_id";
-ALTER TABLE reference."tavns_dosing"   ADD CONSTRAINT "fk_tavns_dosing_placement_id"   FOREIGN KEY ("tavns_placement_id")  REFERENCES reference."tavns_placements" ("tavns_placement_id")    ON DELETE RESTRICT;
+ALTER TABLE reference."tavns_dosing"   DROP CONSTRAINT IF EXISTS "fk_tavns_dosing_tavns_placement_id";
+ALTER TABLE reference."tavns_dosing"   ADD CONSTRAINT "fk_tavns_dosing_tavns_placement_id"   FOREIGN KEY ("tavns_placement_id")  REFERENCES reference."tavns_placements" ("tavns_placement_id")    ON DELETE RESTRICT;
 
 ALTER TABLE reference."tps_dosing"     DROP CONSTRAINT IF EXISTS "fk_tps_dosing_condition_id";
 ALTER TABLE reference."tps_dosing"     ADD CONSTRAINT "fk_tps_dosing_condition_id"     FOREIGN KEY ("condition_id")      REFERENCES reference."neuromod_conditions" ("condition_id")         ON DELETE RESTRICT;
 ALTER TABLE reference."tps_dosing"     DROP CONSTRAINT IF EXISTS "fk_tps_dosing_device_id";
 ALTER TABLE reference."tps_dosing"     ADD CONSTRAINT "fk_tps_dosing_device_id"        FOREIGN KEY ("device_id")         REFERENCES reference."neuromod_devices" ("device_id")               ON DELETE RESTRICT;
-ALTER TABLE reference."tps_dosing"     DROP CONSTRAINT IF EXISTS "fk_tps_dosing_placement_id";
-ALTER TABLE reference."tps_dosing"     ADD CONSTRAINT "fk_tps_dosing_placement_id"     FOREIGN KEY ("tps_placement_id")  REFERENCES reference."tps_placements" ("tps_placement_id")          ON DELETE RESTRICT;
+ALTER TABLE reference."tps_dosing"     DROP CONSTRAINT IF EXISTS "fk_tps_dosing_tps_placement_id";
+ALTER TABLE reference."tps_dosing"     ADD CONSTRAINT "fk_tps_dosing_tps_placement_id"     FOREIGN KEY ("tps_placement_id")  REFERENCES reference."tps_placements" ("tps_placement_id")          ON DELETE RESTRICT;
 
 ALTER TABLE reference."rtms_dosing"    DROP CONSTRAINT IF EXISTS "fk_rtms_dosing_condition_id";
 ALTER TABLE reference."rtms_dosing"    ADD CONSTRAINT "fk_rtms_dosing_condition_id"    FOREIGN KEY ("condition_id")       REFERENCES reference."neuromod_conditions" ("condition_id")        ON DELETE RESTRICT;
 ALTER TABLE reference."rtms_dosing"    DROP CONSTRAINT IF EXISTS "fk_rtms_dosing_device_id";
 ALTER TABLE reference."rtms_dosing"    ADD CONSTRAINT "fk_rtms_dosing_device_id"       FOREIGN KEY ("device_id")          REFERENCES reference."neuromod_devices" ("device_id")              ON DELETE RESTRICT;
-ALTER TABLE reference."rtms_dosing"    DROP CONSTRAINT IF EXISTS "fk_rtms_dosing_placement_id";
-ALTER TABLE reference."rtms_dosing"    ADD CONSTRAINT "fk_rtms_dosing_placement_id"    FOREIGN KEY ("rtms_placement_id")  REFERENCES reference."rtms_placements" ("rtms_placement_id")       ON DELETE RESTRICT;
+ALTER TABLE reference."rtms_dosing"    DROP CONSTRAINT IF EXISTS "fk_rtms_dosing_rtms_placement_id";
+ALTER TABLE reference."rtms_dosing"    ADD CONSTRAINT "fk_rtms_dosing_rtms_placement_id"    FOREIGN KEY ("rtms_placement_id")  REFERENCES reference."rtms_placements" ("rtms_placement_id")       ON DELETE RESTRICT;
 
 ALTER TABLE reference."other_dosing"   DROP CONSTRAINT IF EXISTS "fk_other_dosing_condition_id";
 ALTER TABLE reference."other_dosing"   ADD CONSTRAINT "fk_other_dosing_condition_id"   FOREIGN KEY ("condition_id")        REFERENCES reference."neuromod_conditions" ("condition_id")       ON DELETE RESTRICT;
 ALTER TABLE reference."other_dosing"   DROP CONSTRAINT IF EXISTS "fk_other_dosing_device_id";
 ALTER TABLE reference."other_dosing"   ADD CONSTRAINT "fk_other_dosing_device_id"      FOREIGN KEY ("device_id")           REFERENCES reference."neuromod_devices" ("device_id")             ON DELETE RESTRICT;
-ALTER TABLE reference."other_dosing"   DROP CONSTRAINT IF EXISTS "fk_other_dosing_placement_id";
-ALTER TABLE reference."other_dosing"   ADD CONSTRAINT "fk_other_dosing_placement_id"   FOREIGN KEY ("other_placement_id")  REFERENCES reference."other_placements" ("other_placement_id")    ON DELETE RESTRICT;
+ALTER TABLE reference."other_dosing"   DROP CONSTRAINT IF EXISTS "fk_other_dosing_other_placement_id";
+ALTER TABLE reference."other_dosing"   ADD CONSTRAINT "fk_other_dosing_other_placement_id"   FOREIGN KEY ("other_placement_id")  REFERENCES reference."other_placements" ("other_placement_id")    ON DELETE RESTRICT;
 
 -- treatment_protocols -> plan, device, author
 ALTER TABLE core."treatment_protocols" DROP CONSTRAINT IF EXISTS "fk_treatment_protocols_plan_id";
@@ -829,19 +829,32 @@ ALTER TABLE core."treatment_protocols" DROP CONSTRAINT IF EXISTS "fk_treatment_p
 ALTER TABLE core."treatment_protocols" ADD CONSTRAINT "fk_treatment_protocols_other_dosing_id"   FOREIGN KEY ("other_dosing_id")   REFERENCES reference."other_dosing" ("other_dosing_id")     ON DELETE RESTRICT;
 
 -- PRS responses -> the spine, the protocol, the patient
-ALTER TABLE core."device_session_prs_responses" DROP CONSTRAINT IF EXISTS "fk_ds_prs_appointment_id";
-ALTER TABLE core."device_session_prs_responses" ADD CONSTRAINT "fk_ds_prs_appointment_id" FOREIGN KEY ("appointment_id") REFERENCES core."appointments" ("appointment_id")     ON DELETE RESTRICT;
-ALTER TABLE core."device_session_prs_responses" DROP CONSTRAINT IF EXISTS "fk_ds_prs_protocol_id";
-ALTER TABLE core."device_session_prs_responses" ADD CONSTRAINT "fk_ds_prs_protocol_id"    FOREIGN KEY ("protocol_id")    REFERENCES core."treatment_protocols" ("protocol_id") ON DELETE RESTRICT;
-ALTER TABLE core."device_session_prs_responses" DROP CONSTRAINT IF EXISTS "fk_ds_prs_patient_id";
-ALTER TABLE core."device_session_prs_responses" ADD CONSTRAINT "fk_ds_prs_patient_id"     FOREIGN KEY ("patient_id")     REFERENCES core."profiles" ("id")                     ON DELETE RESTRICT;
+ALTER TABLE core."device_session_prs_responses" DROP CONSTRAINT IF EXISTS "fk_device_session_prs_responses_appointment_id";
+ALTER TABLE core."device_session_prs_responses" ADD CONSTRAINT "fk_device_session_prs_responses_appointment_id" FOREIGN KEY ("appointment_id") REFERENCES core."appointments" ("appointment_id")     ON DELETE RESTRICT;
+ALTER TABLE core."device_session_prs_responses" DROP CONSTRAINT IF EXISTS "fk_device_session_prs_responses_protocol_id";
+ALTER TABLE core."device_session_prs_responses" ADD CONSTRAINT "fk_device_session_prs_responses_protocol_id"    FOREIGN KEY ("protocol_id")    REFERENCES core."treatment_protocols" ("protocol_id") ON DELETE RESTRICT;
+ALTER TABLE core."device_session_prs_responses" DROP CONSTRAINT IF EXISTS "fk_device_session_prs_responses_patient_id";
+ALTER TABLE core."device_session_prs_responses" ADD CONSTRAINT "fk_device_session_prs_responses_patient_id"     FOREIGN KEY ("patient_id")     REFERENCES core."profiles" ("id")                     ON DELETE RESTRICT;
 
-ALTER TABLE core."followup_prs_responses" DROP CONSTRAINT IF EXISTS "fk_fu_prs_appointment_id";
-ALTER TABLE core."followup_prs_responses" ADD CONSTRAINT "fk_fu_prs_appointment_id" FOREIGN KEY ("appointment_id") REFERENCES core."appointments" ("appointment_id")     ON DELETE RESTRICT;
-ALTER TABLE core."followup_prs_responses" DROP CONSTRAINT IF EXISTS "fk_fu_prs_protocol_id";
-ALTER TABLE core."followup_prs_responses" ADD CONSTRAINT "fk_fu_prs_protocol_id"    FOREIGN KEY ("protocol_id")    REFERENCES core."treatment_protocols" ("protocol_id") ON DELETE RESTRICT;
-ALTER TABLE core."followup_prs_responses" DROP CONSTRAINT IF EXISTS "fk_fu_prs_patient_id";
-ALTER TABLE core."followup_prs_responses" ADD CONSTRAINT "fk_fu_prs_patient_id"     FOREIGN KEY ("patient_id")     REFERENCES core."profiles" ("id")                     ON DELETE RESTRICT;
+ALTER TABLE core."followup_prs_responses" DROP CONSTRAINT IF EXISTS "fk_followup_prs_responses_appointment_id";
+ALTER TABLE core."followup_prs_responses" ADD CONSTRAINT "fk_followup_prs_responses_appointment_id" FOREIGN KEY ("appointment_id") REFERENCES core."appointments" ("appointment_id")     ON DELETE RESTRICT;
+ALTER TABLE core."followup_prs_responses" DROP CONSTRAINT IF EXISTS "fk_followup_prs_responses_protocol_id";
+ALTER TABLE core."followup_prs_responses" ADD CONSTRAINT "fk_followup_prs_responses_protocol_id"    FOREIGN KEY ("protocol_id")    REFERENCES core."treatment_protocols" ("protocol_id") ON DELETE RESTRICT;
+ALTER TABLE core."followup_prs_responses" DROP CONSTRAINT IF EXISTS "fk_followup_prs_responses_patient_id";
+ALTER TABLE core."followup_prs_responses" ADD CONSTRAINT "fk_followup_prs_responses_patient_id"     FOREIGN KEY ("patient_id")     REFERENCES core."profiles" ("id")                     ON DELETE RESTRICT;
+
+-- prs_assessment_instances.instance_id is TEXT and is that table's primary key
+-- (09_primary_keys.sql:41). The types already agreed; only the constraint was
+-- missing, so a PRS response could name an assessment that does not exist.
+ALTER TABLE core."device_session_prs_responses" DROP CONSTRAINT IF EXISTS "fk_device_session_prs_responses_instance_id";
+ALTER TABLE core."device_session_prs_responses"
+    ADD CONSTRAINT "fk_device_session_prs_responses_instance_id"
+    FOREIGN KEY ("instance_id") REFERENCES core."prs_assessment_instances" ("instance_id") ON DELETE RESTRICT;
+
+ALTER TABLE core."followup_prs_responses" DROP CONSTRAINT IF EXISTS "fk_followup_prs_responses_instance_id";
+ALTER TABLE core."followup_prs_responses"
+    ADD CONSTRAINT "fk_followup_prs_responses_instance_id"
+    FOREIGN KEY ("instance_id") REFERENCES core."prs_assessment_instances" ("instance_id") ON DELETE RESTRICT;
 
 -- appointments.protocol_id -> treatment_protocols. This one lands on a
 -- pre-existing, application-visible table, so it follows v2 Layer 6 properly:
@@ -919,6 +932,8 @@ CREATE INDEX IF NOT EXISTS idx_ds_prs_protocol_id ON core."device_session_prs_re
 CREATE INDEX IF NOT EXISTS idx_ds_prs_patient_id  ON core."device_session_prs_responses" USING btree ("patient_id");
 CREATE INDEX IF NOT EXISTS idx_fu_prs_protocol_id ON core."followup_prs_responses" USING btree ("protocol_id");
 CREATE INDEX IF NOT EXISTS idx_fu_prs_patient_id  ON core."followup_prs_responses" USING btree ("patient_id");
+CREATE INDEX IF NOT EXISTS idx_ds_prs_instance_id ON core."device_session_prs_responses" USING btree ("instance_id");
+CREATE INDEX IF NOT EXISTS idx_fu_prs_instance_id ON core."followup_prs_responses" USING btree ("instance_id");
 
 
 -- ###########################################################################
@@ -979,8 +994,87 @@ CREATE TRIGGER trg_check_protocol_device_consistency
     FOR EACH ROW EXECUTE FUNCTION core.fn_check_protocol_device_consistency();
 
 
+
 -- ---------------------------------------------------------------------------
--- 9.2 Each PRS table accepts only its own kind of visit
+-- 9.2 Placement and dosing rows match their table's modality
+-- ---------------------------------------------------------------------------
+-- The per-device split means the TABLE carries the modality: a row in
+-- tdcs_placements is a tDCS montage by virtue of where it lives. Nothing
+-- enforced that its device_id actually points at a tDCS device, so an rTMS
+-- device's montage could be inserted into the tDCS table with every constraint
+-- satisfied. A CHECK cannot read reference.neuromod_devices; same trade as 9.1.
+
+CREATE OR REPLACE FUNCTION reference.fn_check_device_modality()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $function$
+DECLARE
+    v_modality TEXT;
+    v_want     TEXT := TG_ARGV[0];
+BEGIN
+    SELECT modality INTO v_modality
+    FROM reference.neuromod_devices WHERE device_id = NEW.device_id;
+
+    IF v_modality IS DISTINCT FROM v_want THEN
+        RAISE EXCEPTION '% expects a % device, but device % is %',
+            TG_TABLE_NAME, v_want, NEW.device_id, COALESCE(v_modality, '<missing>');
+    END IF;
+
+    RETURN NEW;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS trg_check_modality_tdcs_placements ON reference."tdcs_placements";
+CREATE TRIGGER trg_check_modality_tdcs_placements
+    BEFORE INSERT OR UPDATE ON reference."tdcs_placements"
+    FOR EACH ROW EXECUTE FUNCTION reference.fn_check_device_modality('tDCS');
+DROP TRIGGER IF EXISTS trg_check_modality_hd_tdcs_placements ON reference."hd_tdcs_placements";
+CREATE TRIGGER trg_check_modality_hd_tdcs_placements
+    BEFORE INSERT OR UPDATE ON reference."hd_tdcs_placements"
+    FOR EACH ROW EXECUTE FUNCTION reference.fn_check_device_modality('HD-tDCS');
+DROP TRIGGER IF EXISTS trg_check_modality_tavns_placements ON reference."tavns_placements";
+CREATE TRIGGER trg_check_modality_tavns_placements
+    BEFORE INSERT OR UPDATE ON reference."tavns_placements"
+    FOR EACH ROW EXECUTE FUNCTION reference.fn_check_device_modality('taVNS');
+DROP TRIGGER IF EXISTS trg_check_modality_tps_placements ON reference."tps_placements";
+CREATE TRIGGER trg_check_modality_tps_placements
+    BEFORE INSERT OR UPDATE ON reference."tps_placements"
+    FOR EACH ROW EXECUTE FUNCTION reference.fn_check_device_modality('TPS');
+DROP TRIGGER IF EXISTS trg_check_modality_rtms_placements ON reference."rtms_placements";
+CREATE TRIGGER trg_check_modality_rtms_placements
+    BEFORE INSERT OR UPDATE ON reference."rtms_placements"
+    FOR EACH ROW EXECUTE FUNCTION reference.fn_check_device_modality('rTMS');
+DROP TRIGGER IF EXISTS trg_check_modality_other_placements ON reference."other_placements";
+CREATE TRIGGER trg_check_modality_other_placements
+    BEFORE INSERT OR UPDATE ON reference."other_placements"
+    FOR EACH ROW EXECUTE FUNCTION reference.fn_check_device_modality('other');
+DROP TRIGGER IF EXISTS trg_check_modality_tdcs_dosing ON reference."tdcs_dosing";
+CREATE TRIGGER trg_check_modality_tdcs_dosing
+    BEFORE INSERT OR UPDATE ON reference."tdcs_dosing"
+    FOR EACH ROW EXECUTE FUNCTION reference.fn_check_device_modality('tDCS');
+DROP TRIGGER IF EXISTS trg_check_modality_hd_tdcs_dosing ON reference."hd_tdcs_dosing";
+CREATE TRIGGER trg_check_modality_hd_tdcs_dosing
+    BEFORE INSERT OR UPDATE ON reference."hd_tdcs_dosing"
+    FOR EACH ROW EXECUTE FUNCTION reference.fn_check_device_modality('HD-tDCS');
+DROP TRIGGER IF EXISTS trg_check_modality_tavns_dosing ON reference."tavns_dosing";
+CREATE TRIGGER trg_check_modality_tavns_dosing
+    BEFORE INSERT OR UPDATE ON reference."tavns_dosing"
+    FOR EACH ROW EXECUTE FUNCTION reference.fn_check_device_modality('taVNS');
+DROP TRIGGER IF EXISTS trg_check_modality_tps_dosing ON reference."tps_dosing";
+CREATE TRIGGER trg_check_modality_tps_dosing
+    BEFORE INSERT OR UPDATE ON reference."tps_dosing"
+    FOR EACH ROW EXECUTE FUNCTION reference.fn_check_device_modality('TPS');
+DROP TRIGGER IF EXISTS trg_check_modality_rtms_dosing ON reference."rtms_dosing";
+CREATE TRIGGER trg_check_modality_rtms_dosing
+    BEFORE INSERT OR UPDATE ON reference."rtms_dosing"
+    FOR EACH ROW EXECUTE FUNCTION reference.fn_check_device_modality('rTMS');
+DROP TRIGGER IF EXISTS trg_check_modality_other_dosing ON reference."other_dosing";
+CREATE TRIGGER trg_check_modality_other_dosing
+    BEFORE INSERT OR UPDATE ON reference."other_dosing"
+    FOR EACH ROW EXECUTE FUNCTION reference.fn_check_device_modality('other');
+
+-- ---------------------------------------------------------------------------
+-- 9.3 Each PRS table accepts only its own kind of visit
 -- ---------------------------------------------------------------------------
 -- With both tables keyed on appointment_id, nothing structural stops a
 -- follow-up PRS being written to the device-session table. A CHECK cannot read
@@ -1006,19 +1100,19 @@ BEGIN
 END;
 $function$;
 
-DROP TRIGGER IF EXISTS trg_ds_prs_appointment_type ON core."device_session_prs_responses";
-CREATE TRIGGER trg_ds_prs_appointment_type
+DROP TRIGGER IF EXISTS trg_check_device_session_prs_appointment_type ON core."device_session_prs_responses";
+CREATE TRIGGER trg_check_device_session_prs_appointment_type
     BEFORE INSERT OR UPDATE ON core."device_session_prs_responses"
     FOR EACH ROW EXECUTE FUNCTION core.fn_check_prs_appointment_type('device_session');
 
-DROP TRIGGER IF EXISTS trg_fu_prs_appointment_type ON core."followup_prs_responses";
-CREATE TRIGGER trg_fu_prs_appointment_type
+DROP TRIGGER IF EXISTS trg_check_followup_prs_appointment_type ON core."followup_prs_responses";
+CREATE TRIGGER trg_check_followup_prs_appointment_type
     BEFORE INSERT OR UPDATE ON core."followup_prs_responses"
-    FOR EACH ROW EXECUTE FUNCTION core.fn_check_prs_appointment_type('follow_up');
+    FOR EACH ROW EXECUTE FUNCTION core.fn_check_prs_appointment_type('protocol_followup');
 
 
 -- ---------------------------------------------------------------------------
--- 9.3 updated_at
+-- 9.4 updated_at
 -- ---------------------------------------------------------------------------
 
 DROP TRIGGER IF EXISTS trg_updated_at_device_companies ON reference."device_companies";
@@ -1056,7 +1150,7 @@ CREATE TRIGGER trg_updated_at_treatment_protocols BEFORE UPDATE ON core."treatme
 
 
 -- ---------------------------------------------------------------------------
--- 9.4 Audit
+-- 9.5 Audit
 -- ---------------------------------------------------------------------------
 -- Clinical tables only. The reference catalogue is superadmin-owned and
 -- low-churn; auditing every price-list read-model row is noise.
@@ -1066,19 +1160,19 @@ CREATE TRIGGER trg_audit_treatment_protocols
     AFTER INSERT OR DELETE OR UPDATE ON core."treatment_protocols"
     FOR EACH ROW EXECUTE FUNCTION ops.fn_audit_trigger('protocol_id');
 
-DROP TRIGGER IF EXISTS trg_audit_ds_prs ON core."device_session_prs_responses";
-CREATE TRIGGER trg_audit_ds_prs
+DROP TRIGGER IF EXISTS trg_audit_device_session_prs_responses ON core."device_session_prs_responses";
+CREATE TRIGGER trg_audit_device_session_prs_responses
     AFTER INSERT OR DELETE OR UPDATE ON core."device_session_prs_responses"
     FOR EACH ROW EXECUTE FUNCTION ops.fn_audit_trigger('ds_prs_id');
 
-DROP TRIGGER IF EXISTS trg_audit_fu_prs ON core."followup_prs_responses";
-CREATE TRIGGER trg_audit_fu_prs
+DROP TRIGGER IF EXISTS trg_audit_followup_prs_responses ON core."followup_prs_responses";
+CREATE TRIGGER trg_audit_followup_prs_responses
     AFTER INSERT OR DELETE OR UPDATE ON core."followup_prs_responses"
     FOR EACH ROW EXECUTE FUNCTION ops.fn_audit_trigger('fu_prs_id');
 
 
 -- ---------------------------------------------------------------------------
--- 9.5 The generator
+-- 9.6 The generator
 -- ---------------------------------------------------------------------------
 -- session_count = 20 with follow_up_every_n = 5 produces 24 appointments rows:
 -- 20 device sessions plus 4 follow-ups, after sessions 5, 10, 15 and 20.
@@ -1160,7 +1254,7 @@ BEGIN
                 status, booked_by, booked_by_role
             ) VALUES (
                 v_clinic_id, v_plan.patient_id, v_plan.doctor_id, v_plan.plan_id, p_protocol_id,
-                v_date + p_followup_gap, 'follow_up', v_i,
+                v_date + p_followup_gap, 'protocol_followup', v_i,
                 'planned', v_protocol.set_by, 'doctor'
             );
             v_created := v_created + 1;
@@ -1228,39 +1322,208 @@ ALTER TABLE core."followup_prs_responses"       FORCE  ROW LEVEL SECURITY;
 
 -- Catalogue: everyone reads, only super_admin writes. Mirrors
 -- reference.products and reference.billable_items exactly.
-DO $$
-DECLARE
-    t TEXT;
-BEGIN
-    FOREACH t IN ARRAY ARRAY[
-        'device_companies',
-        'neuromod_devices', 'neuromod_conditions', 'neuromod_diagnoses',
-        'neuromod_scales', 'neuromod_condition_scales',
-        'tdcs_placements', 'hd_tdcs_placements', 'tavns_placements',
-        'tps_placements', 'rtms_placements', 'other_placements',
-        'tdcs_dosing', 'hd_tdcs_dosing', 'tavns_dosing',
-        'tps_dosing', 'rtms_dosing', 'other_dosing'
-    ]
-    LOOP
-        EXECUTE format('DROP POLICY IF EXISTS %I ON reference.%I', 'rls_' || t || '_select', t);
-        EXECUTE format('CREATE POLICY %I ON reference.%I FOR SELECT TO public USING (true)',
-                       'rls_' || t || '_select', t);
+--
+-- Written out rather than generated in a DO loop: every one of the schema's
+-- other 152 policies is explicit, and a policy that only exists at runtime
+-- cannot be grepped, diffed in review, or compared against the introspection
+-- output that regenerates 00-29.
 
-        EXECUTE format('DROP POLICY IF EXISTS %I ON reference.%I', 'rls_' || t || '_insert', t);
-        EXECUTE format('CREATE POLICY %I ON reference.%I FOR INSERT TO public WITH CHECK (rls_user_role() = ''super_admin''::text)',
-                       'rls_' || t || '_insert', t);
+DROP POLICY IF EXISTS "rls_device_companies_select" ON reference."device_companies";
+CREATE POLICY "rls_device_companies_select" ON reference."device_companies" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_device_companies_insert" ON reference."device_companies";
+CREATE POLICY "rls_device_companies_insert" ON reference."device_companies" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_device_companies_update" ON reference."device_companies";
+CREATE POLICY "rls_device_companies_update" ON reference."device_companies" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
 
-        EXECUTE format('DROP POLICY IF EXISTS %I ON reference.%I', 'rls_' || t || '_update', t);
-        EXECUTE format('CREATE POLICY %I ON reference.%I FOR UPDATE TO public USING (rls_user_role() = ''super_admin''::text)',
-                       'rls_' || t || '_update', t);
-    END LOOP;
-END
-$$;
+DROP POLICY IF EXISTS "rls_neuromod_devices_select" ON reference."neuromod_devices";
+CREATE POLICY "rls_neuromod_devices_select" ON reference."neuromod_devices" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_neuromod_devices_insert" ON reference."neuromod_devices";
+CREATE POLICY "rls_neuromod_devices_insert" ON reference."neuromod_devices" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_neuromod_devices_update" ON reference."neuromod_devices";
+CREATE POLICY "rls_neuromod_devices_update" ON reference."neuromod_devices" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
+DROP POLICY IF EXISTS "rls_neuromod_conditions_select" ON reference."neuromod_conditions";
+CREATE POLICY "rls_neuromod_conditions_select" ON reference."neuromod_conditions" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_neuromod_conditions_insert" ON reference."neuromod_conditions";
+CREATE POLICY "rls_neuromod_conditions_insert" ON reference."neuromod_conditions" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_neuromod_conditions_update" ON reference."neuromod_conditions";
+CREATE POLICY "rls_neuromod_conditions_update" ON reference."neuromod_conditions" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
+DROP POLICY IF EXISTS "rls_neuromod_diagnoses_select" ON reference."neuromod_diagnoses";
+CREATE POLICY "rls_neuromod_diagnoses_select" ON reference."neuromod_diagnoses" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_neuromod_diagnoses_insert" ON reference."neuromod_diagnoses";
+CREATE POLICY "rls_neuromod_diagnoses_insert" ON reference."neuromod_diagnoses" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_neuromod_diagnoses_update" ON reference."neuromod_diagnoses";
+CREATE POLICY "rls_neuromod_diagnoses_update" ON reference."neuromod_diagnoses" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
+DROP POLICY IF EXISTS "rls_neuromod_scales_select" ON reference."neuromod_scales";
+CREATE POLICY "rls_neuromod_scales_select" ON reference."neuromod_scales" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_neuromod_scales_insert" ON reference."neuromod_scales";
+CREATE POLICY "rls_neuromod_scales_insert" ON reference."neuromod_scales" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_neuromod_scales_update" ON reference."neuromod_scales";
+CREATE POLICY "rls_neuromod_scales_update" ON reference."neuromod_scales" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
+DROP POLICY IF EXISTS "rls_neuromod_condition_scales_select" ON reference."neuromod_condition_scales";
+CREATE POLICY "rls_neuromod_condition_scales_select" ON reference."neuromod_condition_scales" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_neuromod_condition_scales_insert" ON reference."neuromod_condition_scales";
+CREATE POLICY "rls_neuromod_condition_scales_insert" ON reference."neuromod_condition_scales" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_neuromod_condition_scales_update" ON reference."neuromod_condition_scales";
+CREATE POLICY "rls_neuromod_condition_scales_update" ON reference."neuromod_condition_scales" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
+DROP POLICY IF EXISTS "rls_tdcs_placements_select" ON reference."tdcs_placements";
+CREATE POLICY "rls_tdcs_placements_select" ON reference."tdcs_placements" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_tdcs_placements_insert" ON reference."tdcs_placements";
+CREATE POLICY "rls_tdcs_placements_insert" ON reference."tdcs_placements" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_tdcs_placements_update" ON reference."tdcs_placements";
+CREATE POLICY "rls_tdcs_placements_update" ON reference."tdcs_placements" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
+DROP POLICY IF EXISTS "rls_hd_tdcs_placements_select" ON reference."hd_tdcs_placements";
+CREATE POLICY "rls_hd_tdcs_placements_select" ON reference."hd_tdcs_placements" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_hd_tdcs_placements_insert" ON reference."hd_tdcs_placements";
+CREATE POLICY "rls_hd_tdcs_placements_insert" ON reference."hd_tdcs_placements" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_hd_tdcs_placements_update" ON reference."hd_tdcs_placements";
+CREATE POLICY "rls_hd_tdcs_placements_update" ON reference."hd_tdcs_placements" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
+DROP POLICY IF EXISTS "rls_tavns_placements_select" ON reference."tavns_placements";
+CREATE POLICY "rls_tavns_placements_select" ON reference."tavns_placements" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_tavns_placements_insert" ON reference."tavns_placements";
+CREATE POLICY "rls_tavns_placements_insert" ON reference."tavns_placements" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_tavns_placements_update" ON reference."tavns_placements";
+CREATE POLICY "rls_tavns_placements_update" ON reference."tavns_placements" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
+DROP POLICY IF EXISTS "rls_tps_placements_select" ON reference."tps_placements";
+CREATE POLICY "rls_tps_placements_select" ON reference."tps_placements" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_tps_placements_insert" ON reference."tps_placements";
+CREATE POLICY "rls_tps_placements_insert" ON reference."tps_placements" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_tps_placements_update" ON reference."tps_placements";
+CREATE POLICY "rls_tps_placements_update" ON reference."tps_placements" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
+DROP POLICY IF EXISTS "rls_rtms_placements_select" ON reference."rtms_placements";
+CREATE POLICY "rls_rtms_placements_select" ON reference."rtms_placements" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_rtms_placements_insert" ON reference."rtms_placements";
+CREATE POLICY "rls_rtms_placements_insert" ON reference."rtms_placements" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_rtms_placements_update" ON reference."rtms_placements";
+CREATE POLICY "rls_rtms_placements_update" ON reference."rtms_placements" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
+DROP POLICY IF EXISTS "rls_other_placements_select" ON reference."other_placements";
+CREATE POLICY "rls_other_placements_select" ON reference."other_placements" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_other_placements_insert" ON reference."other_placements";
+CREATE POLICY "rls_other_placements_insert" ON reference."other_placements" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_other_placements_update" ON reference."other_placements";
+CREATE POLICY "rls_other_placements_update" ON reference."other_placements" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
+DROP POLICY IF EXISTS "rls_tdcs_dosing_select" ON reference."tdcs_dosing";
+CREATE POLICY "rls_tdcs_dosing_select" ON reference."tdcs_dosing" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_tdcs_dosing_insert" ON reference."tdcs_dosing";
+CREATE POLICY "rls_tdcs_dosing_insert" ON reference."tdcs_dosing" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_tdcs_dosing_update" ON reference."tdcs_dosing";
+CREATE POLICY "rls_tdcs_dosing_update" ON reference."tdcs_dosing" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
+DROP POLICY IF EXISTS "rls_hd_tdcs_dosing_select" ON reference."hd_tdcs_dosing";
+CREATE POLICY "rls_hd_tdcs_dosing_select" ON reference."hd_tdcs_dosing" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_hd_tdcs_dosing_insert" ON reference."hd_tdcs_dosing";
+CREATE POLICY "rls_hd_tdcs_dosing_insert" ON reference."hd_tdcs_dosing" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_hd_tdcs_dosing_update" ON reference."hd_tdcs_dosing";
+CREATE POLICY "rls_hd_tdcs_dosing_update" ON reference."hd_tdcs_dosing" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
+DROP POLICY IF EXISTS "rls_tavns_dosing_select" ON reference."tavns_dosing";
+CREATE POLICY "rls_tavns_dosing_select" ON reference."tavns_dosing" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_tavns_dosing_insert" ON reference."tavns_dosing";
+CREATE POLICY "rls_tavns_dosing_insert" ON reference."tavns_dosing" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_tavns_dosing_update" ON reference."tavns_dosing";
+CREATE POLICY "rls_tavns_dosing_update" ON reference."tavns_dosing" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
+DROP POLICY IF EXISTS "rls_tps_dosing_select" ON reference."tps_dosing";
+CREATE POLICY "rls_tps_dosing_select" ON reference."tps_dosing" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_tps_dosing_insert" ON reference."tps_dosing";
+CREATE POLICY "rls_tps_dosing_insert" ON reference."tps_dosing" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_tps_dosing_update" ON reference."tps_dosing";
+CREATE POLICY "rls_tps_dosing_update" ON reference."tps_dosing" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
+DROP POLICY IF EXISTS "rls_rtms_dosing_select" ON reference."rtms_dosing";
+CREATE POLICY "rls_rtms_dosing_select" ON reference."rtms_dosing" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_rtms_dosing_insert" ON reference."rtms_dosing";
+CREATE POLICY "rls_rtms_dosing_insert" ON reference."rtms_dosing" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_rtms_dosing_update" ON reference."rtms_dosing";
+CREATE POLICY "rls_rtms_dosing_update" ON reference."rtms_dosing" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
+DROP POLICY IF EXISTS "rls_other_dosing_select" ON reference."other_dosing";
+CREATE POLICY "rls_other_dosing_select" ON reference."other_dosing" FOR SELECT TO public
+    USING (true);
+DROP POLICY IF EXISTS "rls_other_dosing_insert" ON reference."other_dosing";
+CREATE POLICY "rls_other_dosing_insert" ON reference."other_dosing" FOR INSERT TO public
+    WITH CHECK ((rls_user_role() = 'super_admin'::text));
+DROP POLICY IF EXISTS "rls_other_dosing_update" ON reference."other_dosing";
+CREATE POLICY "rls_other_dosing_update" ON reference."other_dosing" FOR UPDATE TO public
+    USING ((rls_user_role() = 'super_admin'::text));
+
 
 
 -- treatment_protocols: staff in the clinic, plus the patient it belongs to.
 -- Reached through treatment_plans -> treatment_cycles, which is where clinic_id
 -- actually lives.
+-- The clinic branch below cannot be the only one. ops.rls_clinic_id() reads
+-- app.current_clinic_id, which AuthContextMiddleware never sets, so it returns
+-- NULL for every caller and that branch is never true. Left in place (inert)
+-- for whenever the GUC is set, with a clinic_staff_assignments branch alongside
+-- it that works today.
+--
+-- Without that second branch a clinical assistant — the person who actually
+-- administers a device session — could read no protocol at all, and so could
+-- not see the montage or dose they are meant to deliver. Keying off
+-- appointments.ca_id would not help: ca_id stays NULL until the assistant
+-- STARTS the session, which is after they need the dose.
 DROP POLICY IF EXISTS "rls_treatment_protocols_select" ON core."treatment_protocols";
 CREATE POLICY "rls_treatment_protocols_select" ON core."treatment_protocols" FOR SELECT TO public
     USING (
@@ -1271,6 +1534,13 @@ CREATE POLICY "rls_treatment_protocols_select" ON core."treatment_protocols" FOR
             WHERE c.clinic_id = rls_clinic_id()
                OR p.patient_id = rls_user_id()
                OR p.doctor_id  = rls_user_id()))
+        OR (plan_id IN (
+            SELECT p.plan_id
+            FROM treatment_plans p
+            JOIN treatment_cycles c         ON c.cycle_id  = p.cycle_id
+            JOIN clinic_staff_assignments s ON s.clinic_id = c.clinic_id
+            WHERE s.profile_id = rls_user_id()
+              AND s.is_active))
     );
 
 DROP POLICY IF EXISTS "rls_treatment_protocols_insert" ON core."treatment_protocols";
@@ -1295,6 +1565,11 @@ CREATE POLICY "rls_ds_prs_select" ON core."device_session_prs_responses" FOR SEL
                                WHERE a.clinic_id = rls_clinic_id()
                                   OR a.doctor_id = rls_user_id()
                                   OR a.ca_id     = rls_user_id()))
+        -- clinic staff, resolved without the always-NULL rls_clinic_id()
+        OR (appointment_id IN (
+            SELECT a.appointment_id FROM appointments a
+            JOIN clinic_staff_assignments s ON s.clinic_id = a.clinic_id
+            WHERE s.profile_id = rls_user_id() AND s.is_active))
     );
 
 DROP POLICY IF EXISTS "rls_ds_prs_insert" ON core."device_session_prs_responses";
@@ -1320,6 +1595,11 @@ CREATE POLICY "rls_fu_prs_select" ON core."followup_prs_responses" FOR SELECT TO
                                WHERE a.clinic_id = rls_clinic_id()
                                   OR a.doctor_id = rls_user_id()
                                   OR a.ca_id     = rls_user_id()))
+        -- clinic staff, resolved without the always-NULL rls_clinic_id()
+        OR (appointment_id IN (
+            SELECT a.appointment_id FROM appointments a
+            JOIN clinic_staff_assignments s ON s.clinic_id = a.clinic_id
+            WHERE s.profile_id = rls_user_id() AND s.is_active))
     );
 
 DROP POLICY IF EXISTS "rls_fu_prs_insert" ON core."followup_prs_responses";
@@ -1400,6 +1680,15 @@ GRANT SELECT ON
     reference."rtms_dosing", reference."other_dosing"
     TO anava_readonly;
 
+-- anava_compliance exists (02_roles.sql) and 24_layer5_grants.sql grants it read
+-- access to clinical tables, because an erasure or portability request has to be
+-- able to see the data it is reporting on. All three tables below hold patient
+-- data and are Bucket 2 (anonymise, never hard-delete), so the compliance role
+-- must reach them or those requests silently under-report.
+GRANT SELECT ON
+    core."treatment_protocols", core."device_session_prs_responses", core."followup_prs_responses"
+    TO anava_compliance;
+
 GRANT EXECUTE ON FUNCTION core.fn_generate_protocol_sessions(UUID, DATE, INTEGER, INTEGER) TO anava_app;
 
 
@@ -1448,9 +1737,9 @@ COMMIT;
 --
 --   3. appointment_type is still unconstrained. 30 and 31 both defer the CHECK
 --      because the staff booking path writes seven legacy values. This file's
---      generator writes 'device_session' and 'follow_up' — the agreed
+--      generator writes 'device_session' and 'protocol_followup' — the agreed
 --      vocabulary — and the PRS triggers in §9.2 test those literals. When the
---      CHECK finally lands, 'device_session' and 'follow_up' must be in it.
+--      CHECK finally lands, 'device_session' and 'protocol_followup' must be in it.
 --
 --   4. appointments.status is likewise unconstrained; the generator writes
 --      'planned', which 31 documents as the protocol-setup state. Same
