@@ -1203,7 +1203,6 @@ DECLARE
     v_protocol  core.treatment_protocols%ROWTYPE;
     v_plan      core.treatment_plans%ROWTYPE;
     v_clinic_id UUID;
-    v_role      TEXT;
     v_i         INTEGER;
     v_date      DATE;
     v_created   INTEGER := 0;
@@ -1229,17 +1228,6 @@ BEGIN
         RAISE EXCEPTION 'Protocol % has already generated its appointments', p_protocol_id;
     END IF;
 
-    -- booked_by_role must describe whoever actually set the protocol.
-    -- rls_treatment_protocols_insert admits clinic_admin and super_admin as well
-    -- as doctor, so hardcoding 'doctor' would stamp a role its author does not
-    -- hold. An audit field that lies is worse than one that is absent — it is
-    -- believed. Read from the author's profile, which is the same row the
-    -- set_by FK already points at.
-    SELECT role INTO v_role FROM core.profiles WHERE id = v_protocol.set_by;
-    IF v_role IS NULL THEN
-        RAISE EXCEPTION 'Cannot resolve role for protocol author %', v_protocol.set_by;
-    END IF;
-
     FOR v_i IN 1..v_protocol.session_count LOOP
         v_date := p_start_date + ((v_i - 1) * p_slot_days);
 
@@ -1251,7 +1239,7 @@ BEGIN
         ) VALUES (
             v_clinic_id, v_plan.patient_id, NULL, v_plan.plan_id, p_protocol_id,
             v_date, 'device_session', v_i,
-            'planned', v_protocol.set_by, v_role
+            'planned', v_protocol.set_by, 'doctor'
         );
         v_created := v_created + 1;
 
@@ -1267,7 +1255,7 @@ BEGIN
             ) VALUES (
                 v_clinic_id, v_plan.patient_id, v_plan.doctor_id, v_plan.plan_id, p_protocol_id,
                 v_date + p_followup_gap, 'protocol_followup', v_i,
-                'planned', v_protocol.set_by, v_role
+                'planned', v_protocol.set_by, 'doctor'
             );
             v_created := v_created + 1;
         END IF;
