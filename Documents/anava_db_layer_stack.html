@@ -229,7 +229,7 @@
 
   <div class="head">
     <div>
-      <p class="eyebrow">Reference — Anava_App_v1 · PostgreSQL 15 · AWS RDS ap-south-1</p>
+      <p class="eyebrow">Reference — Anava_App_v1 · PostgreSQL 18.3 · AWS RDS ap-south-1 · files 30–34 applied 13 Aug 2026</p>
       <h1>The eight layers, bottom up</h1>
       <p class="sub">
         Layer 1 is the only one that is a literal place. Everything above it changes how
@@ -305,7 +305,7 @@
           <div class="chips">
             <span class="chip">expand / contract</span>
             <span class="chip">NOT VALID → VALIDATE</span>
-            <span class="chip n">files 30–34</span>
+            <span class="chip n">files 30–34 applied</span>
             <span class="chip x">alembic drift</span>
           </div>
         </div>
@@ -610,10 +610,11 @@
       Alembic's baseline still recreates <code>appointment_requests</code> and three dropped columns.
       A database built from migrations no longer matches one built from the numbered files.
     </div>
-    <div class="note bad">
-      <b>Not yet executed</b>
-      Files 30–34 are written against the schema as recorded and verified by reading, not by running.
-      Restore a snapshot and apply them there before they go near <code>Anava_App_v1</code>.
+    <div class="note">
+      <b>Applied 13 Aug 2026</b>
+      All five files ran against <code>Anava_App_v1</code> on the sandbox RDS instance. Preflight was
+      clean — every table they touch held 0 rows, no existing data violated a new constraint, and
+      <code>btree_gist</code> was already present. Tables 67 → 88.
     </div>
   </div>
 

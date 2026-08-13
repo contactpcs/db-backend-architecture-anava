@@ -41,6 +41,12 @@
 -- appointment_type and status vocabularies stay deferred (see the bottom): the
 -- staff booking path still writes seven legacy type values and 'confirmed'.
 --
+-- APPLIED 2026-08-13 to Anava_App_v1 (sandbox RDS, PostgreSQL 18.3).
+-- Preflight was clean: every table touched held 0 rows, no existing data violated
+-- a new constraint, btree_gist present. Post-apply verification passed on every
+-- check except one pre-existing issue unrelated to this file (two tables elsewhere
+-- in the schema have RLS enabled with no policy).
+--
 -- SAFE TO APPLY: core.appointments holds 0 rows (verified 2026-08-11 in
 -- 30_appointments_spine.sql, unchanged since — no booking endpoint has
 -- shipped). Every constraint below is vacuously satisfied at apply time and no
@@ -186,17 +192,18 @@ ALTER POLICY "rls_payments_select" ON core."payments"
 -- ---------------------------------------------------------------------------
 -- 6. RLS on appointments — patient self-service and the hold sweeper
 -- ---------------------------------------------------------------------------
--- Two gaps, both currently masked by the application's DB role being a
--- Postgres superuser (rolbypassrls=TRUE, so RLS never applies). Fixing them now
--- rather than on the day that role is downgraded and patient booking stops
--- working with no obvious cause.
+-- Two gaps. RLS is genuinely enforced here — verified 2026-08-13: anava_app has
+-- rolsuper=false and rolbypassrls=false, so every policy below actually runs
+-- against application traffic. (The `postgres` migration credential does bypass
+-- RLS empirically despite both flags being false; that is a separate, known,
+-- undiagnosed RDS/PG18 quirk and is never used by the app tier.)
 --
 -- Gap 1: no patient branch. rls_appt_insert/update list five staff roles and
--- then fall back to `clinic_id = rls_clinic_id()`. That fallback is dead code —
--- AuthContextMiddleware sets app.current_user_id and app.current_user_role but
--- never app.current_clinic_id, so ops.rls_clinic_id() always returns NULL and
--- the branch is never true for anyone. It is kept, unchanged, for whenever that
--- GUC does get set.
+-- then fall back to `clinic_id = rls_clinic_id()`. That fallback DOES work —
+-- core/db.py's _apply_rls_context() sets app.current_clinic_id via SET LOCAL on
+-- every request, alongside user_id and user_role. It is kept unchanged. What is
+-- missing is a branch for the patient booking their own appointment, since a
+-- patient's clinic_id is set too but the insert also has to be self-scoped.
 --
 -- Gap 2: no 'system' branch and no DELETE policy at all. The hold sweeper runs
 -- unattended, so it has no logged-in user — the same situation that made the

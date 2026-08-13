@@ -12,6 +12,12 @@
 -- READ THIS BEFORE RUNNING
 -- ###########################################################################
 --
+-- APPLIED 2026-08-13 to Anava_App_v1 (sandbox RDS, PostgreSQL 18.3).
+-- Preflight was clean: every table touched held 0 rows, no existing data violated
+-- a new constraint, btree_gist present. Post-apply verification passed on every
+-- check except one pre-existing issue unrelated to this file (two tables elsewhere
+-- in the schema have RLS enabled with no policy).
+--
 -- NOT YET EXECUTED ANYWHERE. This file has not been run against the RDS
 -- instance, a staging copy, or a local PostgreSQL. Every statement is written
 -- against the schema as recorded in SQL/v1/00-31, verified by reading those
@@ -1513,16 +1519,18 @@ CREATE POLICY "rls_other_dosing_update" ON reference."other_dosing" FOR UPDATE T
 -- treatment_protocols: staff in the clinic, plus the patient it belongs to.
 -- Reached through treatment_plans -> treatment_cycles, which is where clinic_id
 -- actually lives.
--- The clinic branch below cannot be the only one. ops.rls_clinic_id() reads
--- app.current_clinic_id, which AuthContextMiddleware never sets, so it returns
--- NULL for every caller and that branch is never true. Left in place (inert)
--- for whenever the GUC is set, with a clinic_staff_assignments branch alongside
--- it that works today.
+-- Two independent paths to the same clinic scope, deliberately.
 --
--- Without that second branch a clinical assistant — the person who actually
--- administers a device session — could read no protocol at all, and so could
--- not see the montage or dose they are meant to deliver. Keying off
--- appointments.ca_id would not help: ca_id stays NULL until the assistant
+-- The rls_clinic_id() branch works: core/db.py's _apply_rls_context() sets
+-- app.current_clinic_id via SET LOCAL on every request, alongside user_id and
+-- user_role. It covers any staff member whose RequestContext carries a clinic.
+--
+-- The clinic_staff_assignments branch covers what that misses — a clinical
+-- assistant whose context has no clinic_id, or who is rostered to a clinic
+-- other than their profile default. The assistant is the person who actually
+-- administers a device session, and without a route to the protocol they cannot
+-- see the montage or dose they are meant to deliver. Keying off
+-- appointments.ca_id would not work here: ca_id stays NULL until the assistant
 -- STARTS the session, which is after they need the dose.
 DROP POLICY IF EXISTS "rls_treatment_protocols_select" ON core."treatment_protocols";
 CREATE POLICY "rls_treatment_protocols_select" ON core."treatment_protocols" FOR SELECT TO public
@@ -1565,7 +1573,7 @@ CREATE POLICY "rls_ds_prs_select" ON core."device_session_prs_responses" FOR SEL
                                WHERE a.clinic_id = rls_clinic_id()
                                   OR a.doctor_id = rls_user_id()
                                   OR a.ca_id     = rls_user_id()))
-        -- clinic staff, resolved without the always-NULL rls_clinic_id()
+        -- clinic staff via roster, covering contexts with no clinic_id set
         OR (appointment_id IN (
             SELECT a.appointment_id FROM appointments a
             JOIN clinic_staff_assignments s ON s.clinic_id = a.clinic_id
@@ -1595,7 +1603,7 @@ CREATE POLICY "rls_fu_prs_select" ON core."followup_prs_responses" FOR SELECT TO
                                WHERE a.clinic_id = rls_clinic_id()
                                   OR a.doctor_id = rls_user_id()
                                   OR a.ca_id     = rls_user_id()))
-        -- clinic staff, resolved without the always-NULL rls_clinic_id()
+        -- clinic staff via roster, covering contexts with no clinic_id set
         OR (appointment_id IN (
             SELECT a.appointment_id FROM appointments a
             JOIN clinic_staff_assignments s ON s.clinic_id = a.clinic_id

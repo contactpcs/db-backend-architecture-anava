@@ -12,6 +12,12 @@
 -- that still queries core.appointment_requests will produce runtime errors, not
 -- a clean failure at apply time.
 --
+-- APPLIED 2026-08-13 to Anava_App_v1 (sandbox RDS, PostgreSQL 18.3).
+-- Preflight was clean: every table touched held 0 rows, no existing data violated
+-- a new constraint, btree_gist present. Post-apply verification passed on every
+-- check except one pre-existing issue unrelated to this file (two tables elsewhere
+-- in the schema have RLS enabled with no policy).
+--
 -- SAFE TO APPLY: every object dropped here holds 0 rows. core.appointment_requests
 -- was verified empty on 2026-08-11 (see 30_appointments_spine.sql header) and no
 -- endpoint has written to it since. core.appointments is likewise empty, so the

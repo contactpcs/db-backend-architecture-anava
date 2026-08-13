@@ -7,6 +7,12 @@
 --
 -- APPLY ORDER:  30 -> 31 -> 32 -> 33 -> 34
 --
+-- APPLIED 2026-08-13 to Anava_App_v1 (sandbox RDS, PostgreSQL 18.3).
+-- Preflight was clean: every table touched held 0 rows, no existing data violated
+-- a new constraint, btree_gist present. Post-apply verification passed on every
+-- check except one pre-existing issue unrelated to this file (two tables elsewhere
+-- in the schema have RLS enabled with no policy).
+--
 -- NOT YET EXECUTED ANYWHERE. Written against the schema as recorded in
 -- SQL/v1/00-32 and verified by reading those files, not by running this one.
 --
@@ -105,12 +111,13 @@ COMMIT;
 --     'completed', 'no_show' — and likewise blocked, because 'confirmed' is
 --     still reachable through PATCH /appointments/{id}/status.
 --
---  D. ops.rls_clinic_id() returns NULL for every caller, everywhere, because
---     app.current_clinic_id is never set by AuthContextMiddleware. 32's policies
---     now route around it via clinic_staff_assignments; the schema-wide fix is
---     either to set that GUC in the middleware or to retire the function. It is
---     currently harmless only because the application's DB role is a superuser
---     and bypasses RLS entirely.
+--  D. RLS is genuinely enforced for application traffic — verified 2026-08-13:
+--     anava_app has rolsuper=false and rolbypassrls=false. ops.rls_clinic_id()
+--     resolves correctly because core/db.py's _apply_rls_context() sets
+--     app.current_clinic_id via SET LOCAL per request. Separately, the
+--     `postgres` migration credential DOES bypass RLS empirically despite both
+--     flags reading false — an undiagnosed RDS/PG18 quirk. That credential must
+--     never be used from the app tier or lower-trust tooling.
 --
 --  E. core.sessions and core.treatment_sessions are confirmed legacy. 32 settled
 --     the question 31 had to leave open: device sessions live on the appointments
