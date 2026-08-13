@@ -87,14 +87,11 @@ COMMIT;
 -- STILL OPEN AFTER THIS FILE
 -- ---------------------------------------------------------------------------
 --
---  A. core.clinic_device_schedules / core.clinic_device_schedule_overrides.
---     A device session books against clinic device CAPACITY set by the clinic
---     admin — how many sessions can run at once — not against a doctor's
---     calendar. Nothing in 30-34 builds that schedule, so a generated
---     device_session row has no pool of slots to be timed against. Planned as
---     35_clinic_device_schedules.sql. Capacity cannot be expressed as a
---     constraint (PostgreSQL has no "at most N rows matching a predicate"
---     form); it is enforced by a counted check under SELECT ... FOR UPDATE.
+--  A. CLOSED by 35_clinic_device_schedules.sql — core.clinic_devices,
+--     core.clinic_device_schedules and core.clinic_device_schedule_overrides.
+--     Capacity itself still cannot be a constraint (PostgreSQL has no "at most
+--     N rows matching a predicate" form); 35's footer specifies the counted
+--     check under SELECT ... FOR UPDATE that the booking path must implement.
 --
 --  B. CHECK on appointments.appointment_type. The value set is now settled —
 --     'initial', 'follow_up', 'device_session', 'protocol_followup' — but the
@@ -117,8 +114,8 @@ COMMIT;
 --     spine and no new table duplicates them. Retiring both is a contract step
 --     blocked on the clinical module, which still reads and writes core.sessions.
 --
---  F. fn_generate_protocol_sessions writes booked_by_role = 'doctor'
---     unconditionally, while rls_treatment_protocols_insert also admits
---     clinic_admin and super_admin. A protocol set by an admin records a role
---     that is not theirs — an audit field that lies is worse than an absent one.
+--  F. CLOSED in 32_treatment_protocol.sql — fn_generate_protocol_sessions now
+--     reads the author's role from core.profiles (the row set_by already points
+--     at) and writes that into booked_by_role, instead of hardcoding 'doctor'.
+--     It raises if the role cannot be resolved rather than guessing.
 -- ---------------------------------------------------------------------------
