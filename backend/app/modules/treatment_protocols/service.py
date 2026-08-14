@@ -32,6 +32,8 @@ from app.core.scoping import assert_clinic_scope
 from app.modules.treatment_protocols import schemas as s
 from app.modules.treatment_protocols.repository import (
     CatalogueRepository,
+    CustomMontageRepository,
+    ProtocolDetailRepository,
     ProtocolPrsRepository,
     ProtocolRepository,
     ProtocolSessionRepository,
@@ -343,6 +345,7 @@ class ProtocolService:
         self.sessions = ProtocolSessionRepository(session)
         self.catalogue = CatalogueRepository(session)
         self.catalogue_svc = CatalogueService(session)
+        self.details = ProtocolDetailRepository(session)
 
     # -- reads -------------------------------------------------------------
 
@@ -372,6 +375,9 @@ class ProtocolService:
         detail["dosing_id"] = dosing_id
         detail["placement"] = placement
         detail["dosing"] = dosing
+        detail["conditions"] = await self.details.list_conditions(protocol_id)
+        detail["diagnoses"] = await self.details.list_diagnoses(protocol_id)
+        detail["scales"] = await self.details.list_scales(protocol_id)
         detail["sessions"] = [r for r in all_rows if r["appointment_type"] == _TYPE_DEVICE_SESSION]
         detail["follow_ups"] = [r for r in all_rows if r["appointment_type"] == _TYPE_FOLLOW_UP]
         return detail
@@ -424,6 +430,34 @@ class ProtocolService:
         if str(dosing["device_id"]) != str(body.device_id):
             raise ValidationError("Dosing belongs to a different device", code="DOSING_DEVICE_MISMATCH")
 
+        # The clinic must actually own the machine. trg_check_device_available
+        # _at_clinic (37) enforces this, but a readable 422 beats a raised
+        # PL/pgSQL exception, and the doctor needs to know it is an inventory
+        # problem rather than a prescribing one.
+        if not await self.repo.clinic_has_device(plan["clinic_id"], body.device_id):
+            raise BusinessRuleError(
+                f"{device['device_name']} is not available at this clinic.",
+                code="DEVICE_NOT_AT_CLINIC",
+            )
+
+        # Validate the child-table references BEFORE the protocol row is
+        # written. A bad diagnosis_id caught here is a 404; caught after the
+        # INSERT it is a rolled-back transaction with a foreign-key message
+        # that names a constraint rather than the field the caller got wrong.
+        await self._assert_conditions_exist(body.conditions)
+        await self._assert_diagnoses_exist(body.diagnosis_ids)
+        await self._assert_scales_exist(body.scales)
+
+        if body.authored_in_appointment_id is not None:
+            appt = await self.sessions.get_appointment(body.authored_in_appointment_id)
+            if not appt:
+                raise NotFoundError("Authoring appointment not found", code="APPOINTMENT_NOT_FOUND")
+            if str(appt["patient_id"]) != str(plan["patient_id"]):
+                raise ValidationError(
+                    "Authoring appointment belongs to a different patient",
+                    code="APPOINTMENT_PATIENT_MISMATCH",
+                )
+
         # Map the caller's device-agnostic placement_id/dosing_id onto the
         # correct pair of the twelve nullable FK columns. The exactly-one
         # CHECKs then hold by construction.
@@ -438,6 +472,16 @@ class ProtocolService:
             "status": "draft",
             "device_settings": body.device_settings or {},
             "notes": body.notes,
+            # 39. sessions_per_week is persisted rather than consumed once by
+            # the generator and discarded - without it the calendar cannot be
+            # regenerated or audited against what was prescribed.
+            "authored_in_appointment_id": (
+                str(body.authored_in_appointment_id) if body.authored_in_appointment_id else None
+            ),
+            "prescribed_current_ma": body.prescribed_current_ma,
+            "prescribed_duration_min": body.prescribed_duration_min,
+            "ramp_seconds": body.ramp_seconds,
+            "sessions_per_week": body.sessions_per_week,
         }
 
         try:
@@ -446,6 +490,16 @@ class ProtocolService:
             raise ConflictError("Protocol violates a database constraint", code="PROTOCOL_CONSTRAINT") from exc
 
         protocol_id = created["protocol_id"]
+
+        # Steps 2, 3 and 6. Same transaction as the protocol row, so a
+        # prescription cannot exist without the diagnosis that justifies it.
+        conditions_written = await self.details.add_conditions(
+            protocol_id, [c.model_dump() for c in body.conditions]
+        )
+        diagnoses_written = await self.details.add_diagnoses(protocol_id, body.diagnosis_ids)
+        scales_written = await self.details.add_scales(
+            protocol_id, [sc.model_dump() for sc in body.scales]
+        )
 
         preview = ScheduleService.build(
             s.SchedulePreviewRequest(
@@ -470,10 +524,42 @@ class ProtocolService:
                 "device_id": str(body.device_id),
                 "modality": device["modality"],
                 "session_count": body.session_count,
+                "sessions_per_week": body.sessions_per_week,
+                "conditions_recorded": conditions_written,
+                "diagnoses_recorded": diagnoses_written,
+                "scales_assigned": scales_written,
                 **counts,
             },
         )
         return await self.get_or_404(protocol_id)
+
+    # -- pre-flight validation for the child tables ------------------------
+
+    async def _assert_conditions_exist(self, items: builtins.list[s.ProtocolConditionAssignment]) -> None:
+        ids = [c.condition_id for c in items if c.condition_id is not None]
+        if not ids:
+            return
+        found = await self.catalogue.get_conditions_by_ids(ids)
+        missing = {str(i) for i in ids} - {str(r["condition_id"]) for r in found}
+        if missing:
+            raise NotFoundError(f"Unknown condition_id: {', '.join(sorted(missing))}", code="CONDITION_NOT_FOUND")
+
+    async def _assert_diagnoses_exist(self, diagnosis_ids: builtins.list[UUID]) -> None:
+        if not diagnosis_ids:
+            return
+        found = await self.catalogue.get_diagnoses_by_ids(diagnosis_ids)
+        missing = {str(i) for i in diagnosis_ids} - {str(r["diagnosis_id"]) for r in found}
+        if missing:
+            raise NotFoundError(f"Unknown diagnosis_id: {', '.join(sorted(missing))}", code="DIAGNOSIS_NOT_FOUND")
+
+    async def _assert_scales_exist(self, items: builtins.list[s.ProtocolScaleAssignment]) -> None:
+        ids = [sc.scale_id for sc in items]
+        if not ids:
+            return
+        found = await self.catalogue.get_scales_by_ids(ids)
+        missing = {str(i) for i in ids} - {str(r["scale_id"]) for r in found}
+        if missing:
+            raise NotFoundError(f"Unknown scale_id: {', '.join(sorted(missing))}", code="SCALE_NOT_FOUND")
 
     async def _generate_appointments(self, protocol_id: UUID, plan: dict, preview: dict, ctx: RequestContext) -> dict:
         """Writes the whole course onto the appointments spine.
@@ -568,6 +654,22 @@ class ProtocolService:
                 "Protocol has no generated sessions. Regenerate the schedule before activating.",
                 code="PROTOCOL_NO_SESSIONS",
             )
+
+        # fn_check_protocol_prescription_complete (39) refuses this transition
+        # if the dose is incomplete. Checking here first names the missing
+        # fields as a 422 the UI can map back onto step 5, instead of a raised
+        # PL/pgSQL exception surfacing as a 500.
+        missing = [
+            field
+            for field in ("prescribed_current_ma", "prescribed_duration_min", "sessions_per_week")
+            if row.get(field) is None
+        ]
+        if missing:
+            raise BusinessRuleError(
+                "Prescription is incomplete and cannot be activated. Missing: " + ", ".join(missing),
+                code="PRESCRIPTION_INCOMPLETE",
+            )
+
         updated = await self.repo.set_status(protocol_id, "active")
         await emit_event(
             self.session,
@@ -614,6 +716,104 @@ class ProtocolService:
             payload={"protocol_id": str(protocol_id)},
         )
         return updated or row
+
+
+class CustomMontageService:
+    """Step 4's "Custom Montage" panel.
+
+    Writes core.protocol_custom_montages, never reference.*_placements: 32
+    revokes application writes on the curated library precisely so a montage
+    one doctor invented cannot end up looking like one the catalogue
+    validated.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repo = CustomMontageRepository(session)
+        self.catalogue_svc = CatalogueService(session)
+
+    async def create(self, body: s.CustomMontageCreate, ctx: RequestContext) -> dict:
+        device = await self.catalogue_svc.get_device_or_404(body.device_id)
+
+        # Same rule the placement validator applies, re-applied at the write
+        # so a direct API call cannot bypass step 4's guard rail. The table's
+        # own chk_pcm_electrode_shape enforces the shape both modalities
+        # share (1 anode, 1-4 cathodes); this adds the per-modality half a
+        # CHECK cannot express without knowing the device.
+        result = await self.catalogue_svc.validate_electrodes(
+            s.ElectrodeValidationRequest(
+                device_id=body.device_id,
+                anode_site=body.anode_sites[0] if body.anode_sites else None,
+                cathode_sites=body.cathode_sites,
+            )
+        )
+        if not result["valid"]:
+            raise ValidationError("; ".join(result["errors"]), code="INVALID_MONTAGE")
+
+        if body.condition_id is not None:
+            if not await self.catalogue_svc.repo.get_condition(body.condition_id):
+                raise NotFoundError("Condition not found", code="CONDITION_NOT_FOUND")
+
+        try:
+            created = await self.repo.create(
+                {
+                    "created_by": ctx.user_id,
+                    "clinic_id": ctx.clinic_id,
+                    "device_id": str(body.device_id),
+                    "condition_id": str(body.condition_id) if body.condition_id else None,
+                    "montage_name": body.montage_name,
+                    "anode_sites": body.anode_sites,
+                    "cathode_sites": body.cathode_sites,
+                    "description": body.description,
+                    "clinical_reasoning": body.clinical_reasoning,
+                }
+            )
+        except IntegrityError as exc:
+            # protocol_custom_montages_created_by_montage_name_key: the picker
+            # shows names, so two of the same name are indistinguishable.
+            raise ConflictError(
+                f"You already have a montage named '{body.montage_name}'",
+                code="MONTAGE_NAME_TAKEN",
+            ) from exc
+
+        await emit_event(
+            self.session,
+            aggregate_type="protocol_custom_montage",
+            aggregate_id=created["custom_montage_id"],
+            event_type="protocol_custom_montage.created",
+            payload={
+                "custom_montage_id": str(created["custom_montage_id"]),
+                "device_id": str(body.device_id),
+                "modality": device["modality"],
+                "created_by": ctx.user_id,
+            },
+        )
+        return await self.repo.get(created["custom_montage_id"]) or created
+
+    async def list(self, ctx: RequestContext, **filters) -> builtins.list[dict]:
+        # A doctor sees their own montages plus anything unscoped at their
+        # clinic. Cross-clinic roles see everything.
+        if ctx.role not in ("super_admin", "regional_admin") and ctx.clinic_id:
+            filters.setdefault("clinic_id", UUID(ctx.clinic_id))
+        return await self.repo.list(**filters)
+
+    async def get_or_404(self, custom_montage_id: UUID) -> dict:
+        row = await self.repo.get(custom_montage_id)
+        if not row:
+            raise NotFoundError("Custom montage not found", code="MONTAGE_NOT_FOUND")
+        return row
+
+    async def deactivate(self, custom_montage_id: UUID, ctx: RequestContext) -> dict:
+        row = await self.get_or_404(custom_montage_id)
+        # Only the author, or an admin, retires a montage. Another doctor's
+        # clinical reasoning is not theirs to withdraw.
+        if str(row["created_by"]) != str(ctx.user_id) and ctx.role not in ("super_admin", "regional_admin", "clinic_admin"):
+            raise BusinessRuleError(
+                "Only the author or an administrator can retire a custom montage",
+                code="MONTAGE_NOT_OWNED",
+            )
+        updated = await self.repo.deactivate(custom_montage_id)
+        return await self.repo.get(custom_montage_id) or updated or row
 
 
 class ProtocolPrsService:

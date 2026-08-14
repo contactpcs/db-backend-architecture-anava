@@ -39,6 +39,52 @@ MODALITY_SLUG = {
 # multi-diagnosis selection by this to pick the driving suggestion.
 EVIDENCE_RANK = {"A": 3, "B": 2, "C": 1}
 
+# The only cadences core.protocol_scales accepts
+# (chk_protocol_scales_cadence, 38). Stored values are these five; the UI
+# labels below are accepted on input and normalised, because the prototype's
+# dropdown says "At re-assessment only" where the schema says
+# 'per_checkpoint'. Sending the label straight through raises 23514.
+SCALE_CADENCES = ("baseline", "per_checkpoint", "weekly", "fortnightly", "end_of_treatment")
+
+# Wizard label (and a few obvious spellings) -> stored cadence. Keys are
+# compared lower-cased and whitespace-collapsed, so casing in the UI is not
+# load-bearing.
+CADENCE_ALIASES = {
+    "baseline": "baseline",
+    "baseline only": "baseline",
+    "at baseline": "baseline",
+    "at re-assessment only": "per_checkpoint",
+    "at reassessment only": "per_checkpoint",
+    "re-assessment": "per_checkpoint",
+    "per checkpoint": "per_checkpoint",
+    "per_checkpoint": "per_checkpoint",
+    "every follow-up": "per_checkpoint",
+    "weekly": "weekly",
+    "every week": "weekly",
+    "fortnightly": "fortnightly",
+    "every 2 weeks": "fortnightly",
+    "biweekly": "fortnightly",
+    "end of treatment": "end_of_treatment",
+    "end_of_treatment": "end_of_treatment",
+    "at discharge": "end_of_treatment",
+}
+
+# core.protocol_scales.answered_by CHECK.
+ANSWERED_BY = ("patient", "clinician", "either")
+
+
+def normalise_cadence(value: str) -> str:
+    """UI label -> the value chk_protocol_scales_cadence accepts.
+
+    Raises rather than guessing: a scale silently filed under the wrong
+    cadence is released to the patient on the wrong trigger, which is worse
+    than a 422 telling the caller exactly which cadences exist.
+    """
+    key = " ".join((value or "").strip().lower().split())
+    if key in CADENCE_ALIASES:
+        return CADENCE_ALIASES[key]
+    raise ValueError(f"Unknown cadence {value!r}. Expected one of: {', '.join(SCALE_CADENCES)}")
+
 
 # --------------------------------------------------------------------------
 # Step 1 - Device catalogue
@@ -298,15 +344,53 @@ class SchedulePreview(BaseModel):
 
 
 class ProtocolScaleAssignment(BaseModel):
-    scale_id: UUID | None = None
-    # Free-text fallback for a scale the doctor typed that isn't catalogued.
-    scale_code: str | None = None
-    cadence: str = "At re-assessment only"
+    """One row of wizard step 6.
+
+    scale_id is required because core.protocol_scales.scale_id is NOT NULL
+    with an FK into reference.neuromod_scales. There is deliberately no
+    free-text fallback: a scale the catalogue does not know cannot be released
+    to the patient as a PRS task, so accepting the name and storing nothing
+    would be the same silent discard this module already had. An uncatalogued
+    scale is added to the catalogue first.
+    """
+
+    scale_id: UUID
+    # Accepts the wizard's own labels ("At re-assessment only") and stores the
+    # value chk_protocol_scales_cadence allows.
+    cadence: str = "per_checkpoint"
+    # How long the patient has once it is released. None = no deadline.
+    window_days: int | None = Field(default=None, ge=1)
+    answered_by: str = "patient"
+    display_order: int = 0
 
     @model_validator(mode="after")
-    def _need_one_identifier(self):
-        if self.scale_id is None and not (self.scale_code or "").strip():
-            raise ValueError("Either scale_id or scale_code is required")
+    def _normalise(self):
+        object.__setattr__(self, "cadence", normalise_cadence(self.cadence))
+        if self.answered_by not in ANSWERED_BY:
+            raise ValueError(f"answered_by must be one of: {', '.join(ANSWERED_BY)}")
+        return self
+
+
+class ProtocolConditionAssignment(BaseModel):
+    """One row of wizard step 2.
+
+    Either a catalogue condition or free text from the "Other condition" box,
+    never both — chk_protocol_conditions_shape enforces
+    num_nonnulls(condition_id, other_text) = 1.
+    """
+
+    condition_id: UUID | None = None
+    other_text: str | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one(self):
+        text_set = bool((self.other_text or "").strip())
+        if self.condition_id is not None and text_set:
+            raise ValueError("Provide either condition_id or other_text, not both")
+        if self.condition_id is None and not text_set:
+            raise ValueError("Provide either condition_id or other_text")
+        if text_set:
+            object.__setattr__(self, "other_text", self.other_text.strip())
         return self
 
 
@@ -325,8 +409,20 @@ class ProtocolCreate(BaseModel):
     sessions_per_week: int = Field(default=5, ge=1, le=7)
     skip_dates: list[date] = Field(default_factory=list)
     extra_dates: list[date] = Field(default_factory=list)
+    conditions: list[ProtocolConditionAssignment] = Field(default_factory=list)
     diagnosis_ids: list[UUID] = Field(default_factory=list)
     scales: list[ProtocolScaleAssignment] = Field(default_factory=list)
+    # Step 1: which consultation authored this. Provenance only - sessions are
+    # still found through appointments.protocol_id, never by walking back
+    # through this column.
+    authored_in_appointment_id: UUID | None = None
+    # Step 5, the prescribed dose. Optional at create so a half-finished draft
+    # can be saved, but fn_check_protocol_prescription_complete (39) refuses to
+    # let a protocol reach 'active' without current, duration and cadence -
+    # a NULL current at the bedside is an unanswerable question, not a blank.
+    prescribed_current_ma: Decimal | None = Field(default=None, gt=0, le=4)
+    prescribed_duration_min: int | None = Field(default=None, gt=0, le=120)
+    ramp_seconds: int = Field(default=30, ge=0, le=120)
     # Per-patient deviations from the catalogue dose (reduced current for
     # tolerability, etc). The catalogue row stays the prescribed protocol;
     # this records the deviation from it.
@@ -339,15 +435,39 @@ class ProtocolCreate(BaseModel):
             raise ValueError("follow_up_every_n cannot exceed session_count")
         return self
 
+    @model_validator(mode="after")
+    def _cadence_is_storable(self):
+        # chk_treatment_protocols_sessions_per_week (39) allows exactly these.
+        # The schedule generator accepts 4 and 6 as well, so a value that
+        # previews fine would fail at INSERT - caught here instead.
+        if self.sessions_per_week not in (1, 2, 3, 5, 7):
+            raise ValueError("sessions_per_week must be one of 1, 2, 3, 5, 7 (1x/2x/3x/5x/Daily)")
+        return self
+
 
 class ProtocolUpdate(BaseModel):
     """Draft-only edits. Once a protocol is active its clinical parameters
-    are frozen - see ProtocolService.update for why."""
+    are frozen - see ProtocolService.update for why.
+
+    The prescription fields are editable here because a draft saved from an
+    incomplete step 5 has to be completable; activation then enforces that
+    they are all present.
+    """
 
     session_count: int | None = Field(default=None, ge=1, le=90)
     follow_up_every_n: int | None = Field(default=None, ge=1, le=90)
+    prescribed_current_ma: Decimal | None = Field(default=None, gt=0, le=4)
+    prescribed_duration_min: int | None = Field(default=None, gt=0, le=120)
+    ramp_seconds: int | None = Field(default=None, ge=0, le=120)
+    sessions_per_week: int | None = None
     device_settings: dict | None = None
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def _cadence_is_storable(self):
+        if self.sessions_per_week is not None and self.sessions_per_week not in (1, 2, 3, 5, 7):
+            raise ValueError("sessions_per_week must be one of 1, 2, 3, 5, 7 (1x/2x/3x/5x/Daily)")
+        return self
 
 
 class ProtocolRead(BaseModel):
@@ -360,6 +480,13 @@ class ProtocolRead(BaseModel):
     status: str
     device_settings: dict = Field(default_factory=dict)
     notes: str | None = None
+    # 39
+    authored_in_appointment_id: UUID | None = None
+    prescribed_current_ma: Decimal | None = None
+    prescribed_duration_min: int | None = None
+    ramp_seconds: int | None = None
+    sessions_per_week: int | None = None
+    supersedes_protocol_id: UUID | None = None
     activated_at: datetime | None = None
     completed_at: datetime | None = None
     created_at: datetime
@@ -379,11 +506,86 @@ class ProtocolRead(BaseModel):
     appointment_count: int = 0
 
 
+class ProtocolConditionRead(BaseModel):
+    protocol_condition_id: UUID
+    condition_id: UUID | None = None
+    condition_name: str | None = None
+    other_text: str | None = None
+
+
+class ProtocolDiagnosisRead(BaseModel):
+    protocol_diagnosis_id: UUID
+    diagnosis_id: UUID
+    icd10_code: str | None = None
+    icd10_description: str | None = None
+    condition_name: str | None = None
+
+
+class ProtocolScaleRead(BaseModel):
+    protocol_scale_id: UUID
+    scale_id: UUID
+    scale_code: str | None = None
+    scale_name: str | None = None
+    prs_scale_id: str | None = None
+    cadence: str
+    window_days: int | None = None
+    answered_by: str
+    display_order: int = 0
+
+
 class ProtocolDetail(ProtocolRead):
     placement: PlacementRead | None = None
     dosing: DosingRead | None = None
+    conditions: list[ProtocolConditionRead] = Field(default_factory=list)
+    diagnoses: list[ProtocolDiagnosisRead] = Field(default_factory=list)
+    scales: list[ProtocolScaleRead] = Field(default_factory=list)
     sessions: list[ProtocolSessionRead] = Field(default_factory=list)
     follow_ups: list[ProtocolSessionRead] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------
+# Step 4 - Custom montages (core.protocol_custom_montages, 38)
+# --------------------------------------------------------------------------
+
+
+class CustomMontageCreate(BaseModel):
+    """A doctor-authored placement.
+
+    Kept out of reference.tdcs_placements deliberately: that library is
+    curated and superadmin-owned, and 32 revokes application writes to it so
+    a bug cannot alter a validated montage. clinical_reasoning is NOT NULL in
+    the schema and required here for the same reason - a montage departing
+    from the validated library carries the reason it was chosen as part of the
+    clinical record.
+    """
+
+    device_id: UUID
+    montage_name: str = Field(min_length=1, max_length=200)
+    anode_sites: list[str] = Field(min_length=1, max_length=1)
+    cathode_sites: list[str] = Field(min_length=1, max_length=4)
+    condition_id: UUID | None = None
+    description: str | None = None
+    clinical_reasoning: str = Field(min_length=1)
+
+
+class CustomMontageRead(BaseModel):
+    custom_montage_id: UUID
+    created_by: UUID
+    clinic_id: UUID | None = None
+    device_id: UUID
+    condition_id: UUID | None = None
+    montage_name: str
+    anode_sites: list[str]
+    cathode_sites: list[str]
+    description: str | None = None
+    clinical_reasoning: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    device_name: str | None = None
+    modality: str | None = None
+    condition_name: str | None = None
+    created_by_name: str | None = None
 
 
 class ProtocolSessionRead(BaseModel):
@@ -412,6 +614,8 @@ class ProtocolPushResult(BaseModel):
     sessions_created: int
     follow_ups_created: int
     scales_assigned: int
+    conditions_recorded: int = 0
+    diagnoses_recorded: int = 0
     first_session_date: date | None = None
     last_session_date: date | None = None
 

@@ -32,6 +32,7 @@ from app.core.permissions import require_role
 from app.modules.treatment_protocols import schemas as s
 from app.modules.treatment_protocols.service import (
     CatalogueService,
+    CustomMontageService,
     ProtocolPrsService,
     ProtocolService,
     ScheduleService,
@@ -171,6 +172,64 @@ async def validate_placement(
     """Checks a custom montage against the device's electrode rule before
     the doctor leaves the step."""
     return await CatalogueService(db).validate_electrodes(body)
+
+
+# --------------------------------------------------------------------------
+# Step 4 - Custom montages
+# --------------------------------------------------------------------------
+# These write core.protocol_custom_montages, NOT reference.*_placements. 32
+# revokes application writes on the curated library so a doctor-authored
+# montage can never be mistaken for a validated one.
+
+
+@router.post("/neuromod/custom-montages", response_model=s.CustomMontageRead, status_code=201)
+async def create_custom_montage(
+    body: s.CustomMontageCreate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_PRESCRIBERS)),
+):
+    """Saves a doctor-authored montage. clinical_reasoning is required: a
+    montage departing from the validated library carries the reason it was
+    chosen as part of the clinical record."""
+    return await CustomMontageService(db).create(body, ctx)
+
+
+@router.get("/neuromod/custom-montages", response_model=list[s.CustomMontageRead])
+async def list_custom_montages(
+    device_id: UUID | None = Query(None),
+    condition_id: UUID | None = Query(None),
+    created_by: UUID | None = Query(None),
+    active_only: bool = Query(True),
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
+):
+    return await CustomMontageService(db).list(
+        ctx,
+        device_id=device_id,
+        condition_id=condition_id,
+        created_by=created_by,
+        active_only=active_only,
+    )
+
+
+@router.get("/neuromod/custom-montages/{custom_montage_id}", response_model=s.CustomMontageRead)
+async def get_custom_montage(
+    custom_montage_id: UUID,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
+):
+    return await CustomMontageService(db).get_or_404(custom_montage_id)
+
+
+@router.post("/neuromod/custom-montages/{custom_montage_id}/deactivate", response_model=s.CustomMontageRead)
+async def deactivate_custom_montage(
+    custom_montage_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_PRESCRIBERS)),
+):
+    """Retires a montage. Deliberately not a DELETE - the reasoning on a
+    montage used to treat someone stays in the prescribing record."""
+    return await CustomMontageService(db).deactivate(custom_montage_id, ctx)
 
 
 # --------------------------------------------------------------------------

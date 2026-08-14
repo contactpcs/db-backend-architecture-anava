@@ -215,6 +215,21 @@ class CatalogueRepository:
             {"id": str(condition_id)},
         )
 
+    async def get_conditions_by_ids(self, condition_ids: builtins.list[UUID]) -> builtins.list[dict]:
+        if not condition_ids:
+            return []
+        rows = (
+            (
+                await self.session.execute(
+                    text("SELECT * FROM reference.neuromod_conditions WHERE condition_id = ANY(:ids)"),
+                    {"ids": [str(c) for c in condition_ids]},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
     # -- diagnoses ---------------------------------------------------------
 
     async def list_diagnoses(
@@ -507,6 +522,28 @@ class ProtocolRepository:
         )
         return row is not None
 
+    async def clinic_has_device(self, clinic_id: UUID, device_id: UUID) -> bool:
+        """Does this clinic own a working unit of this device? (37)
+
+        quantity > 0 as well as is_active: a clinic row that exists with zero
+        units is a machine that was returned, and prescribing onto it books
+        sessions nobody can run.
+        """
+        row = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT 1 FROM clinic_devices "
+                        "WHERE clinic_id = :cid AND device_id = :did AND is_active AND quantity > 0 LIMIT 1"
+                    ),
+                    {"cid": str(clinic_id), "did": str(device_id)},
+                )
+            )
+            .mappings()
+            .first()
+        )
+        return row is not None
+
     async def plan_context(self, plan_id: UUID) -> dict | None:
         """Patient, doctor and clinic for a plan.
 
@@ -523,6 +560,238 @@ class ProtocolRepository:
                 "WHERE pl.plan_id = :id"
             ),
             {"id": str(plan_id)},
+        )
+
+
+class ProtocolDetailRepository:
+    """The four child tables 38 added: conditions, diagnoses, scales and
+    doctor-authored montages.
+
+    Every one of these was being accepted by the API and discarded before
+    reaching a table. They are written inside the same transaction as the
+    protocol row, so a protocol can never exist without the diagnosis that
+    justifies it.
+
+    No DELETE anywhere: 32's grants revoke it from anava_app across the whole
+    module, and a prescribing record is not something a request rewrites.
+    Amending a protocol means issuing a new one (supersedes_protocol_id, 39).
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    # -- conditions (step 2) -----------------------------------------------
+
+    async def add_conditions(self, protocol_id: UUID, items: builtins.list[dict]) -> int:
+        """items: [{"condition_id": UUID|None, "other_text": str|None}]
+
+        chk_protocol_conditions_shape requires exactly one of the two per row;
+        the request model has already enforced that.
+        """
+        written = 0
+        for item in items:
+            await self.session.execute(
+                text(
+                    "INSERT INTO protocol_conditions (protocol_id, condition_id, other_text) "
+                    "VALUES (:pid, :cid, :other) "
+                    # uq_protocol_conditions_catalogue is partial (condition_id
+                    # IS NOT NULL), so the same free-text description twice is
+                    # legitimately two rows and is not deduplicated here.
+                    "ON CONFLICT (protocol_id, condition_id) "
+                    "WHERE condition_id IS NOT NULL DO NOTHING"
+                ),
+                {
+                    "pid": str(protocol_id),
+                    "cid": str(item["condition_id"]) if item.get("condition_id") else None,
+                    "other": item.get("other_text"),
+                },
+            )
+            written += 1
+        return written
+
+    async def list_conditions(self, protocol_id: UUID) -> builtins.list[dict]:
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT pc.protocol_condition_id, pc.condition_id, pc.other_text, "
+                        "  c.condition_name "
+                        "FROM protocol_conditions pc "
+                        "LEFT JOIN reference.neuromod_conditions c ON c.condition_id = pc.condition_id "
+                        "WHERE pc.protocol_id = :id ORDER BY c.display_order NULLS LAST, pc.created_at"
+                    ),
+                    {"id": str(protocol_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    # -- diagnoses (step 3) ------------------------------------------------
+
+    async def add_diagnoses(self, protocol_id: UUID, diagnosis_ids: builtins.list[UUID]) -> int:
+        if not diagnosis_ids:
+            return 0
+        result = await self.session.execute(
+            text(
+                "INSERT INTO protocol_diagnoses (protocol_id, diagnosis_id) "
+                "SELECT :pid, unnest(CAST(:ids AS uuid[])) "
+                "ON CONFLICT (protocol_id, diagnosis_id) DO NOTHING"
+            ),
+            {"pid": str(protocol_id), "ids": [str(d) for d in diagnosis_ids]},
+        )
+        return result.rowcount or 0  # type: ignore[attr-defined]
+
+    async def list_diagnoses(self, protocol_id: UUID) -> builtins.list[dict]:
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT pd.protocol_diagnosis_id, pd.diagnosis_id, "
+                        "  d.icd10_code, d.icd10_description, c.condition_name "
+                        "FROM protocol_diagnoses pd "
+                        "JOIN reference.neuromod_diagnoses d ON d.diagnosis_id = pd.diagnosis_id "
+                        "JOIN reference.neuromod_conditions c ON c.condition_id = d.condition_id "
+                        "WHERE pd.protocol_id = :id ORDER BY d.icd10_code"
+                    ),
+                    {"id": str(protocol_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    # -- scales (step 6) ---------------------------------------------------
+
+    async def add_scales(self, protocol_id: UUID, items: builtins.list[dict]) -> int:
+        """items carry an already-normalised cadence - see
+        schemas.normalise_cadence. Sending a raw UI label here raises 23514
+        on chk_protocol_scales_cadence.
+        """
+        written = 0
+        for item in items:
+            result = await self.session.execute(
+                text(
+                    "INSERT INTO protocol_scales "
+                    "  (protocol_id, scale_id, cadence, window_days, answered_by, display_order) "
+                    "VALUES (:pid, :sid, :cadence, :window, :answered_by, :ord) "
+                    # A scale appears once per protocol; twice would release the
+                    # same questionnaire on the same trigger.
+                    "ON CONFLICT (protocol_id, scale_id) DO NOTHING"
+                ),
+                {
+                    "pid": str(protocol_id),
+                    "sid": str(item["scale_id"]),
+                    "cadence": item["cadence"],
+                    "window": item.get("window_days"),
+                    "answered_by": item.get("answered_by", "patient"),
+                    "ord": item.get("display_order", 0),
+                },
+            )
+            written += result.rowcount or 0  # type: ignore[attr-defined]
+        return written
+
+    async def list_scales(self, protocol_id: UUID) -> builtins.list[dict]:
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT ps.protocol_scale_id, ps.scale_id, ps.cadence, ps.window_days, "
+                        "  ps.answered_by, ps.display_order, "
+                        "  s.scale_code, s.scale_name, s.prs_scale_id "
+                        "FROM protocol_scales ps "
+                        "JOIN reference.neuromod_scales s ON s.scale_id = ps.scale_id "
+                        "WHERE ps.protocol_id = :id ORDER BY ps.display_order, s.scale_code"
+                    ),
+                    {"id": str(protocol_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+
+_MONTAGE_SELECT = (
+    "SELECT m.*, dev.device_name, dev.modality, c.condition_name, "
+    "  p.first_name || ' ' || p.last_name AS created_by_name "
+    "FROM protocol_custom_montages m "
+    "JOIN reference.neuromod_devices dev ON dev.device_id = m.device_id "
+    "LEFT JOIN reference.neuromod_conditions c ON c.condition_id = m.condition_id "
+    "LEFT JOIN profiles p ON p.id = m.created_by "
+)
+
+
+class CustomMontageRepository:
+    """core.protocol_custom_montages (38).
+
+    Separate from CatalogueRepository on purpose: that class reads the curated
+    reference library, this one writes doctor-authored placements into core.
+    Merging them would blur exactly the line 38 created the table to draw.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create(self, data: dict) -> dict:
+        sql, params = insert_returning("protocol_custom_montages", data)
+        return await fetch_one(self.session, sql, params)
+
+    async def get(self, custom_montage_id: UUID) -> dict | None:
+        return await fetch_optional(
+            self.session,
+            text(_MONTAGE_SELECT + "WHERE m.custom_montage_id = :id"),
+            {"id": str(custom_montage_id)},
+        )
+
+    async def list(
+        self,
+        *,
+        created_by: UUID | None = None,
+        device_id: UUID | None = None,
+        condition_id: UUID | None = None,
+        clinic_id: UUID | None = None,
+        active_only: bool = True,
+    ) -> builtins.list[dict]:
+        clauses: builtins.list[str] = []
+        params: dict[str, Any] = {}
+        if active_only:
+            clauses.append("m.is_active")
+        if created_by:
+            clauses.append("m.created_by = :created_by")
+            params["created_by"] = str(created_by)
+        if device_id:
+            clauses.append("m.device_id = :device_id")
+            params["device_id"] = str(device_id)
+        if condition_id:
+            # A general-purpose montage (condition_id NULL) is offered for
+            # every condition, so it must not be filtered out here.
+            clauses.append("(m.condition_id = :condition_id OR m.condition_id IS NULL)")
+            params["condition_id"] = str(condition_id)
+        if clinic_id:
+            clauses.append("(m.clinic_id = :clinic_id OR m.clinic_id IS NULL)")
+            params["clinic_id"] = str(clinic_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = (
+            (await self.session.execute(text(f"{_MONTAGE_SELECT}{where} ORDER BY m.created_at DESC"), params))
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def deactivate(self, custom_montage_id: UUID) -> dict | None:
+        """Never a DELETE. The clinical reasoning on a montage that was used to
+        treat someone is part of the prescribing record - 38 says so in the
+        table comment, and 32 revokes DELETE from anava_app anyway."""
+        return await fetch_optional(
+            self.session,
+            text(
+                "UPDATE protocol_custom_montages SET is_active = FALSE, updated_at = NOW() "
+                "WHERE custom_montage_id = :id RETURNING *"
+            ),
+            {"id": str(custom_montage_id)},
         )
 
 
