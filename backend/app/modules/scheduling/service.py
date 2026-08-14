@@ -197,14 +197,23 @@ def _build_device_day_slots(on_date: dt.date, weekly_rows: list[dict], override:
         return []
 
     if override and override["is_available"]:
-        start = override["start_time"] or (rule and rule["start_time"])
-        end = override["end_time"] or (rule and rule["end_time"])
+        # `rule and rule[...]` returns the RULE DICT when rule is an empty dict,
+        # not the field - which is where the "expected time, got dict" errors
+        # came from. Reading through an explicit None check keeps each name at
+        # the type _step_slots expects.
+        start = override["start_time"] or (rule["start_time"] if rule else None)
+        end = override["end_time"] or (rule["end_time"] if rule else None)
         # A per-day capacity override is how a clinic says "a device is out for
         # service today" or "one assistant is on leave" without editing the week.
-        capacity = override["capacity"] or (rule and rule["capacity"])
-        slot_minutes = (rule and rule["slot_duration_minutes"]) or DEFAULT_SLOT_MINUTES
+        capacity = override["capacity"] or (rule["capacity"] if rule else None)
+        slot_minutes = (rule["slot_duration_minutes"] if rule else None) or DEFAULT_SLOT_MINUTES
         break_start = break_end = None
     else:
+        # Reaching here means the guard above did not return, and it returns
+        # whenever rule is None and the override is not an available one. So
+        # rule is non-None — but that follows from a compound condition mypy
+        # cannot narrow through, hence the explicit assert rather than a cast.
+        assert rule is not None
         start, end = rule["start_time"], rule["end_time"]
         capacity = rule["capacity"]
         slot_minutes = rule["slot_duration_minutes"]
