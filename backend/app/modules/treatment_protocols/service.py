@@ -21,7 +21,6 @@ import datetime as dt
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -475,9 +474,7 @@ class ProtocolService:
             # 39. sessions_per_week is persisted rather than consumed once by
             # the generator and discarded - without it the calendar cannot be
             # regenerated or audited against what was prescribed.
-            "authored_in_appointment_id": (
-                str(body.authored_in_appointment_id) if body.authored_in_appointment_id else None
-            ),
+            "authored_in_appointment_id": (str(body.authored_in_appointment_id) if body.authored_in_appointment_id else None),
             "prescribed_current_ma": body.prescribed_current_ma,
             "prescribed_duration_min": body.prescribed_duration_min,
             "ramp_seconds": body.ramp_seconds,
@@ -493,13 +490,9 @@ class ProtocolService:
 
         # Steps 2, 3 and 6. Same transaction as the protocol row, so a
         # prescription cannot exist without the diagnosis that justifies it.
-        conditions_written = await self.details.add_conditions(
-            protocol_id, [c.model_dump() for c in body.conditions]
-        )
+        conditions_written = await self.details.add_conditions(protocol_id, [c.model_dump() for c in body.conditions])
         diagnoses_written = await self.details.add_diagnoses(protocol_id, body.diagnosis_ids)
-        scales_written = await self.details.add_scales(
-            protocol_id, [sc.model_dump() for sc in body.scales]
-        )
+        scales_written = await self.details.add_scales(protocol_id, [sc.model_dump() for sc in body.scales])
 
         preview = ScheduleService.build(
             s.SchedulePreviewRequest(
@@ -659,11 +652,7 @@ class ProtocolService:
         # if the dose is incomplete. Checking here first names the missing
         # fields as a 422 the UI can map back onto step 5, instead of a raised
         # PL/pgSQL exception surfacing as a 500.
-        missing = [
-            field
-            for field in ("prescribed_current_ma", "prescribed_duration_min", "sessions_per_week")
-            if row.get(field) is None
-        ]
+        missing = [field for field in ("prescribed_current_ma", "prescribed_duration_min", "sessions_per_week") if row.get(field) is None]
         if missing:
             raise BusinessRuleError(
                 "Prescription is incomplete and cannot be activated. Missing: " + ", ".join(missing),

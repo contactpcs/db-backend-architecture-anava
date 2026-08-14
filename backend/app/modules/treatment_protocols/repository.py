@@ -94,9 +94,7 @@ class CatalogueRepository:
     async def list_companies(self, *, active_only: bool = True) -> builtins.list[dict]:
         where = "WHERE is_active = TRUE" if active_only else ""
         rows = (
-            (await self.session.execute(text(f"SELECT * FROM reference.device_companies {where} ORDER BY company_name")))
-            .mappings()
-            .all()
+            (await self.session.execute(text(f"SELECT * FROM reference.device_companies {where} ORDER BY company_name"))).mappings().all()
         )
         return [dict(r) for r in rows]
 
@@ -532,10 +530,7 @@ class ProtocolRepository:
         row = (
             (
                 await self.session.execute(
-                    text(
-                        "SELECT 1 FROM clinic_devices "
-                        "WHERE clinic_id = :cid AND device_id = :did AND is_active AND quantity > 0 LIMIT 1"
-                    ),
+                    text("SELECT 1 FROM clinic_devices WHERE clinic_id = :cid AND device_id = :did AND is_active AND quantity > 0 LIMIT 1"),
                     {"cid": str(clinic_id), "did": str(device_id)},
                 )
             )
@@ -774,11 +769,7 @@ class CustomMontageRepository:
             clauses.append("(m.clinic_id = :clinic_id OR m.clinic_id IS NULL)")
             params["clinic_id"] = str(clinic_id)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        rows = (
-            (await self.session.execute(text(f"{_MONTAGE_SELECT}{where} ORDER BY m.created_at DESC"), params))
-            .mappings()
-            .all()
-        )
+        rows = (await self.session.execute(text(f"{_MONTAGE_SELECT}{where} ORDER BY m.created_at DESC"), params)).mappings().all()
         return [dict(r) for r in rows]
 
     async def deactivate(self, custom_montage_id: UUID) -> dict | None:
@@ -787,10 +778,7 @@ class CustomMontageRepository:
         table comment, and 32 revokes DELETE from anava_app anyway."""
         return await fetch_optional(
             self.session,
-            text(
-                "UPDATE protocol_custom_montages SET is_active = FALSE, updated_at = NOW() "
-                "WHERE custom_montage_id = :id RETURNING *"
-            ),
+            text("UPDATE protocol_custom_montages SET is_active = FALSE, updated_at = NOW() WHERE custom_montage_id = :id RETURNING *"),
             {"id": str(custom_montage_id)},
         )
 

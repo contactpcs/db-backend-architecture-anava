@@ -32,6 +32,16 @@
 --    it would produce rows nothing can reach. Activate Sooma first if it is
 --    meant to be prescribable, then re-run — the loop picks it up.
 --
+-- 5. IN CI THIS FILE IS A NEAR NO-OP, AND THAT IS CORRECT.
+--    reference.neuromod_devices is populated by hand, not by any numbered
+--    migration, so a freshly provisioned CI database has zero devices. §4's
+--    loop iterates over active tDCS devices and therefore writes nothing to
+--    tdcs_placements, tdcs_dosing or dosing_unspecified_notes; §§1-3 still
+--    seed conditions, diagnoses and scales, which do not depend on a device.
+--    Expected CI counts are 5 / 26 / 13 / 13 / 0 / 0 / 0, NOT the 5 / 26 / 13
+--    / 13 / 10 / 10 / 28 an environment with two active devices produces.
+--    A test that needs a placement must insert its own device first.
+--
 --
 -- ###########################################################################
 -- WHY EVERY PLACEMENT AND DOSE IS DUPLICATED PER DEVICE

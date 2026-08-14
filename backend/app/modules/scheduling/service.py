@@ -8,13 +8,13 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.core.db import RequestContext
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, PermissionError_
 from app.core.resolve import resolve_doctor_profile_id as _resolve_doctor_profile_id
 from app.core.resolve import resolve_patient_profile_id as _resolve_patient_profile_id
 from app.core.scoping import assert_clinic_scope, assert_owns_profile
-from app.config import get_settings
 from app.modules.scheduling.repository import (
     AppointmentAuditLogRepository,
     AppointmentRepository,
@@ -697,7 +697,9 @@ class DeviceCapacityService:
         self.repo = ClinicDeviceScheduleRepository(session)
         self.appointments = AppointmentRepository(session)
 
-    async def open_slots(self, clinic_id: UUID, from_date: dt.date, to_date: dt.date, *, only_available: bool = False) -> builtins.list[dict]:
+    async def open_slots(
+        self, clinic_id: UUID, from_date: dt.date, to_date: dt.date, *, only_available: bool = False
+    ) -> builtins.list[dict]:
         if to_date < from_date:
             raise BusinessRuleError("to_date must not be before from_date", code="INVALID_DATE_RANGE")
         if (to_date - from_date).days > 60:
@@ -815,7 +817,9 @@ class PatientBookingService:
         doctor_profile_id = await self._require_allocated_doctor(patient)
         return await self.availability._compute_for_profile(doctor_profile_id, from_date, to_date, include_unavailable=False)
 
-    async def device_availability(self, appointment_id: UUID, ctx: RequestContext, from_date: dt.date, to_date: dt.date) -> builtins.list[dict]:
+    async def device_availability(
+        self, appointment_id: UUID, ctx: RequestContext, from_date: dt.date, to_date: dt.date
+    ) -> builtins.list[dict]:
         """Device slots at the clinic of a specific planned session."""
         appt = await self.appointments.get(appointment_id)
         assert_owns_profile(ctx, appt["patient_id"])
@@ -854,9 +858,7 @@ class PatientBookingService:
             )
         return await self._book_on_doctor(ctx, patient, doctor_profile_id, TYPE_FOLLOW_UP, data)
 
-    async def _book_on_doctor(
-        self, ctx: RequestContext, patient: dict, doctor_profile_id: UUID, appointment_type: str, data: dict
-    ) -> dict:
+    async def _book_on_doctor(self, ctx: RequestContext, patient: dict, doctor_profile_id: UUID, appointment_type: str, data: dict) -> dict:
         clinic_id = patient["primary_clinic_id"]
         if not clinic_id:
             raise BusinessRuleError("You are not registered at a clinic", code="CLINIC_REQUIRED")
@@ -950,9 +952,7 @@ class PatientBookingService:
             await self.repo.update_fields(appointment_id, {"appointment_date": on_date})
 
         try:
-            await self.repo.claim_slot(
-                appointment_id, start_time=start_time, end_time=end_time, hold_expires_at=hold, status=status
-            )
+            await self.repo.claim_slot(appointment_id, start_time=start_time, end_time=end_time, hold_expires_at=hold, status=status)
         except IntegrityError as exc:
             raise ConflictError("That slot was just taken — please pick another", code="APPOINTMENT_SLOT_TAKEN") from exc
 
@@ -1032,9 +1032,7 @@ class PatientBookingService:
                 f"Rescheduling requires at least {RESCHEDULE_MIN_HOURS} hours' notice",
                 code="RESCHEDULE_WINDOW_PASSED",
             )
-        return await self.appointments.reschedule(
-            appointment_id, data, changed_by=UUID(ctx.user_id), changed_by_role="patient", ctx=ctx
-        )
+        return await self.appointments.reschedule(appointment_id, data, changed_by=UUID(ctx.user_id), changed_by_role="patient", ctx=ctx)
 
     async def cancel_own(self, appointment_id: UUID, ctx: RequestContext, *, reason: str) -> dict:
         return await self.appointments.update_status(

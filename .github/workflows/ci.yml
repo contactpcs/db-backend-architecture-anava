@@ -114,9 +114,35 @@ jobs:
           set -euo pipefail
           psql -h localhost -U anava_migrate -d anava_test -c \
             "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anava_app') THEN CREATE ROLE anava_app LOGIN PASSWORD 'anava_app_test_password' NOBYPASSRLS; END IF; END \$\$;"
+          # Only the NUMBERED migrations, in order. The glob SQL/v1/*.sql also
+          # matched four files that must never be applied, and because they
+          # sort after 40_ they ran last and broke the whole step:
+          #
+          #   erd.sql          a consolidated snapshot of the entire schema
+          #                    (243 CREATE TABLE), by its own header "not a
+          #                    replacement for the numbered files" — it exists
+          #                    for ERD tooling and whole-schema review.
+          #                    Applying it after the numbered files re-declares
+          #                    objects that already exist: the first hard error
+          #                    is `relation "mrn_seq" already exists`.
+          #   erd_drawsql.sql  the same schema again, reduced to what
+          #                    drawSQL.app's importer can parse.
+          #   _preflight_check.sql / _postapply_verify.sql / _test_readiness.sql
+          #                    read-only assertion scripts. Harmless today, but
+          #                    they are diagnostics a human runs, not build
+          #                    steps, so they are excluded on purpose rather
+          #                    than by luck.
+          #
+          # Matching ^[0-9] states the rule positively: a migration is a
+          # numbered file. A new snapshot or helper dropped into SQL/v1 later
+          # cannot silently rejoin the build.
           for f in $(printf '%s\n' SQL/v1/*.sql | LC_ALL=C sort); do
             base=$(basename "$f")
             [ "$base" = "run_all.sql" ] && continue
+            case "$base" in
+              [0-9]*) ;;
+              *) echo "Skipping $base (not a numbered migration)"; continue ;;
+            esac
             echo "Applying $base"
             if [ "$base" = "19_search_path.sql" ]; then
               # Source file targets the real RDS database name; CI's
