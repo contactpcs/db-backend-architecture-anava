@@ -80,8 +80,13 @@ def _max_cathodes(modality: str) -> int:
     return 4 if modality == "HD-tDCS" else 1
 
 
-def _placement_summary(row: dict) -> str | None:
-    """One-line montage description, per device family."""
+def _placement_summary(row: dict | None) -> str | None:
+    """One-line montage description, per device family.
+
+    Accepts None because both callers pass the result of a lookup that may
+    miss - a protocol whose device has no catalogued placement. The guard
+    below already handled that; the annotation now says so.
+    """
     if not row:
         return None
     modality = row.get("modality")
@@ -305,18 +310,23 @@ class ScheduleService:
         dates.extend(extra_wanted)
         dates = sorted(set(dates))[: req.session_count]
 
-        sessions = [{"session_number": i + 1, "planned_date": d} for i, d in enumerate(dates)]
+        # Built from the (number, date) pairs rather than read back out of the
+        # dicts below: a dict mixing an int and a date widens to
+        # dict[str, object], and the follow-up arithmetic then has no types to
+        # work with.
+        numbered = list(enumerate(dates, start=1))
+        sessions = [{"session_number": n, "planned_date": d} for n, d in numbered]
 
         follow_ups: builtins.list[dict] = []
         if req.follow_up_every_n:
-            for item in sessions:
-                if item["session_number"] % req.follow_up_every_n == 0:
+            for number, planned in numbered:
+                if number % req.follow_up_every_n == 0:
                     follow_ups.append(
                         {
-                            "after_session_number": item["session_number"],
+                            "after_session_number": number,
                             # Day after the triggering session, so the doctor
                             # sees the patient once that block is complete.
-                            "planned_date": item["planned_date"] + dt.timedelta(days=1),
+                            "planned_date": planned + dt.timedelta(days=1),
                         }
                     )
 

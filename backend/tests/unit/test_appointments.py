@@ -20,6 +20,8 @@ import datetime as dt
 import pytest
 
 from app.modules.scheduling.service import (
+    _ALLOWED_FROM,
+    _ATTENDANCE_STATUSES,
     ACTIVE_STATUSES,
     DEFAULT_SLOT_MINUTES,
     PROTOCOL_BORN_TYPES,
@@ -31,8 +33,6 @@ from app.modules.scheduling.service import (
     TYPE_FOLLOW_UP,
     TYPE_INITIAL,
     TYPE_PROTOCOL_FOLLOWUP,
-    _ALLOWED_FROM,
-    _ATTENDANCE_STATUSES,
     _build_day_slots,
     _build_device_day_slots,
     _step_slots,

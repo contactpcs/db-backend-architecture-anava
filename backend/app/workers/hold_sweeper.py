@@ -85,8 +85,10 @@ async def sweep_once() -> dict:
                 text("DELETE FROM appointments WHERE status = 'selected' AND hold_expires_at < NOW() AND plan_id IS NULL")
             )
             result = {
-                "reverted_to_planned": reverted.rowcount or 0,
-                "deleted": deleted.rowcount or 0,
+                # CursorResult has rowcount; the async Result stubs don't expose
+                # it. Same ignore the repository layer already uses.
+                "reverted_to_planned": reverted.rowcount or 0,  # type: ignore[attr-defined]
+                "deleted": deleted.rowcount or 0,  # type: ignore[attr-defined]
                 "skipped": False,
             }
 
