@@ -1,0 +1,95 @@
+name: Build and push backend image to ECR
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # required for OIDC federation into AWS
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: anava-backend
+  ECS_CLUSTER: anava-cluster
+  # The ALB-fronted service. The previous value here,
+  # anava-backend-service-xzknhp50, was deleted when the load balancer was
+  # attached — update-service against it fails with ServiceNotFoundException,
+  # so CI would go green while production kept serving the old image.
+  ECS_SERVICE: anava-backend-lb
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    # Only proceed if CI actually passed (or this was a manual dispatch,
+    # which has no triggering workflow_run to check).
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout the exact commit CI ran against
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          tags: |
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --force-new-deployment
+
+      - name: Wait for service to stabilize
+        run: |
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE"
+
+      # Proves the deployed image actually contains the code that was built,
+      # rather than assuming update-service succeeded. The treatment protocol
+      # routes 404'd in production for a full day because a force-new-deployment
+      # reused the previous image tag: the service was healthy, the routes were
+      # simply not in it. A health check would not have caught that; an
+      # OpenAPI check does.
+      - name: Verify the new routes are live
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 10); do
+            count=$(curl -fsS --max-time 20 https://api.anavaclinics.com/openapi.json \
+              | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('paths',{})))" || echo 0)
+            if [ "$count" -gt 150 ]; then
+              echo "OK: $count paths served"
+              exit 0
+            fi
+            echo "attempt $attempt: only $count paths, waiting for tasks to cut over"
+            sleep 15
+          done
+          echo "FAILED: deployed image is serving $count paths — expected >150." >&2
+          echo "The service is healthy but running older code. Check that the" >&2
+          echo "task definition references the :latest tag just pushed." >&2
+          exit 1
