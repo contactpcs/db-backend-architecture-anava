@@ -39,6 +39,29 @@ class Settings(BaseSettings):
     # and for the case where it's moved to a dedicated scheduled task instead.
     partition_maintenance_enabled: bool = True
 
+    # Appointments — the payment seam.
+    #
+    # payment_required = False (today): booking writes status 'paid' directly.
+    # No hold is taken, hold_expires_at stays NULL, and the sweeper has nothing
+    # to sweep. This is what lets the whole flow run before Razorpay is wired,
+    # and it satisfies every constraint 31 added — chk_appointments_hold reads
+    # ('paid' = 'selected') = (NULL IS NOT NULL), i.e. false = false.
+    #
+    # payment_required = True (once payment lands): booking writes 'selected'
+    # with hold_expires_at = now + appointment_hold_minutes, the sweeper starts
+    # releasing abandoned holds, and the payment webhook calls mark_paid().
+    # No other code changes — that is the point of routing both paths through
+    # the same service methods now rather than bolting payment on later.
+    appointment_payment_required: bool = False
+    # How long an unpaid 'selected' slot is held before the sweeper releases it.
+    # 15 minutes matches a typical gateway checkout session: long enough to
+    # finish paying, short enough that abandoned holds do not starve a calendar.
+    appointment_hold_minutes: int = 15
+    # How often the hold sweeper wakes. Kept well under the hold window so a
+    # released slot is available again promptly rather than a whole window late.
+    appointment_hold_sweep_interval_seconds: int = 60
+    appointment_hold_sweeper_enabled: bool = True
+
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 

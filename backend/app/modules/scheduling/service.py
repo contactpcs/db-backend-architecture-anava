@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.core.db import RequestContext
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, PermissionError_
@@ -17,29 +18,79 @@ from app.core.scoping import assert_clinic_scope, assert_owns_profile
 from app.modules.scheduling.repository import (
     AppointmentAuditLogRepository,
     AppointmentRepository,
+    ClinicDeviceRepository,
+    ClinicDeviceScheduleRepository,
     ScheduleOverrideRepository,
     WeeklyScheduleRepository,
 )
 
-# Same shape as v1's appointment_service constants — the whole point of this
-# port is replicating that rulebook against v2's richer schema, not
-# inventing a new one.
-ACTIVE_STATUSES = {"scheduled", "confirmed", "checked_in", "in_progress"}
+# ── the four kinds of clinic visit ──────────────────────────────────────────
+# All four live on core.appointments. They differ in who creates the row, what
+# state it starts in, and — crucially — which pool of time it books against.
+#
+#   type                created by                starts    books against
+#   initial             patient                   selected  doctor's schedule
+#   follow_up           patient                   selected  doctor's schedule
+#   protocol_followup   doctor, at protocol setup  planned   doctor's schedule
+#   device_session      doctor, at protocol setup  planned   CLINIC capacity
+#
+# The last row is the whole reason DeviceCapacityService exists: a device
+# session is run by a clinical assistant and consumes no doctor's time, so it
+# carries doctor_id = NULL and must never touch a doctor's calendar.
+TYPE_INITIAL = "initial"
+TYPE_FOLLOW_UP = "follow_up"
+TYPE_DEVICE_SESSION = "device_session"
+TYPE_PROTOCOL_FOLLOWUP = "protocol_followup"
+
+PATIENT_BOOKABLE_TYPES = {TYPE_INITIAL, TYPE_FOLLOW_UP}
+PROTOCOL_BORN_TYPES = {TYPE_DEVICE_SESSION, TYPE_PROTOCOL_FOLLOWUP}
+# Everything except a device session consumes a doctor's time.
+DOCTOR_SCHEDULED_TYPES = {TYPE_INITIAL, TYPE_FOLLOW_UP, TYPE_PROTOCOL_FOLLOWUP}
+
+# ── the lifecycle ───────────────────────────────────────────────────────────
+# planned    doctor set a DATE at protocol setup. No slot, no hold.
+# selected   patient picked a slot. NOT PAID. Held, and the hold expires.
+# paid       payment captured. Slot locked, hold cleared. PAYMENT CONFIRMS A
+#            VISIT — nobody else does.
+# then       checked_in -> in_progress -> completed, or no_show.
+STATUS_PLANNED = "planned"
+STATUS_SELECTED = "selected"
+STATUS_PAID = "paid"
+
+# Statuses that occupy a slot. Matches the predicate on
+# idx_appointments_device_capacity and the capacity count in the repository —
+# change one and all three must change together.
+SLOT_OCCUPYING_STATUSES = {STATUS_SELECTED, STATUS_PAID, "checked_in", "in_progress"}
+# What may still be cancelled or rescheduled.
+ACTIVE_STATUSES = {STATUS_PLANNED, STATUS_SELECTED, STATUS_PAID, "checked_in", "in_progress"}
+
 CANCEL_MIN_HOURS = 2
-RESCHEDULE_REQUEST_MIN_HOURS = 24
+RESCHEDULE_MIN_HOURS = 24
 DEFAULT_SLOT_MINUTES = 30
 
-# Which statuses a transition is legal FROM (v1's AppointmentDetailModal
-# `can` map, moved server-side where an authorization rule actually belongs).
+# Which statuses a transition is legal FROM.
+#
+# 'confirmed' and 'scheduled' are deliberately gone: payment is what confirms a
+# visit, so 'paid' says it once instead of two states saying it twice.
+#
+# planned -> cancelled is legal because the protocol module cancels its own
+# unclaimed rows that way when a doctor cancels the whole protocol
+# (treatment_protocols/repository.py::cancel_planned).
 _ALLOWED_FROM = {
-    "confirmed": {"scheduled"},
-    "checked_in": {"scheduled", "confirmed"},
+    STATUS_SELECTED: {STATUS_PLANNED},
+    STATUS_PAID: {STATUS_SELECTED},
+    "checked_in": {STATUS_PAID},
     "in_progress": {"checked_in"},
     "completed": {"in_progress"},
-    "no_show": {"scheduled", "confirmed", "checked_in"},
+    "no_show": {STATUS_PAID, "checked_in"},
     "cancelled": ACTIVE_STATUSES,
+    "rescheduled": {STATUS_SELECTED, STATUS_PAID},
 }
-_DOCTOR_ONLY_STATUSES = {"in_progress", "completed"}
+
+# Reaching these means the visit is physically happening, so only whoever is
+# actually running it may set them. WHO that is depends on the type — see
+# _authorize_transition. A device session has no treating doctor at all.
+_ATTENDANCE_STATUSES = {"in_progress", "completed"}
 
 
 async def _get_patient_row(session: AsyncSession, *, profile_id: UUID) -> dict:
@@ -95,18 +146,96 @@ def _build_day_slots(on_date: dt.date, weekly_rows: list[dict], override: dict |
         start, end, slot_minutes = rule["start_time"], rule["end_time"], rule["slot_duration_minutes"]
         break_start, break_end = rule.get("break_start"), rule.get("break_end")
 
-    slots = []
+    return [
+        {"date": on_date, "start_time": s, "end_time": e, "is_available": (s, e) not in booked_ranges}
+        for s, e in _step_slots(on_date, start, end, slot_minutes, break_start, break_end)
+    ]
+
+
+def _step_slots(
+    on_date: dt.date, start: dt.time, end: dt.time, slot_minutes: int, break_start: dt.time | None, break_end: dt.time | None
+) -> list[tuple[dt.time, dt.time]]:
+    """Walks a working window in fixed steps, skipping any step that overlaps
+    the break. Pure, and shared by both schedule kinds — a doctor's calendar and
+    a clinic's device schedule produce slots identically; they differ only in
+    what makes a slot *available*, which is the caller's business."""
+    out: list[tuple[dt.time, dt.time]] = []
     current = dt.datetime.combine(on_date, start)
     end_dt = dt.datetime.combine(on_date, end)
     step = dt.timedelta(minutes=slot_minutes)
     while current + step <= end_dt:
         slot_start, slot_end = current.time(), (current + step).time()
-        if break_start and break_end and slot_start < break_end and slot_end > break_start:
-            current += step
-            continue
-        is_available = (slot_start, slot_end) not in booked_ranges
-        slots.append({"date": on_date, "start_time": slot_start, "end_time": slot_end, "is_available": is_available})
+        if not (break_start and break_end and slot_start < break_end and slot_end > break_start):
+            out.append((slot_start, slot_end))
         current += step
+    return out
+
+
+def _build_device_day_slots(on_date: dt.date, weekly_rows: list[dict], override: dict | None, booked_counts: dict) -> list[dict]:
+    """Device-session slots for one day at one clinic.
+
+    Same stepping as a doctor's day, one difference that matters: a doctor's
+    slot is available when nobody has it, a clinic's device slot is available
+    while FEWER THAN `capacity` people have it. Exclusive versus counted — the
+    distinction the whole capacity design rests on.
+    """
+    if override and not override["is_available"]:
+        return []
+
+    dow = on_date.isoweekday() % 7
+    rule = next(
+        (
+            w
+            for w in weekly_rows
+            if w["day_of_week"] == dow
+            and (w.get("effective_from") is None or w["effective_from"] <= on_date)
+            and (w.get("effective_until") is None or w["effective_until"] >= on_date)
+        ),
+        None,
+    )
+    if not rule and not (override and override["is_available"]):
+        return []
+
+    if override and override["is_available"]:
+        # `rule and rule[...]` returns the RULE DICT when rule is an empty dict,
+        # not the field - which is where the "expected time, got dict" errors
+        # came from. Reading through an explicit None check keeps each name at
+        # the type _step_slots expects.
+        start = override["start_time"] or (rule["start_time"] if rule else None)
+        end = override["end_time"] or (rule["end_time"] if rule else None)
+        # A per-day capacity override is how a clinic says "a device is out for
+        # service today" or "one assistant is on leave" without editing the week.
+        capacity = override["capacity"] or (rule["capacity"] if rule else None)
+        slot_minutes = (rule["slot_duration_minutes"] if rule else None) or DEFAULT_SLOT_MINUTES
+        break_start = break_end = None
+    else:
+        # Reaching here means the guard above did not return, and it returns
+        # whenever rule is None and the override is not an available one. So
+        # rule is non-None — but that follows from a compound condition mypy
+        # cannot narrow through, hence the explicit assert rather than a cast.
+        assert rule is not None
+        start, end = rule["start_time"], rule["end_time"]
+        capacity = rule["capacity"]
+        slot_minutes = rule["slot_duration_minutes"]
+        break_start, break_end = rule.get("break_start"), rule.get("break_end")
+
+    if start is None or end is None or not capacity:
+        return []
+
+    slots = []
+    for slot_start, slot_end in _step_slots(on_date, start, end, slot_minutes, break_start, break_end):
+        booked = booked_counts.get((on_date, slot_start), 0)
+        slots.append(
+            {
+                "date": on_date,
+                "start_time": slot_start,
+                "end_time": slot_end,
+                "capacity": capacity,
+                "booked": booked,
+                "remaining": max(0, capacity - booked),
+                "is_available": booked < capacity,
+            }
+        )
     return slots
 
 
@@ -391,18 +520,46 @@ class AppointmentService:
             if status != "cancelled":
                 raise PermissionError_("Patients can only cancel an appointment, not change its status", code="PATIENT_ACTION_NOT_ALLOWED")
             assert_owns_profile(ctx, appt["patient_id"])
-            if _hours_until(appt["appointment_date"], appt["start_time"]) < CANCEL_MIN_HOURS:
+            # A protocol-born visit is a prescription. A patient skipping one is
+            # already handled by it simply staying 'planned' — there is nothing
+            # to cancel, and cancelling would destroy the doctor's date.
+            if appt["appointment_type"] in PROTOCOL_BORN_TYPES and appt["status"] == STATUS_PLANNED:
+                raise PermissionError_(
+                    "A prescribed session cannot be cancelled by the patient — book it when you are ready",
+                    code="PROTOCOL_SESSION_NOT_PATIENT_CANCELLABLE",
+                )
+            # A 'planned' row has no time, so the notice window cannot apply and
+            # there is no slot being given up late.
+            if appt["start_time"] is not None and _hours_until(appt["appointment_date"], appt["start_time"]) < CANCEL_MIN_HOURS:
                 raise BusinessRuleError(f"Cancellations require at least {CANCEL_MIN_HOURS} hours' notice", code="CANCEL_WINDOW_PASSED")
             return
 
-        if status in _DOCTOR_ONLY_STATUSES:
+        if status in _ATTENDANCE_STATUSES:
+            # WHO may start and finish a visit depends on what kind it is.
+            #
+            # A device_session is administered by a clinical assistant on a
+            # device and has NO treating doctor (doctor_id is NULL by design).
+            # Requiring the doctor here — as this rule used to, unconditionally —
+            # made it impossible for the assistant to start the session they are
+            # standing in front of, and impossible for anyone else either.
+            if appt["appointment_type"] == TYPE_DEVICE_SESSION:
+                if ctx.role not in ("clinical_assistant", "super_admin"):
+                    raise PermissionError_(
+                        "Only the clinical assistant running the session can perform this action",
+                        code="CLINICAL_ASSISTANT_ONLY_ACTION",
+                    )
+                # An assistant already running another session at this time is
+                # caught by excl_ca_overlap when ca_id is written, not here.
+                return
             if ctx.role == "doctor" and str(appt["doctor_id"]) != ctx.user_id:
                 raise PermissionError_("You can only update your own appointments", code="NOT_YOUR_APPOINTMENT")
             if ctx.role not in ("doctor", "super_admin"):
                 raise PermissionError_("Only the treating doctor can perform this action", code="DOCTOR_ONLY_ACTION")
             return
 
-        if ctx.role == "doctor" and str(appt["doctor_id"]) != ctx.user_id:
+        # appt["doctor_id"] is NULL on a device session, so this comparison is
+        # skipped for exactly the rows that have no doctor to compare against.
+        if ctx.role == "doctor" and appt["doctor_id"] is not None and str(appt["doctor_id"]) != ctx.user_id:
             raise PermissionError_("You can only update your own appointments", code="NOT_YOUR_APPOINTMENT")
         # clinic_admin/receptionist/clinical_assistant/regional_admin/super_admin: clinic-scoped
 
@@ -416,12 +573,30 @@ class AppointmentService:
             raise BusinessRuleError("A cancellation reason is required", code="CANCELLATION_REASON_REQUIRED")
         self._authorize_transition(appt, status=status, ctx=ctx)
 
-        await self.repo.update_status(
-            appointment_id,
-            status=status,
-            cancelled_by=changed_by if status == "cancelled" else None,
-            cancellation_reason=cancellation_reason,
-        )
+        # Late binding: an assistant is never reserved in advance. Whoever is
+        # free takes the patient, and their identity is captured here — the
+        # moment they start the session — not at booking time. Only for a
+        # device session; a consultation's doctor was booked with the slot.
+        ca_id = None
+        if status == "in_progress" and appt["appointment_type"] == TYPE_DEVICE_SESSION and ctx.role == "clinical_assistant":
+            ca_id = changed_by
+
+        try:
+            await self.repo.update_status(
+                appointment_id,
+                status=status,
+                cancelled_by=changed_by if status == "cancelled" else None,
+                cancellation_reason=cancellation_reason,
+                ca_id=ca_id,
+            )
+        except IntegrityError as exc:
+            # excl_ca_overlap fires here rather than at booking, because ca_id
+            # is NULL until this moment. The assistant tapping "start" is the
+            # one who needs to read this message.
+            raise ConflictError(
+                "You are already running another session at this time",
+                code="CLINICAL_ASSISTANT_OVERLAP",
+            ) from exc
         await self._write_audit(
             appointment_id,
             changed_by=changed_by,
@@ -513,3 +688,506 @@ class AppointmentService:
 
     async def audit_log(self, appointment_id: UUID) -> builtins.list[dict]:
         return await self.audit.list_for_appointment(appointment_id)
+
+
+class DeviceCapacityService:
+    """The pool a device_session books against.
+
+    A doctor's calendar is EXCLUSIVE — one visit at a time, enforced by a GIST
+    exclusion constraint. A clinic's devices are CAPACITY — N at a time, and
+    PostgreSQL has no constraint form meaning "at most N rows matching a
+    predicate" (36 header). So this is the one rule in the appointment design
+    enforced in application code, and the lock below is why it is still correct
+    under concurrency.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repo = ClinicDeviceScheduleRepository(session)
+        self.appointments = AppointmentRepository(session)
+
+    async def open_slots(
+        self, clinic_id: UUID, from_date: dt.date, to_date: dt.date, *, only_available: bool = False
+    ) -> builtins.list[dict]:
+        if to_date < from_date:
+            raise BusinessRuleError("to_date must not be before from_date", code="INVALID_DATE_RANGE")
+        if (to_date - from_date).days > 60:
+            raise BusinessRuleError("Date range too large (max 60 days)", code="AVAILABILITY_RANGE_TOO_LARGE")
+
+        weekly = await self.repo.list_for_clinic(clinic_id)
+        overrides = await self.repo.overrides_for_range(clinic_id, from_date, to_date)
+        # One grouped query for the whole range rather than a count per slot.
+        booked = await self.repo.booked_counts_for_range(clinic_id, from_date, to_date)
+
+        out: builtins.list[dict] = []
+        current = from_date
+        while current <= to_date:
+            out.extend(_build_device_day_slots(current, weekly, overrides.get(current), booked))
+            current += dt.timedelta(days=1)
+        if only_available:
+            out = [s for s in out if s["is_available"]]
+        return out
+
+    async def reserve(self, clinic_id: UUID, on_date: dt.date, start_time: dt.time) -> int:
+        """Verifies one more device session fits in this slot, and holds that
+        answer until the caller's transaction commits.
+
+        THE LOCK IS THE WHOLE CORRECTNESS ARGUMENT. Without FOR UPDATE, two
+        patients claiming the same slot simultaneously both read 2-of-3, both
+        pass this check, and the clinic is overbooked with no error raised
+        anywhere. With it, the second blocks here until the first commits, then
+        reads 3-of-3 and is correctly rejected.
+
+        Must be called inside the same transaction as the write it guards.
+        Returns the slot duration in minutes so the caller can derive end_time.
+        """
+        dow = on_date.isoweekday() % 7
+        capacity = await self.repo.lock_capacity_for_day(clinic_id, dow)
+        if capacity is None:
+            raise ConflictError("This clinic runs no device sessions on that day", code="DEVICE_SCHEDULE_CLOSED")
+
+        override = (await self.repo.overrides_for_range(clinic_id, on_date, on_date)).get(on_date)
+        if override:
+            if not override["is_available"]:
+                raise ConflictError("The clinic is closed for device sessions on that date", code="DEVICE_SCHEDULE_CLOSED")
+            if override["capacity"]:
+                capacity = override["capacity"]
+
+        booked = await self.repo.count_device_sessions_in_slot(clinic_id, on_date, start_time)
+        if booked >= capacity:
+            raise ConflictError(
+                f"That device slot is full ({booked} of {capacity} taken)",
+                code="DEVICE_SLOT_FULL",
+            )
+
+        weekly = await self.repo.list_for_clinic(clinic_id)
+        rule = next((w for w in weekly if w["day_of_week"] == dow), None)
+        return (rule and rule["slot_duration_minutes"]) or DEFAULT_SLOT_MINUTES
+
+
+class PatientBookingService:
+    """Everything a patient does to their own appointments.
+
+    All four visit types converge here. The split that matters is not
+    patient-created versus doctor-created, it is WHICH POOL the slot comes from:
+    a device_session books clinic capacity, everything else books a doctor.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repo = AppointmentRepository(session)
+        self.appointments = AppointmentService(session)
+        self.availability = AvailabilityService(session)
+        self.capacity = DeviceCapacityService(session)
+        self.settings = get_settings()
+
+    # ── helpers ─────────────────────────────────────────────────────────────
+
+    def _initial_status_and_hold(self) -> tuple[str, dt.datetime | None]:
+        """The payment seam, in one place.
+
+        payment_required False -> land on 'paid', no hold, sweeper idle.
+        payment_required True  -> land on 'selected' with a hold; the gateway
+                                  webhook calls mark_paid() to finish.
+
+        Both satisfy chk_appointments_hold, which requires exactly the
+        'selected' rows to carry an expiry and no others.
+        """
+        if self.settings.appointment_payment_required:
+            return STATUS_SELECTED, dt.datetime.now(dt.UTC) + dt.timedelta(minutes=self.settings.appointment_hold_minutes)
+        return STATUS_PAID, None
+
+    async def _own_patient_row(self, ctx: RequestContext) -> dict:
+        return await _get_patient_row(self.session, profile_id=UUID(ctx.user_id))
+
+    async def _require_allocated_doctor(self, patient: dict) -> UUID:
+        if patient["registration_status"] != "registration_complete":
+            raise BusinessRuleError(
+                "Finish registration before booking an appointment",
+                code="REGISTRATION_INCOMPLETE",
+            )
+        if not patient["primary_doctor_id"]:
+            raise BusinessRuleError(
+                "No doctor has been allocated to you yet",
+                code="NO_DOCTOR_ALLOCATED",
+            )
+        return UUID(str(patient["primary_doctor_id"]))
+
+    # ── availability ────────────────────────────────────────────────────────
+
+    async def my_availability(self, ctx: RequestContext, from_date: dt.date, to_date: dt.date) -> builtins.list[dict]:
+        """Open slots on the caller's own allocated doctor's calendar.
+
+        The patient never sends a doctor id: allocation already happened at
+        registration_complete, so there is nothing to choose and nothing to
+        spoof.
+        """
+        patient = await self._own_patient_row(ctx)
+        doctor_profile_id = await self._require_allocated_doctor(patient)
+        return await self.availability._compute_for_profile(doctor_profile_id, from_date, to_date, include_unavailable=False)
+
+    async def device_availability(
+        self, appointment_id: UUID, ctx: RequestContext, from_date: dt.date, to_date: dt.date
+    ) -> builtins.list[dict]:
+        """Device slots at the clinic of a specific planned session."""
+        appt = await self.appointments.get(appointment_id)
+        assert_owns_profile(ctx, appt["patient_id"])
+        if appt["appointment_type"] != TYPE_DEVICE_SESSION:
+            raise BusinessRuleError(
+                "Only a device session books against clinic device capacity",
+                code="NOT_A_DEVICE_SESSION",
+            )
+        return await self.capacity.open_slots(appt["clinic_id"], from_date, to_date, only_available=True)
+
+    # ── booking ─────────────────────────────────────────────────────────────
+
+    async def book_initial(self, ctx: RequestContext, data: dict) -> dict:
+        patient = await self._own_patient_row(ctx)
+        doctor_profile_id = await self._require_allocated_doctor(patient)
+
+        existing = await self.repo.find_active_initial(UUID(ctx.user_id))
+        if existing:
+            raise ConflictError(
+                "You already have an initial appointment booked",
+                code="INITIAL_APPOINTMENT_EXISTS",
+            )
+        return await self._book_on_doctor(ctx, patient, doctor_profile_id, TYPE_INITIAL, data)
+
+    async def book_follow_up(self, ctx: RequestContext, data: dict) -> dict:
+        patient = await self._own_patient_row(ctx)
+        doctor_profile_id = await self._require_allocated_doctor(patient)
+
+        # A follow-up needs something to follow up on. Protocol follow-ups are
+        # generated by the doctor and are a different type entirely, so this
+        # gate only ever applies to a patient booking one themselves.
+        if not await self.repo.has_completed_initial(UUID(ctx.user_id)):
+            raise BusinessRuleError(
+                "Complete your initial appointment before booking a follow-up",
+                code="NO_COMPLETED_INITIAL",
+            )
+        return await self._book_on_doctor(ctx, patient, doctor_profile_id, TYPE_FOLLOW_UP, data)
+
+    async def _book_on_doctor(self, ctx: RequestContext, patient: dict, doctor_profile_id: UUID, appointment_type: str, data: dict) -> dict:
+        clinic_id = patient["primary_clinic_id"]
+        if not clinic_id:
+            raise BusinessRuleError("You are not registered at a clinic", code="CLINIC_REQUIRED")
+
+        is_available, duration = await self.availability.check_slot(doctor_profile_id, data["appointment_date"], data["start_time"])
+        if not is_available:
+            raise ConflictError("That slot is not available", code="APPOINTMENT_SLOT_UNAVAILABLE")
+
+        end_time = (dt.datetime.combine(data["appointment_date"], data["start_time"]) + dt.timedelta(minutes=duration)).time()
+        status, hold = self._initial_status_and_hold()
+
+        payload = {
+            "clinic_id": str(clinic_id),
+            "patient_id": ctx.user_id,
+            "doctor_id": str(doctor_profile_id),
+            "appointment_date": data["appointment_date"],
+            "start_time": data["start_time"],
+            "end_time": end_time,
+            "slot_duration_minutes": duration,
+            "appointment_type": appointment_type,
+            "status": status,
+            "hold_expires_at": hold,
+            "reason": data.get("reason"),
+            "patient_complaint": data.get("patient_complaint"),
+            "booked_by": ctx.user_id,
+            "booked_by_role": "patient",
+        }
+        try:
+            created = await self.repo.create(payload)
+        except IntegrityError as exc:
+            # Either excl_doctor_overlap (someone took the slot between the
+            # check above and this insert) or uq_one_active_initial_per_patient
+            # (two taps racing). Both mean the same thing to the patient.
+            raise ConflictError("That slot was just taken — please pick another", code="APPOINTMENT_SLOT_TAKEN") from exc
+
+        await emit_event(
+            self.session,
+            aggregate_type="appointment",
+            aggregate_id=created["appointment_id"],
+            event_type="appointment_booked",
+            payload={
+                "appointment_id": str(created["appointment_id"]),
+                "appointment_type": appointment_type,
+                "status": status,
+            },
+        )
+        return await self.appointments.get(created["appointment_id"])
+
+    async def claim_slot(self, appointment_id: UUID, ctx: RequestContext, data: dict) -> dict:
+        """planned -> selected (or straight to paid while payment is bypassed).
+
+        This is the one entry point for BOTH protocol-born types, and the only
+        place the two pools meet. A protocol_followup claims a slot on the
+        doctor's calendar; a device_session claims one of the clinic's device
+        slots. Everything downstream is identical.
+        """
+        appt = await self.appointments.get(appointment_id)
+        assert_owns_profile(ctx, appt["patient_id"])
+
+        if appt["status"] != STATUS_PLANNED:
+            raise BusinessRuleError(
+                f"Only a planned session can be given a time (this one is '{appt['status']}')",
+                code="NOT_PLANNED",
+            )
+        if appt["appointment_type"] not in PROTOCOL_BORN_TYPES:
+            raise BusinessRuleError(
+                "This appointment already has a time",
+                code="NOT_CLAIMABLE",
+            )
+
+        start_time = data["start_time"]
+        on_date = data.get("appointment_date") or appt["appointment_date"]
+
+        if appt["appointment_type"] == TYPE_DEVICE_SESSION:
+            # Counted check under a row lock. Held until this transaction
+            # commits, which is what stops two patients taking the last slot.
+            duration = await self.capacity.reserve(appt["clinic_id"], on_date, start_time)
+        else:
+            doctor_profile_id = UUID(str(appt["doctor_id"]))
+            is_available, duration = await self.availability.check_slot(doctor_profile_id, on_date, start_time)
+            if not is_available:
+                raise ConflictError("That slot is not available", code="APPOINTMENT_SLOT_UNAVAILABLE")
+
+        end_time = (dt.datetime.combine(on_date, start_time) + dt.timedelta(minutes=duration)).time()
+        status, hold = self._initial_status_and_hold()
+
+        if on_date != appt["appointment_date"]:
+            # Claiming onto a different date is how an overdue planned session
+            # is picked up — the ordinary transition, not a separate reschedule
+            # path (31: an overdue 'planned' row simply stays planned).
+            await self.repo.update_fields(appointment_id, {"appointment_date": on_date})
+
+        try:
+            await self.repo.claim_slot(appointment_id, start_time=start_time, end_time=end_time, hold_expires_at=hold, status=status)
+        except IntegrityError as exc:
+            raise ConflictError("That slot was just taken — please pick another", code="APPOINTMENT_SLOT_TAKEN") from exc
+
+        await self.appointments._write_audit(
+            appointment_id,
+            changed_by=UUID(ctx.user_id),
+            changed_by_role="patient",
+            previous_status=STATUS_PLANNED,
+            new_status=status,
+            new_date=on_date,
+            new_time=start_time,
+        )
+        await emit_event(
+            self.session,
+            aggregate_type="appointment",
+            aggregate_id=appointment_id,
+            event_type="appointment_slot_claimed",
+            payload={"appointment_id": str(appointment_id), "status": status},
+        )
+        return await self.appointments.get(appointment_id)
+
+    async def mark_paid(self, appointment_id: UUID, *, changed_by: UUID, changed_by_role: str = "system") -> dict:
+        """selected -> paid. THE PAYMENT SEAM.
+
+        Reachable today through the staff status endpoint so the transition is
+        exercised and tested before any gateway exists. When Razorpay lands its
+        webhook calls this identical method — no rework, and nothing else in the
+        booking path has to change.
+
+        Idempotent: the repository UPDATE matches only rows still 'selected', so
+        a webhook delivered twice (which gateways do, by design) is a no-op the
+        second time rather than a double transition.
+        """
+        appt = await self.appointments.get(appointment_id)
+        updated = await self.repo.mark_paid(appointment_id)
+        if updated is None:
+            if appt["status"] == STATUS_PAID:
+                return appt
+            raise BusinessRuleError(
+                f"Cannot mark an appointment '{appt['status']}' as paid",
+                code="NOT_AWAITING_PAYMENT",
+            )
+        await self.appointments._write_audit(
+            appointment_id,
+            changed_by=changed_by,
+            changed_by_role=changed_by_role,
+            previous_status=STATUS_SELECTED,
+            new_status=STATUS_PAID,
+        )
+        await emit_event(
+            self.session,
+            aggregate_type="appointment",
+            aggregate_id=appointment_id,
+            event_type="appointment_paid",
+            payload={"appointment_id": str(appointment_id)},
+        )
+        return await self.appointments.get(appointment_id)
+
+    # ── changing a booking ──────────────────────────────────────────────────
+
+    async def reschedule_own(self, appointment_id: UUID, ctx: RequestContext, data: dict) -> dict:
+        appt = await self.appointments.get(appointment_id)
+        assert_owns_profile(ctx, appt["patient_id"])
+
+        if appt["appointment_type"] in PROTOCOL_BORN_TYPES:
+            # A protocol row is never "rescheduled" into a new row — releasing
+            # the slot and claiming another keeps one folder per prescribed
+            # session, which uq_appointments_protocol_session requires anyway.
+            raise BusinessRuleError(
+                "Release this session and claim a new slot instead",
+                code="USE_CLAIM_SLOT_INSTEAD",
+            )
+        if appt["status"] not in (STATUS_SELECTED, STATUS_PAID):
+            raise BusinessRuleError("Only a booked appointment can be moved", code="APPOINTMENT_NOT_ACTIVE")
+        if appt["start_time"] and _hours_until(appt["appointment_date"], appt["start_time"]) < RESCHEDULE_MIN_HOURS:
+            raise BusinessRuleError(
+                f"Rescheduling requires at least {RESCHEDULE_MIN_HOURS} hours' notice",
+                code="RESCHEDULE_WINDOW_PASSED",
+            )
+        return await self.appointments.reschedule(appointment_id, data, changed_by=UUID(ctx.user_id), changed_by_role="patient", ctx=ctx)
+
+    async def cancel_own(self, appointment_id: UUID, ctx: RequestContext, *, reason: str) -> dict:
+        return await self.appointments.update_status(
+            appointment_id,
+            status="cancelled",
+            changed_by=UUID(ctx.user_id),
+            changed_by_role="patient",
+            ctx=ctx,
+            cancellation_reason=reason,
+        )
+
+    async def my_appointments(self, ctx: RequestContext, *, include_past: bool = False) -> builtins.list[dict]:
+        """Every appointment of every type, protocol-generated 'planned' rows
+        included — those are exactly what the patient needs to see in order to
+        claim a slot for them."""
+        return await self.repo.list_for_patient(UUID(ctx.user_id), include_past=include_past)
+
+
+class ClinicDeviceScheduleService:
+    """Clinic-admin side: when device sessions run, and how many at once."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repo = ClinicDeviceScheduleRepository(session)
+
+    async def list_week(self, clinic_id: UUID, ctx: RequestContext) -> builtins.list[dict]:
+        await assert_clinic_scope(ctx, self.session, clinic_id)
+        return await self.repo.list_for_clinic(clinic_id)
+
+    async def replace_week(self, clinic_id: UUID, items: builtins.list[dict], ctx: RequestContext) -> builtins.list[dict]:
+        """Atomic replace of the clinic's whole device week.
+
+        Same shape as a doctor redrawing their own timetable: there is no
+        natural per-day PATCH when the admin is editing the entire week in one
+        form, and a partial write would leave a half-open schedule.
+        """
+        await assert_clinic_scope(ctx, self.session, clinic_id)
+        days = [i["day_of_week"] for i in items]
+        if len(days) != len(set(days)):
+            raise BusinessRuleError("Each weekday may appear only once", code="DUPLICATE_WEEKDAY")
+        rows = await self.repo.replace_for_clinic(clinic_id, items, created_by=UUID(ctx.user_id))
+        await emit_event(
+            self.session,
+            aggregate_type="clinic_device_schedule",
+            aggregate_id=clinic_id,
+            event_type="clinic_device_schedule_updated",
+            payload={"clinic_id": str(clinic_id), "day_count": len(rows)},
+        )
+        return rows
+
+    async def list_overrides(self, clinic_id: UUID, ctx: RequestContext, *, from_date=None) -> builtins.list[dict]:
+        await assert_clinic_scope(ctx, self.session, clinic_id)
+        return await self.repo.list_overrides(clinic_id, from_date=from_date)
+
+    async def create_override(self, clinic_id: UUID, data: dict, ctx: RequestContext) -> dict:
+        await assert_clinic_scope(ctx, self.session, clinic_id)
+        return await self.repo.create_override({**data, "clinic_id": str(clinic_id), "created_by": ctx.user_id})
+
+    async def delete_override(self, clinic_id: UUID, override_id: UUID, ctx: RequestContext) -> None:
+        await assert_clinic_scope(ctx, self.session, clinic_id)
+        row = await self.repo.get_override(override_id)
+        if not row or str(row["clinic_id"]) != str(clinic_id):
+            raise NotFoundError("Override not found", code="OVERRIDE_NOT_FOUND")
+        await self.repo.delete_override(override_id)
+
+    async def capacity_board(self, clinic_id: UUID, ctx: RequestContext, from_date: dt.date, to_date: dt.date) -> builtins.list[dict]:
+        """Every device slot in the range with capacity, booked and remaining —
+        the admin's view of how full the clinic is."""
+        await assert_clinic_scope(ctx, self.session, clinic_id)
+        return await DeviceCapacityService(self.session).open_slots(clinic_id, from_date, to_date)
+
+
+class ClinicDeviceService:
+    """Clinic-admin inventory: which devices this clinic owns, and how many.
+
+    Gates the protocol device picker. Nothing here decides how many sessions can
+    run at once — that is clinic_device_schedules.capacity, which the admin sets
+    separately because it also depends on assistants on shift.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repo = ClinicDeviceRepository(session)
+
+    async def list_for_clinic(self, clinic_id: UUID, ctx: RequestContext, *, active_only: bool = True) -> builtins.list[dict]:
+        await assert_clinic_scope(ctx, self.session, clinic_id)
+        return await self.repo.list_for_clinic(clinic_id, active_only=active_only)
+
+    async def add(self, clinic_id: UUID, data: dict, ctx: RequestContext) -> dict:
+        await assert_clinic_scope(ctx, self.session, clinic_id)
+        existing = await self.repo.find(clinic_id, data["device_id"])
+        if existing:
+            # The unique constraint would catch this, but a readable message
+            # beats a raw violation — and "already listed" usually means the
+            # admin wanted to change the quantity.
+            raise ConflictError(
+                "This clinic already lists that device — update its quantity instead",
+                code="CLINIC_DEVICE_EXISTS",
+            )
+        try:
+            created = await self.repo.create(
+                {
+                    "clinic_id": str(clinic_id),
+                    "device_id": str(data["device_id"]),
+                    "quantity": data.get("quantity", 1),
+                    "acquired_on": data.get("acquired_on"),
+                    "notes": data.get("notes"),
+                    "created_by": ctx.user_id,
+                }
+            )
+        except IntegrityError as exc:
+            raise NotFoundError("No such device in the catalogue", code="DEVICE_NOT_FOUND") from exc
+
+        await emit_event(
+            self.session,
+            aggregate_type="clinic_device",
+            aggregate_id=created["clinic_device_id"],
+            event_type="clinic_device_added",
+            payload={"clinic_id": str(clinic_id), "device_id": str(data["device_id"])},
+        )
+        return created
+
+    async def update(self, clinic_id: UUID, clinic_device_id: UUID, data: dict, ctx: RequestContext) -> dict:
+        await assert_clinic_scope(ctx, self.session, clinic_id)
+        row = await self.repo.get(clinic_device_id)
+        if not row or str(row["clinic_id"]) != str(clinic_id):
+            raise NotFoundError("Device not listed at this clinic", code="CLINIC_DEVICE_NOT_FOUND")
+        fields = {k: v for k, v in data.items() if v is not None}
+        return await self.repo.update(clinic_device_id, fields) or row
+
+    async def remove(self, clinic_id: UUID, clinic_device_id: UUID, ctx: RequestContext) -> None:
+        """Deletes a listing, or refuses when history depends on it.
+
+        A device that has actually been prescribed at this clinic must be
+        deactivated, not deleted — removing the row would leave a historic
+        protocol pointing at hardware the clinic has no record of ever owning.
+        Correcting a mistaken entry is what delete is for.
+        """
+        await assert_clinic_scope(ctx, self.session, clinic_id)
+        row = await self.repo.get(clinic_device_id)
+        if not row or str(row["clinic_id"]) != str(clinic_id):
+            raise NotFoundError("Device not listed at this clinic", code="CLINIC_DEVICE_NOT_FOUND")
+
+        if await self.repo.is_used_by_a_protocol(clinic_id, row["device_id"]):
+            raise ConflictError(
+                "A protocol at this clinic has prescribed this device — deactivate it instead of deleting",
+                code="CLINIC_DEVICE_IN_USE",
+            )
+        await self.repo.delete(clinic_device_id)

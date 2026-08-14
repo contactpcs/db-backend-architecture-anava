@@ -30,6 +30,7 @@ from app.modules.scheduling.router import router as scheduling_router
 from app.modules.staff.router import router as staff_router
 from app.modules.store.router import router as store_router
 from app.modules.treatment_protocols.router import router as treatment_protocols_router
+from app.workers.hold_sweeper import run_hold_sweeper_forever
 from app.workers.retention_purge import run_partition_maintenance_forever
 
 settings = get_settings()
@@ -46,17 +47,29 @@ structlog.configure(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Keeps monthly/yearly partitions created ahead of the current date so
-    inserts never fall through to the DEFAULT partition (see
-    SQL/v1/07_tables_compliance.sql). Runs in-process on every API instance —
-    a Postgres advisory lock inside the job makes that safe with multiple
-    uvicorn workers and multiple instances, so no separate worker deployment
-    is required."""
-    task = None
+    """Background jobs, both running in-process on every API instance. Each
+    takes a Postgres advisory lock internally, which makes that safe with
+    multiple uvicorn workers and multiple instances — so neither needs a
+    separate worker deployment.
+
+    partition maintenance  keeps monthly/yearly partitions created ahead of the
+                           current date so inserts never fall through to the
+                           DEFAULT partition (SQL/v1/07_tables_compliance.sql).
+
+    hold sweeper           releases expired appointment holds, so an abandoned
+                           checkout gives its slot back instead of blocking it
+                           forever (SQL/v1/31_appointments_payment_states.sql).
+                           Finds nothing while appointment_payment_required is
+                           False — wired now so enabling payment is one config
+                           flag, not a deployment.
+    """
+    tasks: list[asyncio.Task] = []
     if settings.partition_maintenance_enabled:
-        task = asyncio.create_task(run_partition_maintenance_forever())
+        tasks.append(asyncio.create_task(run_partition_maintenance_forever()))
+    if settings.appointment_hold_sweeper_enabled:
+        tasks.append(asyncio.create_task(run_hold_sweeper_forever()))
     yield
-    if task is not None:
+    for task in tasks:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
@@ -123,15 +136,12 @@ app.include_router(patients_router, prefix="/api/v1", tags=["patients"])
 app.include_router(files_router, prefix="/api/v1", tags=["files"])
 app.include_router(clinical_router, prefix="/api/v1", tags=["clinical"])
 app.include_router(scheduling_router, prefix="/api/v1", tags=["scheduling"])
+app.include_router(treatment_protocols_router, prefix="/api/v1", tags=["treatment-protocols"])
 app.include_router(payments_router, prefix="/api/v1", tags=["payments"])
 app.include_router(store_router, prefix="/api/v1", tags=["store"])
 app.include_router(inventory_router, prefix="/api/v1", tags=["inventory"])
 app.include_router(notifications_router, prefix="/api/v1", tags=["notifications"])
 app.include_router(reception_router, prefix="/api/v1/reception", tags=["reception"])
-# Serves both /api/v1/neuromod/* (the catalogue the wizard reads) and
-# /api/v1/treatment-protocols/* — the router carries those two paths itself, so
-# the prefix here is just the version.
-app.include_router(treatment_protocols_router, prefix="/api/v1", tags=["treatment-protocols"])
 
 
 @app.get("/api/v1/_internal/whoami")
