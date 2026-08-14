@@ -12,3 +12,4 @@ dist/
 htmlcov/
 .coverage
 .claude
+.env.bak-184359
