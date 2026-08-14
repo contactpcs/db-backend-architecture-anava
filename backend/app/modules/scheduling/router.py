@@ -10,6 +10,10 @@ from app.modules.scheduling import schemas as s
 from app.modules.scheduling.service import (
     AppointmentService,
     AvailabilityService,
+    ClinicDeviceScheduleService,
+    ClinicDeviceService,
+    DeviceCapacityService,
+    PatientBookingService,
     ScheduleOverrideService,
     WeeklyScheduleService,
 )
@@ -17,6 +21,10 @@ from app.modules.scheduling.service import (
 router = APIRouter()
 
 _ALL_STAFF = ("super_admin", "regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist")
+# Who may set when device sessions run and how many at once. Regional admin is
+# included because they manage clinics in their region; the RLS policies on
+# clinic_device_schedules (36 §8) scope each of these to the right clinics.
+_DEVICE_SCHEDULE_ADMINS = ("super_admin", "regional_admin", "clinic_admin")
 
 
 async def _own_doctor_row(db, ctx: RequestContext) -> dict:
@@ -221,3 +229,257 @@ async def get_appointment_audit_log(
     if ctx.role == "patient" and str(appt["patient_id"]) != ctx.user_id:
         raise PermissionError_("You can only view your own appointment", code="PATIENT_SCOPE_MISMATCH")
     return await AppointmentService(db).audit_log(appointment_id)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Patient self-service
+#
+# Every endpoint here resolves clinic, doctor and patient from the caller's own
+# record. A patient never sends any of those ids, so there is nothing to spoof —
+# and no doctor to choose, because allocation already happened automatically at
+# registration_complete.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/me/appointments", response_model=list[s.AppointmentRead])
+async def my_appointments(
+    include_past: bool = False,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("patient")),
+):
+    """Every appointment of every type, protocol-generated planned sessions
+    included — those are exactly what the patient needs to see in order to claim
+    a slot for them."""
+    return await PatientBookingService(db).my_appointments(ctx, include_past=include_past)
+
+
+@router.get("/me/appointments/availability", response_model=list[s.AvailabilitySlotRead])
+async def my_availability(
+    from_date: date,
+    to_date: date | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("patient")),
+):
+    """Open slots on the caller's own allocated doctor calendar. Serves both
+    initial and follow-up booking."""
+    return await PatientBookingService(db).my_availability(ctx, from_date, to_date or from_date)
+
+
+@router.post("/me/appointments/initial", response_model=s.AppointmentRead, status_code=201)
+async def book_initial(
+    body: s.MyAppointmentBook,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("patient")),
+):
+    return await PatientBookingService(db).book_initial(ctx, body.model_dump())
+
+
+@router.post("/me/appointments/follow-up", response_model=s.AppointmentRead, status_code=201)
+async def book_follow_up(
+    body: s.MyAppointmentBook,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("patient")),
+):
+    return await PatientBookingService(db).book_follow_up(ctx, body.model_dump())
+
+
+@router.get("/me/appointments/{appointment_id}/device-availability", response_model=list[s.DeviceSlotRead])
+async def my_device_availability(
+    appointment_id: UUID,
+    from_date: date,
+    to_date: date | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("patient")),
+):
+    """Device slots at the clinic of one planned session.
+
+    Separate from /availability because this reads a different pool entirely:
+    clinic device capacity, not a doctor calendar. Only slots with room left are
+    returned.
+    """
+    return await PatientBookingService(db).device_availability(appointment_id, ctx, from_date, to_date or from_date)
+
+
+@router.patch("/me/appointments/{appointment_id}/claim-slot", response_model=s.AppointmentRead)
+async def claim_slot(
+    appointment_id: UUID,
+    body: s.MyClaimSlot,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("patient")),
+):
+    """Puts a time on a protocol-generated planned session.
+
+    One endpoint for BOTH protocol-born types — a protocol_followup claims a
+    slot on the doctor calendar, a device_session claims clinic capacity.
+    Everything downstream is identical.
+    """
+    return await PatientBookingService(db).claim_slot(appointment_id, ctx, body.model_dump())
+
+
+@router.patch("/me/appointments/{appointment_id}/reschedule", response_model=s.AppointmentRead)
+async def reschedule_own(
+    appointment_id: UUID,
+    body: s.AppointmentReschedule,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("patient")),
+):
+    return await PatientBookingService(db).reschedule_own(appointment_id, ctx, body.model_dump())
+
+
+@router.patch("/me/appointments/{appointment_id}/cancel", response_model=s.AppointmentRead)
+async def cancel_own(
+    appointment_id: UUID,
+    body: s.MyCancel,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("patient")),
+):
+    return await PatientBookingService(db).cancel_own(appointment_id, ctx, reason=body.reason)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Clinic device schedule — clinic-admin side
+#
+# When device sessions can run at this clinic, and how many at once. This is the
+# pool device_session appointments book against; doctor calendars are managed
+# separately above and are untouched by any of this.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/clinics/{clinic_id}/device-schedules", response_model=list[s.DeviceScheduleRead])
+async def list_device_schedules(
+    clinic_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    """Readable by patients too — they need the clinic device hours to
+    understand which slots exist before claiming one. Exposes opening hours and
+    a capacity number, no patient data."""
+    return await ClinicDeviceScheduleService(db).list_week(clinic_id, ctx)
+
+
+@router.put("/clinics/{clinic_id}/device-schedules", response_model=list[s.DeviceScheduleRead])
+async def replace_device_schedules(
+    clinic_id: UUID,
+    body: s.DeviceScheduleReplace,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_DEVICE_SCHEDULE_ADMINS)),
+):
+    """Atomic replace of the whole device week — same shape as a doctor
+    redrawing their own timetable."""
+    items = [item.model_dump() for item in body.items]
+    return await ClinicDeviceScheduleService(db).replace_week(clinic_id, items, ctx)
+
+
+@router.get("/clinics/{clinic_id}/device-schedule-overrides", response_model=list[s.DeviceOverrideRead])
+async def list_device_overrides(
+    clinic_id: UUID,
+    from_date: date | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    return await ClinicDeviceScheduleService(db).list_overrides(clinic_id, ctx, from_date=from_date)
+
+
+@router.post("/clinics/{clinic_id}/device-schedule-overrides", response_model=s.DeviceOverrideRead, status_code=201)
+async def create_device_override(
+    clinic_id: UUID,
+    body: s.DeviceOverrideCreate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_DEVICE_SCHEDULE_ADMINS)),
+):
+    """A single-day exception: a closure, different hours, or reduced capacity
+    because a device is out for service or an assistant is on leave."""
+    return await ClinicDeviceScheduleService(db).create_override(clinic_id, body.model_dump(), ctx)
+
+
+@router.delete("/clinics/{clinic_id}/device-schedule-overrides/{override_id}", status_code=204)
+async def delete_device_override(
+    clinic_id: UUID,
+    override_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_DEVICE_SCHEDULE_ADMINS)),
+):
+    await ClinicDeviceScheduleService(db).delete_override(clinic_id, override_id, ctx)
+
+
+@router.get("/clinics/{clinic_id}/device-availability", response_model=list[s.DeviceSlotRead])
+async def clinic_device_availability(
+    clinic_id: UUID,
+    from_date: date,
+    to_date: date | None = None,
+    only_available: bool = False,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    """Every device slot in the range with capacity, booked and remaining.
+
+    The admin capacity board and the patient slot picker ask the same question,
+    so they are the same endpoint — only_available filters it down for the
+    patient view.
+    """
+    return await DeviceCapacityService(db).open_slots(clinic_id, from_date, to_date or from_date, only_available=only_available)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Clinic device inventory — clinic-admin side
+#
+# Which devices this clinic owns. Feeds the protocol picker at Step 1
+# (GET /neuromod/devices?clinic_id=...), and is independently enforced by
+# trg_check_device_available_at_clinic so a stale tab cannot prescribe hardware
+# that is not in the building.
+#
+# Distinct from /clinics/{id}/device-schedules, which says WHEN sessions run and
+# HOW MANY at once. This says WHAT the clinic has.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/clinics/{clinic_id}/devices", response_model=list[s.ClinicDeviceRead])
+async def list_clinic_devices(
+    clinic_id: UUID,
+    active_only: bool = True,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
+):
+    """The clinic's inventory, with device names hydrated from the catalogue."""
+    return await ClinicDeviceService(db).list_for_clinic(clinic_id, ctx, active_only=active_only)
+
+
+@router.post("/clinics/{clinic_id}/devices", response_model=s.ClinicDeviceRead, status_code=201)
+async def add_clinic_device(
+    clinic_id: UUID,
+    body: s.ClinicDeviceCreate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_DEVICE_SCHEDULE_ADMINS)),
+):
+    return await ClinicDeviceService(db).add(clinic_id, body.model_dump(), ctx)
+
+
+@router.patch("/clinics/{clinic_id}/devices/{clinic_device_id}", response_model=s.ClinicDeviceRead)
+async def update_clinic_device(
+    clinic_id: UUID,
+    clinic_device_id: UUID,
+    body: s.ClinicDeviceUpdate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_DEVICE_SCHEDULE_ADMINS)),
+):
+    """Change the quantity, or set is_active=false to retire a device.
+
+    Retiring stops the picker offering it; protocols already prescribed on it
+    keep working, because the guard trigger only checks new prescriptions.
+    """
+    return await ClinicDeviceService(db).update(clinic_id, clinic_device_id, body.model_dump(exclude_unset=True), ctx)
+
+
+@router.delete("/clinics/{clinic_id}/devices/{clinic_device_id}", status_code=204)
+async def remove_clinic_device(
+    clinic_id: UUID,
+    clinic_device_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_DEVICE_SCHEDULE_ADMINS)),
+):
+    """Removes a listing entered in error.
+
+    Refuses with CLINIC_DEVICE_IN_USE if a protocol at this clinic has ever
+    prescribed the device — deactivate it instead, so history keeps making sense.
+    """
+    await ClinicDeviceService(db).remove(clinic_id, clinic_device_id, ctx)

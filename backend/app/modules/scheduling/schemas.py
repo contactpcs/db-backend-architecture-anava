@@ -97,6 +97,11 @@ class AvailabilitySlotRead(BaseModel):
     is_available: bool
 
 
+# The four agreed visit types. All live on core.appointments; they differ in who
+# creates them and which pool of time they book against — see service.py.
+APPOINTMENT_TYPES = "^(initial|follow_up|device_session|protocol_followup)$"
+
+
 class AppointmentCreate(BaseModel):
     clinic_id: UUID
     patient_id: UUID
@@ -106,21 +111,24 @@ class AppointmentCreate(BaseModel):
     appointment_date: date
     start_time: time
     end_time: time | None = None
-    appointment_type: str = Field(
-        default="initial_assessment",
-        pattern="^(initial_assessment|doctor_consultation|ca_session|treatment_session|follow_up|demo_visit|teleconsult)$",
-    )
+    appointment_type: str = Field(default="initial", pattern=APPOINTMENT_TYPES)
     reason: str | None = None
     patient_complaint: str | None = None
 
 
 class AppointmentUpdate(BaseModel):
+    """Free-text edits only.
+
+    appointment_type is deliberately NOT editable. Under the four-type model the
+    type decides which pool the visit books against — a device_session holds a
+    slot of clinic device capacity, a consultation holds a slot on a doctor's
+    calendar. Changing it after the fact would leave the row holding the wrong
+    kind of slot, with no way for either pool to notice. A visit booked as the
+    wrong type is cancelled and rebooked, not relabelled.
+    """
+
     notes: str | None = None
     patient_complaint: str | None = None
-    appointment_type: str | None = Field(
-        default=None,
-        pattern="^(initial_assessment|doctor_consultation|ca_session|treatment_session|follow_up|demo_visit|teleconsult)$",
-    )
 
 
 class AppointmentReschedule(BaseModel):
@@ -131,8 +139,42 @@ class AppointmentReschedule(BaseModel):
 
 
 class AppointmentStatusUpdate(BaseModel):
-    status: str = Field(pattern="^(confirmed|checked_in|in_progress|completed|cancelled|no_show)$")
+    # 'confirmed' and 'scheduled' are gone: payment is what confirms a visit, so
+    # 'paid' says it once instead of two states saying it twice. 'selected' is
+    # not settable here either — a slot is claimed through the booking
+    # endpoints, which also write the time and the hold in the same statement.
+    status: str = Field(pattern="^(paid|checked_in|in_progress|completed|cancelled|no_show)$")
     cancellation_reason: str | None = None
+
+
+# ── patient self-service ────────────────────────────────────────────────────
+
+
+class MyAppointmentBook(BaseModel):
+    """Booking an initial or follow-up. The patient sends only WHEN — clinic,
+    doctor and patient are all resolved server-side from their own record, so
+    there is nothing to spoof."""
+
+    appointment_date: date
+    start_time: time
+    reason: str | None = None
+    patient_complaint: str | None = None
+
+
+class MyClaimSlot(BaseModel):
+    """Putting a time on a protocol-generated 'planned' session.
+
+    appointment_date is optional: omit it to claim the date the doctor
+    prescribed, or supply a later one to pick up a session whose date has
+    already passed (an overdue 'planned' row simply stays planned until the
+    patient is ready)."""
+
+    start_time: time
+    appointment_date: date | None = None
+
+
+class MyCancel(BaseModel):
+    reason: str = Field(min_length=1)
 
 
 class AppointmentRead(BaseModel):
@@ -140,16 +182,28 @@ class AppointmentRead(BaseModel):
     clinic_id: UUID
     patient_id: UUID
     patient_name: str | None = None
-    doctor_id: UUID
+    # Nullable: a device_session carries no doctor at all, because a clinical
+    # assistant runs it and it occupies no doctor's calendar. Null here is an
+    # honest answer, not missing data — use responsible_doctor_* to ask "which
+    # doctor is behind this visit", which is always answerable.
+    doctor_id: UUID | None = None
     doctor_name: str | None = None
     # doctors.doctor_id (public ID) — /doctors/{doctor_id}/availability and
     # similar path params expect this, not doctor_id above (profiles.id).
     doctor_public_id: UUID | None = None
+    responsible_doctor_id: UUID | None = None
+    responsible_doctor_name: str | None = None
     ca_id: UUID | None
     cycle_id: UUID | None = None
+    plan_id: UUID | None = None
+    protocol_id: UUID | None = None
+    session_number: int | None = None
     appointment_date: date
-    start_time: time
-    end_time: time
+    # Nullable: a 'planned' row has a date and no time yet — the doctor
+    # prescribed the day, the patient picks the hour later.
+    start_time: time | None = None
+    end_time: time | None = None
+    hold_expires_at: datetime | None = None
     appointment_type: str
     status: str
     reason: str | None = None
@@ -165,3 +219,123 @@ class AppointmentRead(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     created_at: datetime
+
+
+# ── clinic device schedule (clinic-admin side) ──────────────────────────────
+
+
+class DeviceScheduleItem(BaseModel):
+    """One weekday of a clinic's device timetable.
+
+    Same shape as MyWeeklyScheduleItem plus `capacity`, deliberately: the admin
+    screen is the doctor schedule screen they already understand, with one extra
+    field.
+    """
+
+    day_of_week: int = Field(ge=0, le=6)
+    start_time: time
+    end_time: time
+    slot_duration_minutes: int = 30
+    break_start: time | None = None
+    break_end: time | None = None
+    # How many device sessions may run at once in a slot. Set by the admin
+    # judging devices AND assistants on shift together — never computed.
+    capacity: int = Field(ge=1)
+    is_active: bool = True
+    effective_from: date | None = None
+    effective_until: date | None = None
+
+
+class DeviceScheduleReplace(BaseModel):
+    """Atomic replace of the clinic's whole device week — there is no natural
+    per-day PATCH when the admin is redrawing the entire week in one form."""
+
+    items: list[DeviceScheduleItem]
+
+
+class DeviceScheduleRead(BaseModel):
+    schedule_id: UUID
+    clinic_id: UUID
+    day_of_week: int
+    start_time: time
+    end_time: time
+    slot_duration_minutes: int
+    break_start: time | None = None
+    break_end: time | None = None
+    capacity: int
+    is_active: bool
+
+
+class DeviceOverrideCreate(BaseModel):
+    override_date: date
+    is_available: bool = False
+    start_time: time | None = None
+    end_time: time | None = None
+    # NULL inherits the weekly capacity. Set it when a device is out for service
+    # or an assistant is on leave.
+    capacity: int | None = Field(default=None, ge=1)
+    reason: str | None = None
+
+
+class DeviceOverrideRead(BaseModel):
+    override_id: UUID
+    clinic_id: UUID
+    override_date: date
+    is_available: bool
+    start_time: time | None = None
+    end_time: time | None = None
+    capacity: int | None = None
+    reason: str | None = None
+
+
+class DeviceSlotRead(BaseModel):
+    """A device slot, with the counts that make capacity legible.
+
+    A doctor's slot is available when nobody has it. A device slot is available
+    while FEWER THAN capacity people have it — so the raw numbers are returned,
+    not just a boolean.
+    """
+
+    date: date
+    start_time: time
+    end_time: time
+    capacity: int
+    booked: int
+    remaining: int
+    is_available: bool
+
+
+# ── clinic device inventory ────────────────────────────────────────────────
+
+
+class ClinicDeviceCreate(BaseModel):
+    device_id: UUID
+    # How many units the clinic owns. Not the number of concurrent sessions —
+    # that is capacity on the device schedule, which also depends on staffing.
+    quantity: int = Field(default=1, ge=1)
+    acquired_on: date | None = None
+    notes: str | None = None
+
+
+class ClinicDeviceUpdate(BaseModel):
+    quantity: int | None = Field(default=None, ge=1)
+    is_active: bool | None = None
+    acquired_on: date | None = None
+    notes: str | None = None
+
+
+class ClinicDeviceRead(BaseModel):
+    clinic_device_id: UUID
+    clinic_id: UUID
+    device_id: UUID
+    quantity: int
+    is_active: bool
+    acquired_on: date | None = None
+    notes: str | None = None
+    # Hydrated from the catalogue so the admin screen shows names, not ids.
+    device_code: str | None = None
+    device_name: str | None = None
+    modality: str | None = None
+    phase: int | None = None
+    device_is_active: bool | None = None
+    company_name: str | None = None
