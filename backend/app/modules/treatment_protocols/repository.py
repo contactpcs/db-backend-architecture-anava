@@ -100,7 +100,22 @@ class CatalogueRepository:
         )
         return [dict(r) for r in rows]
 
-    async def list_devices(self, *, phase: int | None = None, active_only: bool = True) -> builtins.list[dict]:
+    async def list_devices(
+        self, *, phase: int | None = None, active_only: bool = True, clinic_id: UUID | None = None
+    ) -> builtins.list[dict]:
+        """The Step 1 device picker.
+
+        clinic_id narrows the catalogue to what that clinic actually owns
+        (core.clinic_devices, 37). Without it this returns the whole registry,
+        which is right for a superadmin managing the catalogue and wrong for a
+        doctor prescribing — they would be offered machines that are not in the
+        building.
+
+        An INNER join, not a LEFT one: a device the clinic does not have must
+        disappear from the list, not appear with a null count. The same rule is
+        enforced independently by trg_check_device_available_at_clinic, so a
+        stale tab or a direct API call cannot get past it either.
+        """
         clauses: builtins.list[str] = []
         params: dict[str, Any] = {}
         if active_only:
@@ -108,14 +123,29 @@ class CatalogueRepository:
         if phase is not None:
             clauses.append("d.phase = :phase")
             params["phase"] = phase
+
+        clinic_join = ""
+        clinic_cols = ""
+        if clinic_id is not None:
+            clinic_join = (
+                "JOIN core.clinic_devices cd ON cd.device_id = d.device_id "
+                "AND cd.clinic_id = :clinic_id AND cd.is_active AND cd.quantity > 0 "
+            )
+            # How many the clinic owns, so the picker can show it. Distinct from
+            # clinic_device_schedules.capacity, which is how many sessions may
+            # run at once and also depends on assistants on shift.
+            clinic_cols = ", cd.quantity AS clinic_quantity"
+            params["clinic_id"] = str(clinic_id)
+
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = (
             (
                 await self.session.execute(
                     text(
-                        "SELECT d.*, c.company_name, c.company_code "
+                        f"SELECT d.*, c.company_name, c.company_code{clinic_cols} "
                         "FROM reference.neuromod_devices d "
                         "LEFT JOIN reference.device_companies c ON c.company_id = d.company_id "
+                        f"{clinic_join}"
                         f"{where} ORDER BY d.phase, d.modality, d.device_name"
                     ),
                     params,

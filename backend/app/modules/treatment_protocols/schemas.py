@@ -66,6 +66,11 @@ class DeviceRead(BaseModel):
     company_id: UUID | None = None
     company_name: str | None = None
     company_code: str | None = None
+    # Populated only when the request passed clinic_id: how many units that
+    # clinic owns. Null on an unfiltered catalogue read, where the question has
+    # no answer. Not the same as clinic_device_schedules.capacity — that is how
+    # many sessions may run at once and also depends on assistants on shift.
+    clinic_quantity: int | None = None
 
 
 # --------------------------------------------------------------------------

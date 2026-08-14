@@ -2,7 +2,9 @@
 
 Endpoints are grouped to match the 8 steps the UI walks:
 
-  Step 1  GET  /neuromod/devices                  (+ /device-companies)
+  Step 1  GET  /neuromod/devices?clinic_id=...    (+ /device-companies)
+          The prescribing UI must pass clinic_id — a doctor may only be
+          offered devices their clinic owns (core.clinic_devices, 37).
   Step 2  GET  /neuromod/conditions
   Step 3  GET  /neuromod/diagnoses
           POST /neuromod/diagnoses/resolve
@@ -65,10 +67,29 @@ async def list_device_companies(
 async def list_devices(
     phase: int | None = Query(None, ge=1, le=2, description="1 = selectable now, 2 = catalogued only"),
     active_only: bool = Query(True),
+    clinic_id: UUID | None = Query(
+        None,
+        description="Narrow to devices this clinic actually owns. The prescribing UI should ALWAYS send it.",
+    ),
     db=Depends(get_db),
     _ctx: RequestContext = Depends(require_role(*_READERS)),
 ):
-    return await CatalogueService(db).list_devices(phase=phase, active_only=active_only)
+    """Step 1 — the device picker.
+
+    Pass clinic_id when prescribing. Without it this returns the whole
+    catalogue, which is correct for a superadmin curating the registry and
+    wrong for a doctor: it would offer machines that are not in their building.
+
+    With it, each row also carries clinic_quantity — how many units that clinic
+    owns. That is NOT the same as clinic_device_schedules.capacity, which is how
+    many sessions may run at once and also depends on assistants on shift.
+
+    Filtering here is a convenience, not the guarantee:
+    trg_check_device_available_at_clinic (37) independently refuses a protocol
+    naming a device the clinic does not have, so a stale tab or a direct API
+    call cannot slip past.
+    """
+    return await CatalogueService(db).list_devices(phase=phase, active_only=active_only, clinic_id=clinic_id)
 
 
 @router.get("/neuromod/devices/{device_id}", response_model=s.DeviceRead)

@@ -12,16 +12,38 @@ from app.core.sql_helpers import fetch_one, fetch_optional, insert_returning
 # appointments.patient_id and appointments.doctor_id both store profiles(id)
 # directly (doctors.profile_id IS a profiles.id) — so hydrating a name is always
 # a plain join on profiles.id, never a second hop through patients/doctors.
+#
+# The doctor join MUST be a LEFT JOIN. A device_session carries doctor_id = NULL
+# by design (30 made the column nullable so a CA-run session does not occupy the
+# supervising doctor's calendar, and the protocol module writes NULL there). An
+# inner join silently drops every one of those rows — they would vanish from
+# every list endpoint and 404 on direct fetch, with no error anywhere.
+#
+# Two doctor identities come back, and they answer different questions:
+#   doctor_name             whose calendar this visit books. NULL for a device
+#                           session — an honest answer, not missing data.
+#   responsible_doctor_name which doctor owns the treatment. Always populated:
+#                           the booked doctor for a consultation, the plan's
+#                           doctor for a device session, resolved through
+#                           plan_id -> treatment_plans.doctor_id.
+# Derived rather than stored: a supervising_doctor_id column would duplicate
+# treatment_plans.doctor_id and drift from it the moment a patient is moved to
+# another doctor mid-protocol.
 _APPT_SELECT = (
     "SELECT a.*, pp.first_name || ' ' || pp.last_name AS patient_name, "
     "dp.first_name || ' ' || dp.last_name AS doctor_name, "
     # doctors.doctor_id (public ID) — /doctors/{doctor_id}/availability and
     # similar path params expect this, not a.doctor_id (profiles.id).
-    "dd.doctor_id AS doctor_public_id "
+    "dd.doctor_id AS doctor_public_id, "
+    "COALESCE(a.doctor_id, tp.doctor_id) AS responsible_doctor_id, "
+    "COALESCE(dp.first_name || ' ' || dp.last_name, "
+    "         rp.first_name || ' ' || rp.last_name) AS responsible_doctor_name "
     "FROM appointments a "
     "JOIN profiles pp ON pp.id = a.patient_id "
-    "JOIN profiles dp ON dp.id = a.doctor_id "
+    "LEFT JOIN profiles dp ON dp.id = a.doctor_id "
     "LEFT JOIN doctors dd ON dd.profile_id = a.doctor_id "
+    "LEFT JOIN treatment_plans tp ON tp.plan_id = a.plan_id "
+    "LEFT JOIN profiles rp ON rp.id = tp.doctor_id "
 )
 
 class WeeklyScheduleRepository:
@@ -124,6 +146,64 @@ class AppointmentRepository:
     async def get(self, appointment_id: UUID) -> dict | None:
         return await fetch_optional(self.session, text(_APPT_SELECT + "WHERE a.appointment_id = :id"), {"id": str(appointment_id)})
 
+    # ── patient self-service lookups ────────────────────────────────────────
+
+    async def find_active_initial(self, patient_profile_id: UUID) -> dict | None:
+        """The one live initial appointment a patient may have, if any.
+
+        uq_one_active_initial_per_patient (31 §4) enforces this in the database
+        — two concurrent taps cannot both win against a unique index, and they
+        can both win against this lookup. This exists purely so the second tap
+        gets a readable 409 instead of a raw constraint violation.
+        """
+        return await fetch_optional(
+            self.session,
+            text(
+                _APPT_SELECT
+                + "WHERE a.patient_id = :pid AND a.appointment_type = 'initial' "
+                + "AND a.status IN ('selected','paid','checked_in','in_progress') LIMIT 1"
+            ),
+            {"pid": str(patient_profile_id)},
+        )
+
+    async def has_completed_initial(self, patient_profile_id: UUID) -> bool:
+        """A follow-up needs something to follow up on."""
+        row = (
+            await self.session.execute(
+                text(
+                    "SELECT 1 FROM appointments WHERE patient_id = :pid "
+                    "AND appointment_type = 'initial' AND status = 'completed' LIMIT 1"
+                ),
+                {"pid": str(patient_profile_id)},
+            )
+        ).first()
+        return row is not None
+
+    async def list_for_patient(
+        self, patient_profile_id: UUID, *, include_past: bool = False, statuses: builtins.list[str] | None = None
+    ) -> builtins.list[dict]:
+        """Every appointment of every type for one patient, protocol-generated
+        'planned' rows included — those are exactly what the patient needs to
+        see in order to claim a slot for them."""
+        clauses = ["a.patient_id = :pid"]
+        params: dict[str, Any] = {"pid": str(patient_profile_id)}
+        if not include_past:
+            clauses.append("a.appointment_date >= CURRENT_DATE")
+        if statuses:
+            clauses.append("a.status = ANY(:statuses)")
+            params["statuses"] = statuses
+        rows = (
+            (
+                await self.session.execute(
+                    text(f"{_APPT_SELECT}WHERE {' AND '.join(clauses)} ORDER BY a.appointment_date, a.start_time NULLS LAST"),
+                    params,
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
     async def list(
         self,
         *,
@@ -205,24 +285,117 @@ class AppointmentRepository:
         )
         return [dict(r) for r in rows]
 
-    async def update_status(self, appointment_id: UUID, *, status: str, cancelled_by=None, cancellation_reason=None) -> dict | None:
-        extra_cols = ""
+    async def update_status(
+        self, appointment_id: UUID, *, status: str, cancelled_by=None, cancellation_reason=None, ca_id=None
+    ) -> dict | None:
+        # hold_expires_at is coupled to status by chk_appointments_hold (31 §1):
+        # exactly the 'selected' rows carry an expiry and nothing else may. Any
+        # transition OUT of 'selected' must therefore clear it in the same
+        # statement, or the CHECK rejects the update. Clearing unconditionally
+        # here is safe — this method never moves a row INTO 'selected' (that is
+        # claim_slot's job, which sets both together).
+        extra_cols = ", hold_expires_at = NULL"
         params: dict[str, Any] = {"status": status, "id": str(appointment_id)}
         if status == "cancelled":
-            extra_cols = ", cancelled_by = :cancelled_by, cancellation_reason = :reason"
+            extra_cols += ", cancelled_by = :cancelled_by, cancellation_reason = :reason"
             params["cancelled_by"] = str(cancelled_by) if cancelled_by else None
             params["reason"] = cancellation_reason
         elif status == "checked_in":
-            extra_cols = ", checked_in_at = NOW()"
+            extra_cols += ", checked_in_at = NOW()"
         elif status == "in_progress":
-            extra_cols = ", started_at = NOW()"
+            # Late binding: no assistant is reserved in advance. Whichever one
+            # is free takes the patient, and their identity is captured at the
+            # moment they start the session — this is the only place ca_id is
+            # ever written for a device session.
+            extra_cols += ", started_at = NOW()"
+            if ca_id is not None:
+                extra_cols += ", ca_id = :ca_id"
+                params["ca_id"] = str(ca_id)
         elif status == "completed":
-            extra_cols = ", completed_at = NOW()"
+            extra_cols += ", completed_at = NOW()"
         return await fetch_optional(
             self.session,
             text(f"UPDATE appointments SET status = :status, updated_at = NOW() {extra_cols} WHERE appointment_id = :id RETURNING *"),
             params,
         )
+
+    async def claim_slot(
+        self, appointment_id: UUID, *, start_time, end_time, hold_expires_at, status: str
+    ) -> dict | None:
+        """Puts a time on a row and moves it to 'selected' (or straight to
+        'paid' when payment is bypassed).
+
+        Time and hold are written in the SAME statement as the status, because
+        three constraints all read them together:
+          chk_appointments_time_pair       start and end are set together
+          chk_appointments_slotted_has_time only planned/cancelled may lack a time
+          chk_appointments_hold             only 'selected' carries an expiry
+        Splitting this into two updates would leave an intermediate state that
+        violates at least one of them.
+        """
+        return await fetch_optional(
+            self.session,
+            text(
+                "UPDATE appointments SET status = :status, start_time = :start_time, "
+                "end_time = :end_time, hold_expires_at = :hold, updated_at = NOW() "
+                "WHERE appointment_id = :id RETURNING *"
+            ),
+            {
+                "status": status,
+                "start_time": start_time,
+                "end_time": end_time,
+                "hold": hold_expires_at,
+                "id": str(appointment_id),
+            },
+        )
+
+    async def mark_paid(self, appointment_id: UUID) -> dict | None:
+        """'selected' -> 'paid'. Clears the hold: a paid slot is held forever,
+        not on a timer. The WHERE clause makes this idempotent against a
+        gateway webhook that delivers twice — the second call matches no row
+        and returns None rather than re-running."""
+        return await fetch_optional(
+            self.session,
+            text(
+                "UPDATE appointments SET status = 'paid', hold_expires_at = NULL, updated_at = NOW() "
+                "WHERE appointment_id = :id AND status = 'selected' RETURNING *"
+            ),
+            {"id": str(appointment_id)},
+        )
+
+    async def release_expired_holds(self) -> dict:
+        """The sweeper's whole job, as two statements.
+
+        Expiry is asymmetric, and the asymmetry is the point (31 header):
+          plan_id IS NULL      patient-booked. DELETED — nothing unpaid persists
+                               and the patient simply books again.
+          plan_id IS NOT NULL  protocol-born. Reverts to 'planned' with its time
+                               cleared. The doctor's prescribed DATE survives;
+                               only the slot is released. Deleting these would
+                               destroy a prescription because of a payment
+                               timeout.
+
+        start_time and end_time are nulled together — chk_appointments_time_pair
+        requires it — and hold_expires_at goes with them, since a 'planned' row
+        may not carry an expiry under chk_appointments_hold.
+        """
+        reverted = await self.session.execute(
+            text(
+                "UPDATE appointments SET status = 'planned', start_time = NULL, end_time = NULL, "
+                "hold_expires_at = NULL, updated_at = NOW() "
+                "WHERE status = 'selected' AND hold_expires_at < NOW() AND plan_id IS NOT NULL"
+            )
+        )
+        deleted = await self.session.execute(
+            text(
+                "DELETE FROM appointments "
+                "WHERE status = 'selected' AND hold_expires_at < NOW() AND plan_id IS NULL"
+            )
+        )
+        return {
+            "reverted_to_planned": reverted.rowcount or 0,  # type: ignore[attr-defined]
+            "deleted": deleted.rowcount or 0,  # type: ignore[attr-defined]
+        }
 
     async def update_fields(self, appointment_id: UUID, fields: dict) -> dict | None:
         if not fields:
@@ -265,3 +438,257 @@ class AppointmentAuditLogRepository:
             .all()
         )
         return [dict(r) for r in rows]
+
+
+class ClinicDeviceScheduleRepository:
+    """The pool a device_session books against (36_clinic_device_schedules.sql).
+
+    Deliberately the same shape as WeeklyScheduleRepository /
+    ScheduleOverrideRepository, because AvailabilityService's slot builder is
+    reused for both — it takes a schedule and emits slots, and does not care
+    whose schedule it was.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def list_for_clinic(self, clinic_id: UUID) -> builtins.list[dict]:
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT * FROM clinic_device_schedules WHERE clinic_id = :id "
+                        "AND is_active = TRUE ORDER BY day_of_week"
+                    ),
+                    {"id": str(clinic_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def replace_for_clinic(self, clinic_id: UUID, items: builtins.list[dict], *, created_by: UUID) -> builtins.list[dict]:
+        """Atomic delete-then-insert of a clinic's whole week.
+
+        Matches how a doctor redraws their own timetable: there is no natural
+        per-day PATCH when the admin is editing the entire week in one form.
+        """
+        await self.session.execute(text("DELETE FROM clinic_device_schedules WHERE clinic_id = :id"), {"id": str(clinic_id)})
+        out: builtins.list[dict] = []
+        for item in items:
+            sql, params = insert_returning(
+                "clinic_device_schedules", {**item, "clinic_id": str(clinic_id), "created_by": str(created_by)}
+            )
+            out.append(await fetch_one(self.session, sql, params))
+        return out
+
+    async def overrides_for_range(self, clinic_id: UUID, from_date, to_date) -> dict:
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT * FROM clinic_device_schedule_overrides "
+                        "WHERE clinic_id = :id AND override_date BETWEEN :f AND :t"
+                    ),
+                    {"id": str(clinic_id), "f": from_date, "t": to_date},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return {r["override_date"]: dict(r) for r in rows}
+
+    async def list_overrides(self, clinic_id: UUID, *, from_date=None) -> builtins.list[dict]:
+        clause = "clinic_id = :id"
+        params: dict[str, Any] = {"id": str(clinic_id)}
+        if from_date:
+            clause += " AND override_date >= :f"
+            params["f"] = from_date
+        rows = (
+            (await self.session.execute(text(f"SELECT * FROM clinic_device_schedule_overrides WHERE {clause} ORDER BY override_date"), params))
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def create_override(self, data: dict) -> dict:
+        sql, params = insert_returning("clinic_device_schedule_overrides", data)
+        return await fetch_one(self.session, sql, params)
+
+    async def get_override(self, override_id: UUID) -> dict | None:
+        return await fetch_optional(
+            self.session,
+            text("SELECT * FROM clinic_device_schedule_overrides WHERE override_id = :id"),
+            {"id": str(override_id)},
+        )
+
+    async def delete_override(self, override_id: UUID) -> bool:
+        result = await self.session.execute(
+            text("DELETE FROM clinic_device_schedule_overrides WHERE override_id = :id"), {"id": str(override_id)}
+        )
+        return result.rowcount > 0  # type: ignore[attr-defined]
+
+    # ── capacity ────────────────────────────────────────────────────────────
+
+    async def lock_capacity_for_day(self, clinic_id: UUID, day_of_week: int) -> int | None:
+        """Takes a row lock on this clinic's weekly rule and returns its capacity.
+
+        THE LOCK IS THE ENTIRE CORRECTNESS ARGUMENT, and it must not be removed
+        as an optimisation. PostgreSQL has no constraint form meaning "at most N
+        rows matching a predicate", so capacity cannot be enforced declaratively
+        (36 header). Without FOR UPDATE, two patients booking the same slot at
+        the same instant both count 2-of-3, both pass, and the clinic is
+        overbooked with no error raised anywhere.
+
+        With it, the second booking blocks here until the first commits, then
+        counts 3-of-3 and is correctly rejected.
+
+        Returns None when the clinic has no active rule for that weekday — the
+        caller treats that as "closed", not as "unlimited".
+        """
+        return (
+            await self.session.execute(
+                text(
+                    "SELECT capacity FROM clinic_device_schedules "
+                    "WHERE clinic_id = :cid AND day_of_week = :dow AND is_active = TRUE "
+                    "FOR UPDATE"
+                ),
+                {"cid": str(clinic_id), "dow": day_of_week},
+            )
+        ).scalar_one_or_none()
+
+    async def count_device_sessions_in_slot(self, clinic_id: UUID, on_date, start_time) -> int:
+        """How many device sessions already occupy one clinic slot.
+
+        Counts only slot-occupying statuses: a 'planned' row has no time and
+        occupies nothing, and cancelled/rescheduled/completed rows have let go.
+        Backed by idx_appointments_device_capacity, whose predicate matches this
+        WHERE clause exactly.
+        """
+        return (
+            await self.session.execute(
+                text(
+                    "SELECT count(*) FROM appointments "
+                    "WHERE clinic_id = :cid AND appointment_type = 'device_session' "
+                    "AND appointment_date = :d AND start_time = :st "
+                    "AND status IN ('selected','paid','checked_in','in_progress')"
+                ),
+                {"cid": str(clinic_id), "d": on_date, "st": start_time},
+            )
+        ).scalar_one()
+
+    async def booked_counts_for_range(self, clinic_id: UUID, from_date, to_date) -> dict:
+        """(date, start_time) -> how many device sessions are booked.
+
+        One query for the whole range, so building a month of availability does
+        not fire a count per slot.
+        """
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT appointment_date, start_time, count(*) AS booked FROM appointments "
+                        "WHERE clinic_id = :cid AND appointment_type = 'device_session' "
+                        "AND appointment_date BETWEEN :f AND :t AND start_time IS NOT NULL "
+                        "AND status IN ('selected','paid','checked_in','in_progress') "
+                        "GROUP BY appointment_date, start_time"
+                    ),
+                    {"cid": str(clinic_id), "f": from_date, "t": to_date},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return {(r["appointment_date"], r["start_time"]): r["booked"] for r in rows}
+
+
+class ClinicDeviceRepository:
+    """Which device types a clinic owns (37_clinic_devices.sql).
+
+    Feeds the protocol picker at Step 1 — treatment_protocols joins this table
+    when a clinic_id is supplied — and is independently enforced by
+    trg_check_device_available_at_clinic, so filtering here is a convenience,
+    never the guarantee.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def list_for_clinic(self, clinic_id: UUID, *, active_only: bool = True) -> builtins.list[dict]:
+        clause = "cd.clinic_id = :cid"
+        if active_only:
+            clause += " AND cd.is_active"
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT cd.*, d.device_code, d.device_name, d.modality, d.phase, "
+                        "       d.is_active AS device_is_active, c.company_name "
+                        "FROM clinic_devices cd "
+                        "JOIN reference.neuromod_devices d ON d.device_id = cd.device_id "
+                        "LEFT JOIN reference.device_companies c ON c.company_id = d.company_id "
+                        f"WHERE {clause} "
+                        "ORDER BY d.modality, d.device_name"
+                    ),
+                    {"cid": str(clinic_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def get(self, clinic_device_id: UUID) -> dict | None:
+        return await fetch_optional(
+            self.session,
+            text("SELECT * FROM clinic_devices WHERE clinic_device_id = :id"),
+            {"id": str(clinic_device_id)},
+        )
+
+    async def find(self, clinic_id: UUID, device_id: UUID) -> dict | None:
+        return await fetch_optional(
+            self.session,
+            text("SELECT * FROM clinic_devices WHERE clinic_id = :cid AND device_id = :did"),
+            {"cid": str(clinic_id), "did": str(device_id)},
+        )
+
+    async def create(self, data: dict) -> dict:
+        sql, params = insert_returning("clinic_devices", data)
+        return await fetch_one(self.session, sql, params)
+
+    async def update(self, clinic_device_id: UUID, fields: dict) -> dict | None:
+        if not fields:
+            return await self.get(clinic_device_id)
+        set_clause = ", ".join(f"{k} = :{k}" for k in fields)
+        return await fetch_optional(
+            self.session,
+            text(f"UPDATE clinic_devices SET {set_clause}, updated_at = NOW() WHERE clinic_device_id = :id RETURNING *"),
+            {**fields, "id": str(clinic_device_id)},
+        )
+
+    async def delete(self, clinic_device_id: UUID) -> bool:
+        result = await self.session.execute(
+            text("DELETE FROM clinic_devices WHERE clinic_device_id = :id"), {"id": str(clinic_device_id)}
+        )
+        return result.rowcount > 0  # type: ignore[attr-defined]
+
+    async def is_used_by_a_protocol(self, clinic_id: UUID, device_id: UUID) -> bool:
+        """Has any protocol at this clinic ever prescribed this device?
+
+        If so the inventory row should be deactivated rather than deleted —
+        deleting it would leave a historic protocol pointing at a device the
+        clinic has no record of owning.
+        """
+        row = (
+            await self.session.execute(
+                text(
+                    "SELECT 1 FROM treatment_protocols tp "
+                    "JOIN treatment_plans pl ON pl.plan_id = tp.plan_id "
+                    "JOIN treatment_cycles tc ON tc.cycle_id = pl.cycle_id "
+                    "WHERE tc.clinic_id = :cid AND tp.device_id = :did LIMIT 1"
+                ),
+                {"cid": str(clinic_id), "did": str(device_id)},
+            )
+        ).first()
+        return row is not None

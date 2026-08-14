@@ -109,8 +109,10 @@ class CatalogueService:
     async def list_companies(self, *, active_only: bool = True) -> builtins.list[dict]:
         return await self.repo.list_companies(active_only=active_only)
 
-    async def list_devices(self, *, phase: int | None = None, active_only: bool = True) -> builtins.list[dict]:
-        return await self.repo.list_devices(phase=phase, active_only=active_only)
+    async def list_devices(
+        self, *, phase: int | None = None, active_only: bool = True, clinic_id: UUID | None = None
+    ) -> builtins.list[dict]:
+        return await self.repo.list_devices(phase=phase, active_only=active_only, clinic_id=clinic_id)
 
     async def get_device_or_404(self, device_id: UUID) -> dict:
         device = await self.repo.get_device(device_id)
