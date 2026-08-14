@@ -24,6 +24,7 @@ _APPT_SELECT = (
     "LEFT JOIN doctors dd ON dd.profile_id = a.doctor_id "
 )
 
+
 class WeeklyScheduleRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
