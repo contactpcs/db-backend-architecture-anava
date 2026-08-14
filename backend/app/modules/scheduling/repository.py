@@ -46,6 +46,7 @@ _APPT_SELECT = (
     "LEFT JOIN profiles rp ON rp.id = tp.doctor_id "
 )
 
+
 class WeeklyScheduleRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -171,8 +172,7 @@ class AppointmentRepository:
         row = (
             await self.session.execute(
                 text(
-                    "SELECT 1 FROM appointments WHERE patient_id = :pid "
-                    "AND appointment_type = 'initial' AND status = 'completed' LIMIT 1"
+                    "SELECT 1 FROM appointments WHERE patient_id = :pid AND appointment_type = 'initial' AND status = 'completed' LIMIT 1"
                 ),
                 {"pid": str(patient_profile_id)},
             )
@@ -319,9 +319,7 @@ class AppointmentRepository:
             params,
         )
 
-    async def claim_slot(
-        self, appointment_id: UUID, *, start_time, end_time, hold_expires_at, status: str
-    ) -> dict | None:
+    async def claim_slot(self, appointment_id: UUID, *, start_time, end_time, hold_expires_at, status: str) -> dict | None:
         """Puts a time on a row and moves it to 'selected' (or straight to
         'paid' when payment is bypassed).
 
@@ -387,10 +385,7 @@ class AppointmentRepository:
             )
         )
         deleted = await self.session.execute(
-            text(
-                "DELETE FROM appointments "
-                "WHERE status = 'selected' AND hold_expires_at < NOW() AND plan_id IS NULL"
-            )
+            text("DELETE FROM appointments WHERE status = 'selected' AND hold_expires_at < NOW() AND plan_id IS NULL")
         )
         return {
             "reverted_to_planned": reverted.rowcount or 0,  # type: ignore[attr-defined]
@@ -456,10 +451,7 @@ class ClinicDeviceScheduleRepository:
         rows = (
             (
                 await self.session.execute(
-                    text(
-                        "SELECT * FROM clinic_device_schedules WHERE clinic_id = :id "
-                        "AND is_active = TRUE ORDER BY day_of_week"
-                    ),
+                    text("SELECT * FROM clinic_device_schedules WHERE clinic_id = :id AND is_active = TRUE ORDER BY day_of_week"),
                     {"id": str(clinic_id)},
                 )
             )
@@ -477,9 +469,7 @@ class ClinicDeviceScheduleRepository:
         await self.session.execute(text("DELETE FROM clinic_device_schedules WHERE clinic_id = :id"), {"id": str(clinic_id)})
         out: builtins.list[dict] = []
         for item in items:
-            sql, params = insert_returning(
-                "clinic_device_schedules", {**item, "clinic_id": str(clinic_id), "created_by": str(created_by)}
-            )
+            sql, params = insert_returning("clinic_device_schedules", {**item, "clinic_id": str(clinic_id), "created_by": str(created_by)})
             out.append(await fetch_one(self.session, sql, params))
         return out
 
@@ -487,10 +477,7 @@ class ClinicDeviceScheduleRepository:
         rows = (
             (
                 await self.session.execute(
-                    text(
-                        "SELECT * FROM clinic_device_schedule_overrides "
-                        "WHERE clinic_id = :id AND override_date BETWEEN :f AND :t"
-                    ),
+                    text("SELECT * FROM clinic_device_schedule_overrides WHERE clinic_id = :id AND override_date BETWEEN :f AND :t"),
                     {"id": str(clinic_id), "f": from_date, "t": to_date},
                 )
             )
@@ -506,7 +493,11 @@ class ClinicDeviceScheduleRepository:
             clause += " AND override_date >= :f"
             params["f"] = from_date
         rows = (
-            (await self.session.execute(text(f"SELECT * FROM clinic_device_schedule_overrides WHERE {clause} ORDER BY override_date"), params))
+            (
+                await self.session.execute(
+                    text(f"SELECT * FROM clinic_device_schedule_overrides WHERE {clause} ORDER BY override_date"), params
+                )
+            )
             .mappings()
             .all()
         )
@@ -668,9 +659,7 @@ class ClinicDeviceRepository:
         )
 
     async def delete(self, clinic_device_id: UUID) -> bool:
-        result = await self.session.execute(
-            text("DELETE FROM clinic_devices WHERE clinic_device_id = :id"), {"id": str(clinic_device_id)}
-        )
+        result = await self.session.execute(text("DELETE FROM clinic_devices WHERE clinic_device_id = :id"), {"id": str(clinic_device_id)})
         return result.rowcount > 0  # type: ignore[attr-defined]
 
     async def is_used_by_a_protocol(self, clinic_id: UUID, device_id: UUID) -> bool:
