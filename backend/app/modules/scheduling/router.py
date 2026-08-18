@@ -339,85 +339,102 @@ async def cancel_own(
 # ═══════════════════════════════════════════════════════════════════════════
 # Clinic device schedule — clinic-admin side
 #
-# When device sessions can run at this clinic, and how many at once. This is the
-# pool device_session appointments book against; doctor calendars are managed
+# When each of the clinic's devices can run sessions, and how many at once. One
+# pool per device (clinic_device_id) — see 41_device_capacity_per_device.sql —
+# not one blanket number for the whole clinic. Doctor calendars are managed
 # separately above and are untouched by any of this.
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-@router.get("/clinics/{clinic_id}/device-schedules", response_model=list[s.DeviceScheduleRead])
+@router.get("/clinics/{clinic_id}/device-schedules", response_model=list[s.ClinicDeviceScheduleOverview])
 async def list_device_schedules(
     clinic_id: UUID,
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
-    """Readable by patients too — they need the clinic device hours to
-    understand which slots exist before claiming one. Exposes opening hours and
-    a capacity number, no patient data."""
-    return await ClinicDeviceScheduleService(db).list_week(clinic_id, ctx)
+    """Every device this clinic owns, each with its current week (empty if
+    unset). Readable by patients too — they need the device hours to understand
+    which slots exist before claiming one. Exposes opening hours and a capacity
+    number, no patient data."""
+    return await ClinicDeviceScheduleService(db).overview(clinic_id, ctx)
 
 
-@router.put("/clinics/{clinic_id}/device-schedules", response_model=list[s.DeviceScheduleRead])
-async def replace_device_schedules(
+@router.get("/clinics/{clinic_id}/devices/{clinic_device_id}/schedule", response_model=list[s.DeviceScheduleRead])
+async def get_device_schedule(
     clinic_id: UUID,
+    clinic_device_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    return await ClinicDeviceScheduleService(db).device_week(clinic_id, clinic_device_id, ctx)
+
+
+@router.put("/clinics/{clinic_id}/devices/{clinic_device_id}/schedule", response_model=list[s.DeviceScheduleRead])
+async def replace_device_schedule(
+    clinic_id: UUID,
+    clinic_device_id: UUID,
     body: s.DeviceScheduleReplace,
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_DEVICE_SCHEDULE_ADMINS)),
 ):
-    """Atomic replace of the whole device week — same shape as a doctor
+    """Atomic replace of one device's whole week — same shape as a doctor
     redrawing their own timetable."""
     items = [item.model_dump() for item in body.items]
-    return await ClinicDeviceScheduleService(db).replace_week(clinic_id, items, ctx)
+    return await ClinicDeviceScheduleService(db).replace_device_week(clinic_id, clinic_device_id, items, ctx)
 
 
-@router.get("/clinics/{clinic_id}/device-schedule-overrides", response_model=list[s.DeviceOverrideRead])
+@router.get("/clinics/{clinic_id}/devices/{clinic_device_id}/schedule/overrides", response_model=list[s.DeviceOverrideRead])
 async def list_device_overrides(
     clinic_id: UUID,
+    clinic_device_id: UUID,
     from_date: date | None = None,
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
-    return await ClinicDeviceScheduleService(db).list_overrides(clinic_id, ctx, from_date=from_date)
+    return await ClinicDeviceScheduleService(db).device_overrides(clinic_id, clinic_device_id, ctx, from_date=from_date)
 
 
-@router.post("/clinics/{clinic_id}/device-schedule-overrides", response_model=s.DeviceOverrideRead, status_code=201)
+@router.post(
+    "/clinics/{clinic_id}/devices/{clinic_device_id}/schedule/overrides", response_model=s.DeviceOverrideRead, status_code=201
+)
 async def create_device_override(
     clinic_id: UUID,
+    clinic_device_id: UUID,
     body: s.DeviceOverrideCreate,
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_DEVICE_SCHEDULE_ADMINS)),
 ):
     """A single-day exception: a closure, different hours, or reduced capacity
-    because a device is out for service or an assistant is on leave."""
-    return await ClinicDeviceScheduleService(db).create_override(clinic_id, body.model_dump(), ctx)
+    because this device is out for service or an assistant is on leave."""
+    return await ClinicDeviceScheduleService(db).create_device_override(clinic_id, clinic_device_id, body.model_dump(), ctx)
 
 
-@router.delete("/clinics/{clinic_id}/device-schedule-overrides/{override_id}", status_code=204)
+@router.delete("/clinics/{clinic_id}/devices/{clinic_device_id}/schedule/overrides/{override_id}", status_code=204)
 async def delete_device_override(
     clinic_id: UUID,
+    clinic_device_id: UUID,
     override_id: UUID,
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_DEVICE_SCHEDULE_ADMINS)),
 ):
-    await ClinicDeviceScheduleService(db).delete_override(clinic_id, override_id, ctx)
+    await ClinicDeviceScheduleService(db).delete_device_override(clinic_id, clinic_device_id, override_id, ctx)
 
 
-@router.get("/clinics/{clinic_id}/device-availability", response_model=list[s.DeviceSlotRead])
+@router.get("/clinics/{clinic_id}/devices/{clinic_device_id}/availability", response_model=list[s.DeviceSlotRead])
 async def clinic_device_availability(
     clinic_id: UUID,
+    clinic_device_id: UUID,
     from_date: date,
     to_date: date | None = None,
     only_available: bool = False,
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
-    """Every device slot in the range with capacity, booked and remaining.
-
-    The admin capacity board and the patient slot picker ask the same question,
-    so they are the same endpoint — only_available filters it down for the
-    patient view.
-    """
-    return await DeviceCapacityService(db).open_slots(clinic_id, from_date, to_date or from_date, only_available=only_available)
+    """Every slot in the range for ONE device, with capacity, booked and
+    remaining. The admin capacity board and the patient slot picker ask the
+    same question, so they are the same endpoint — only_available filters it
+    down for the patient view."""
+    return await DeviceCapacityService(db).open_slots(clinic_device_id, from_date, to_date or from_date, only_available=only_available)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

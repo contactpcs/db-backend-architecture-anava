@@ -707,17 +707,17 @@ class DeviceCapacityService:
         self.appointments = AppointmentRepository(session)
 
     async def open_slots(
-        self, clinic_id: UUID, from_date: dt.date, to_date: dt.date, *, only_available: bool = False
+        self, clinic_device_id: UUID, from_date: dt.date, to_date: dt.date, *, only_available: bool = False
     ) -> builtins.list[dict]:
         if to_date < from_date:
             raise BusinessRuleError("to_date must not be before from_date", code="INVALID_DATE_RANGE")
         if (to_date - from_date).days > 60:
             raise BusinessRuleError("Date range too large (max 60 days)", code="AVAILABILITY_RANGE_TOO_LARGE")
 
-        weekly = await self.repo.list_for_clinic(clinic_id)
-        overrides = await self.repo.overrides_for_range(clinic_id, from_date, to_date)
+        weekly = await self.repo.list_for_device(clinic_device_id)
+        overrides = await self.repo.overrides_for_range(clinic_device_id, from_date, to_date)
         # One grouped query for the whole range rather than a count per slot.
-        booked = await self.repo.booked_counts_for_range(clinic_id, from_date, to_date)
+        booked = await self.repo.booked_counts_for_range(clinic_device_id, from_date, to_date)
 
         out: builtins.list[dict] = []
         current = from_date
@@ -728,13 +728,13 @@ class DeviceCapacityService:
             out = [s for s in out if s["is_available"]]
         return out
 
-    async def reserve(self, clinic_id: UUID, on_date: dt.date, start_time: dt.time) -> int:
-        """Verifies one more device session fits in this slot, and holds that
-        answer until the caller's transaction commits.
+    async def reserve(self, clinic_device_id: UUID, on_date: dt.date, start_time: dt.time) -> int:
+        """Verifies one more session fits in this slot on THIS device, and holds
+        that answer until the caller's transaction commits.
 
         THE LOCK IS THE WHOLE CORRECTNESS ARGUMENT. Without FOR UPDATE, two
         patients claiming the same slot simultaneously both read 2-of-3, both
-        pass this check, and the clinic is overbooked with no error raised
+        pass this check, and the device is overbooked with no error raised
         anywhere. With it, the second blocks here until the first commits, then
         reads 3-of-3 and is correctly rejected.
 
@@ -742,25 +742,25 @@ class DeviceCapacityService:
         Returns the slot duration in minutes so the caller can derive end_time.
         """
         dow = on_date.isoweekday() % 7
-        capacity = await self.repo.lock_capacity_for_day(clinic_id, dow)
+        capacity = await self.repo.lock_capacity_for_day(clinic_device_id, dow)
         if capacity is None:
-            raise ConflictError("This clinic runs no device sessions on that day", code="DEVICE_SCHEDULE_CLOSED")
+            raise ConflictError("This device runs no sessions on that day", code="DEVICE_SCHEDULE_CLOSED")
 
-        override = (await self.repo.overrides_for_range(clinic_id, on_date, on_date)).get(on_date)
+        override = (await self.repo.overrides_for_range(clinic_device_id, on_date, on_date)).get(on_date)
         if override:
             if not override["is_available"]:
-                raise ConflictError("The clinic is closed for device sessions on that date", code="DEVICE_SCHEDULE_CLOSED")
+                raise ConflictError("The device is closed for sessions on that date", code="DEVICE_SCHEDULE_CLOSED")
             if override["capacity"]:
                 capacity = override["capacity"]
 
-        booked = await self.repo.count_device_sessions_in_slot(clinic_id, on_date, start_time)
+        booked = await self.repo.count_device_sessions_in_slot(clinic_device_id, on_date, start_time)
         if booked >= capacity:
             raise ConflictError(
                 f"That device slot is full ({booked} of {capacity} taken)",
                 code="DEVICE_SLOT_FULL",
             )
 
-        weekly = await self.repo.list_for_clinic(clinic_id)
+        weekly = await self.repo.list_for_device(clinic_device_id)
         rule = next((w for w in weekly if w["day_of_week"] == dow), None)
         return (rule and rule["slot_duration_minutes"]) or DEFAULT_SLOT_MINUTES
 
@@ -837,7 +837,7 @@ class PatientBookingService:
                 "Only a device session books against clinic device capacity",
                 code="NOT_A_DEVICE_SESSION",
             )
-        return await self.capacity.open_slots(appt["clinic_id"], from_date, to_date, only_available=True)
+        return await self.capacity.open_slots(appt["clinic_device_id"], from_date, to_date, only_available=True)
 
     # ── booking ─────────────────────────────────────────────────────────────
 
@@ -944,7 +944,7 @@ class PatientBookingService:
         if appt["appointment_type"] == TYPE_DEVICE_SESSION:
             # Counted check under a row lock. Held until this transaction
             # commits, which is what stops two patients taking the last slot.
-            duration = await self.capacity.reserve(appt["clinic_id"], on_date, start_time)
+            duration = await self.capacity.reserve(appt["clinic_device_id"], on_date, start_time)
         else:
             doctor_profile_id = UUID(str(appt["doctor_id"]))
             is_available, duration = await self.availability.check_slot(doctor_profile_id, on_date, start_time)
@@ -1061,57 +1061,96 @@ class PatientBookingService:
 
 
 class ClinicDeviceScheduleService:
-    """Clinic-admin side: when device sessions run, and how many at once."""
+    """Clinic-admin side: when each of the clinic's devices runs sessions, and
+    how many at once. One pool per device (clinic_devices.clinic_device_id),
+    not one blanket number for the whole clinic — see 41's file header."""
 
     def __init__(self, session: AsyncSession):
         self.session = session
         self.repo = ClinicDeviceScheduleRepository(session)
+        self.devices = ClinicDeviceRepository(session)
 
-    async def list_week(self, clinic_id: UUID, ctx: RequestContext) -> builtins.list[dict]:
+    async def _own_device(self, clinic_id: UUID, clinic_device_id: UUID) -> dict:
+        """Resolves the device and confirms it belongs to this clinic — the
+        same cross-clinic guard the DB's composite FK enforces, checked early
+        so a mismatched pair 404s instead of surfacing as a constraint error."""
+        row = await self.devices.get(clinic_device_id)
+        if not row or str(row["clinic_id"]) != str(clinic_id):
+            raise NotFoundError("Device not found at this clinic", code="CLINIC_DEVICE_NOT_FOUND")
+        return row
+
+    async def overview(self, clinic_id: UUID, ctx: RequestContext) -> builtins.list[dict]:
+        """Every device this clinic owns, each with its current week (empty if
+        unset yet) — the admin landing screen."""
         await assert_clinic_scope(ctx, self.session, clinic_id)
-        return await self.repo.list_for_clinic(clinic_id)
+        devices = await self.devices.list_for_clinic(clinic_id, active_only=True)
+        weeks = await self.repo.list_for_devices([d["clinic_device_id"] for d in devices])
+        return [{**d, "week": weeks.get(d["clinic_device_id"], [])} for d in devices]
 
-    async def replace_week(self, clinic_id: UUID, items: builtins.list[dict], ctx: RequestContext) -> builtins.list[dict]:
-        """Atomic replace of the clinic's whole device week.
+    async def device_week(self, clinic_id: UUID, clinic_device_id: UUID, ctx: RequestContext) -> builtins.list[dict]:
+        await assert_clinic_scope(ctx, self.session, clinic_id)
+        await self._own_device(clinic_id, clinic_device_id)
+        return await self.repo.list_for_device(clinic_device_id)
+
+    async def replace_device_week(
+        self, clinic_id: UUID, clinic_device_id: UUID, items: builtins.list[dict], ctx: RequestContext
+    ) -> builtins.list[dict]:
+        """Atomic replace of one device's whole week.
 
         Same shape as a doctor redrawing their own timetable: there is no
         natural per-day PATCH when the admin is editing the entire week in one
         form, and a partial write would leave a half-open schedule.
         """
         await assert_clinic_scope(ctx, self.session, clinic_id)
+        await self._own_device(clinic_id, clinic_device_id)
         days = [i["day_of_week"] for i in items]
         if len(days) != len(set(days)):
             raise BusinessRuleError("Each weekday may appear only once", code="DUPLICATE_WEEKDAY")
-        rows = await self.repo.replace_for_clinic(clinic_id, items, created_by=UUID(ctx.user_id))
+        rows = await self.repo.replace_for_device(clinic_device_id, clinic_id, items, created_by=UUID(ctx.user_id))
         await emit_event(
             self.session,
             aggregate_type="clinic_device_schedule",
-            aggregate_id=clinic_id,
+            aggregate_id=clinic_device_id,
             event_type="clinic_device_schedule_updated",
-            payload={"clinic_id": str(clinic_id), "day_count": len(rows)},
+            payload={"clinic_id": str(clinic_id), "clinic_device_id": str(clinic_device_id), "day_count": len(rows)},
         )
         return rows
 
-    async def list_overrides(self, clinic_id: UUID, ctx: RequestContext, *, from_date=None) -> builtins.list[dict]:
+    async def device_overrides(
+        self, clinic_id: UUID, clinic_device_id: UUID, ctx: RequestContext, *, from_date=None
+    ) -> builtins.list[dict]:
         await assert_clinic_scope(ctx, self.session, clinic_id)
-        return await self.repo.list_overrides(clinic_id, from_date=from_date)
+        await self._own_device(clinic_id, clinic_device_id)
+        return await self.repo.list_overrides(clinic_device_id, from_date=from_date)
 
-    async def create_override(self, clinic_id: UUID, data: dict, ctx: RequestContext) -> dict:
+    async def create_device_override(self, clinic_id: UUID, clinic_device_id: UUID, data: dict, ctx: RequestContext) -> dict:
         await assert_clinic_scope(ctx, self.session, clinic_id)
-        return await self.repo.create_override({**data, "clinic_id": str(clinic_id), "created_by": ctx.user_id})
+        await self._own_device(clinic_id, clinic_device_id)
+        return await self.repo.create_override(
+            {**data, "clinic_device_id": str(clinic_device_id), "clinic_id": str(clinic_id), "created_by": ctx.user_id}
+        )
 
-    async def delete_override(self, clinic_id: UUID, override_id: UUID, ctx: RequestContext) -> None:
+    async def delete_device_override(self, clinic_id: UUID, clinic_device_id: UUID, override_id: UUID, ctx: RequestContext) -> None:
         await assert_clinic_scope(ctx, self.session, clinic_id)
         row = await self.repo.get_override(override_id)
-        if not row or str(row["clinic_id"]) != str(clinic_id):
+        if not row or str(row["clinic_device_id"]) != str(clinic_device_id) or str(row["clinic_id"]) != str(clinic_id):
             raise NotFoundError("Override not found", code="OVERRIDE_NOT_FOUND")
         await self.repo.delete_override(override_id)
 
     async def capacity_board(self, clinic_id: UUID, ctx: RequestContext, from_date: dt.date, to_date: dt.date) -> builtins.list[dict]:
-        """Every device slot in the range with capacity, booked and remaining —
-        the admin's view of how full the clinic is."""
+        """Every device's slots in the range, capacity/booked/remaining — the
+        admin's view of how full the clinic is. One pool per device now, so
+        this loops each device rather than issuing one clinic-wide query (41
+        open item 1) — fine at today's per-clinic device counts."""
         await assert_clinic_scope(ctx, self.session, clinic_id)
-        return await DeviceCapacityService(self.session).open_slots(clinic_id, from_date, to_date)
+        devices = await self.devices.list_for_clinic(clinic_id, active_only=True)
+        capacity = DeviceCapacityService(self.session)
+        out: builtins.list[dict] = []
+        for d in devices:
+            slots = await capacity.open_slots(d["clinic_device_id"], from_date, to_date)
+            for slot in slots:
+                out.append({**slot, "clinic_device_id": d["clinic_device_id"], "device_name": d.get("device_name")})
+        return out
 
 
 class ClinicDeviceService:
