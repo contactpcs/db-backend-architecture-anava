@@ -1252,4 +1252,16 @@ class ClinicDeviceService:
                 "A protocol at this clinic has prescribed this device — deactivate it instead of deleting",
                 code="CLINIC_DEVICE_IN_USE",
             )
-        await self.repo.delete(clinic_device_id)
+        # is_used_by_a_protocol only catches treatment_protocols.device_id
+        # (the catalogue device). clinic_device_schedules, its overrides, and
+        # appointments.clinic_device_id all FK to THIS row (clinic_device_id)
+        # with ON DELETE RESTRICT — a device with a schedule configured but
+        # never actually prescribed passes the check above and hits the DB
+        # constraint instead. Same guidance either way: retire, don't delete.
+        try:
+            await self.repo.delete(clinic_device_id)
+        except IntegrityError as exc:
+            raise ConflictError(
+                "This device has schedules or appointments on record — deactivate it instead of deleting",
+                code="CLINIC_DEVICE_IN_USE",
+            ) from exc
