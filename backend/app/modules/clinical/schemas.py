@@ -113,7 +113,13 @@ class TreatmentPlanRead(BaseModel):
     device_type: str
     sessions_prescribed: int
     standard_sessions: int
-    extended_sessions: int
+    # Nullable in the DB (05_tables_core.sql: "extended_sessions" INTEGER, no
+    # NOT NULL and no default) — sessions beyond the standard allowance, which
+    # do not exist until some are added. Declaring it a bare int made every
+    # create return 500: the INSERT succeeded, then response serialization
+    # rejected the NULL and the transaction rolled back, so the plan silently
+    # never persisted.
+    extended_sessions: int | None = None
     status: str
     parent_plan_id: UUID | None
     created_at: datetime
