@@ -59,7 +59,9 @@ class AnamnesisAssessmentRepository:
         )
         return row["v"]
 
-    async def create(self, *, patient_id: UUID, submitted_by: UUID, taken_by: str, cycle_id, version: int) -> dict:
+    async def create(
+        self, *, patient_id: UUID, submitted_by: UUID, taken_by: str, cycle_id, version: int, assessment_stage: str
+    ) -> dict:
         # '-' not '/' — this ID is used as a URL path parameter
         # (GET/PATCH /anamnesis/{anamnesis_id}); '/' is a path separator and
         # breaks routing (a real bug hit and fixed during Stage 5 testing).
@@ -67,8 +69,8 @@ class AnamnesisAssessmentRepository:
         return await fetch_one(
             self.session,
             text(
-                "INSERT INTO anamnesis_assessments (anamnesis_id, patient_id, submitted_by, taken_by, cycle_id, version) "
-                "VALUES (:id, :patient_id, :submitted_by, :taken_by, :cycle_id, :version) RETURNING *"
+                "INSERT INTO anamnesis_assessments (anamnesis_id, patient_id, submitted_by, taken_by, cycle_id, version, assessment_stage) "
+                "VALUES (:id, :patient_id, :submitted_by, :taken_by, :cycle_id, :version, :assessment_stage) RETURNING *"
             ),
             {
                 "id": anamnesis_id,
@@ -77,6 +79,7 @@ class AnamnesisAssessmentRepository:
                 "taken_by": taken_by,
                 "cycle_id": str(cycle_id) if cycle_id else None,
                 "version": version,
+                "assessment_stage": assessment_stage,
             },
         )
 

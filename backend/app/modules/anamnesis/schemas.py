@@ -28,6 +28,7 @@ class AnamnesisQuestionRead(BaseModel):
 
 class AnamnesisStart(BaseModel):
     taken_by: str = "patient"
+    assessment_stage: str = "general_registration"
 
 
 class ResponseItem(BaseModel):
@@ -48,6 +49,7 @@ class AnamnesisAssessmentRead(BaseModel):
     taken_by: str
     cycle_id: UUID | None
     version: int
+    assessment_stage: str
     status: str
     completed_at: datetime | None
     created_at: datetime

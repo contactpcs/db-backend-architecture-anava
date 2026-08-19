@@ -26,7 +26,9 @@ async def start_anamnesis(
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     await assert_patient_self(ctx, db, patient_id)
-    return await AnamnesisService(db).start(patient_id, submitted_by=UUID(ctx.user_id), taken_by=body.taken_by)
+    return await AnamnesisService(db).start(
+        patient_id, submitted_by=UUID(ctx.user_id), taken_by=body.taken_by, assessment_stage=body.assessment_stage
+    )
 
 
 @router.get("/patients/{patient_id}/anamnesis", response_model=s.AnamnesisAssessmentRead)

@@ -28,11 +28,18 @@ class AnamnesisService:
         self.assessments = AnamnesisAssessmentRepository(session)
         self.responses = AnamnesisResponseRepository(session)
 
-    async def start(self, patient_id: UUID, *, submitted_by: UUID, taken_by: str, cycle_id=None) -> dict:
+    async def start(
+        self, patient_id: UUID, *, submitted_by: UUID, taken_by: str, cycle_id=None, assessment_stage: str = "general_registration"
+    ) -> dict:
         profile_id = await _resolve_profile_id(self.session, patient_id)
         next_version = await self.assessments.latest_version(profile_id) + 1
         assessment = await self.assessments.create(
-            patient_id=profile_id, submitted_by=submitted_by, taken_by=taken_by, cycle_id=cycle_id, version=next_version
+            patient_id=profile_id,
+            submitted_by=submitted_by,
+            taken_by=taken_by,
+            cycle_id=cycle_id,
+            version=next_version,
+            assessment_stage=assessment_stage,
         )
         await emit_event(
             self.session,
