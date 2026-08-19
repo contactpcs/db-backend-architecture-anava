@@ -21,16 +21,18 @@ class PaymentRepository:
         currency: str,
         idempotency_key: str,
         razorpay_order_id: str | None = None,
+        appointment_id=None,
     ) -> dict:
         return await fetch_one(
             self.session,
             text(
-                "INSERT INTO payments (session_id, order_id, amount, currency, idempotency_key, razorpay_order_id) "
-                "VALUES (:session_id, :order_id, :amount, :currency, :idem, :rzp_order) RETURNING *"
+                "INSERT INTO payments (session_id, order_id, appointment_id, amount, currency, idempotency_key, razorpay_order_id) "
+                "VALUES (:session_id, :order_id, :appointment_id, :amount, :currency, :idem, :rzp_order) RETURNING *"
             ),
             {
                 "session_id": str(session_id) if session_id else None,
                 "order_id": str(order_id) if order_id else None,
+                "appointment_id": str(appointment_id) if appointment_id else None,
                 "amount": amount,
                 "currency": currency,
                 "idem": idempotency_key,
@@ -40,6 +42,16 @@ class PaymentRepository:
 
     async def get_by_razorpay_order_id(self, razorpay_order_id: str) -> dict | None:
         return await fetch_optional(self.session, text("SELECT * FROM payments WHERE razorpay_order_id = :id"), {"id": razorpay_order_id})
+
+    async def get_for_appointment(self, appointment_id) -> dict | None:
+        """Most recent payment against an appointment — used to resume an
+        in-progress mock checkout instead of spawning a duplicate order on
+        every retry, same idea as get_for_session below."""
+        return await fetch_optional(
+            self.session,
+            text("SELECT * FROM payments WHERE appointment_id = :id ORDER BY created_at DESC LIMIT 1"),
+            {"id": str(appointment_id)},
+        )
 
     async def get(self, payment_id: UUID) -> dict | None:
         return await fetch_optional(self.session, text("SELECT * FROM payments WHERE payment_id = :id"), {"id": str(payment_id)})
@@ -54,10 +66,11 @@ class PaymentRepository:
         row = await fetch_optional(
             self.session,
             text(
-                "SELECT COALESCE(sess.patient_id, so.patient_id) AS owner_profile_id "
+                "SELECT COALESCE(sess.patient_id, so.patient_id, appt.patient_id) AS owner_profile_id "
                 "FROM payments p "
                 "LEFT JOIN sessions sess ON sess.session_id = p.session_id "
                 "LEFT JOIN store_orders so ON so.order_id = p.order_id "
+                "LEFT JOIN appointments appt ON appt.appointment_id = p.appointment_id "
                 "WHERE p.payment_id = :id"
             ),
             {"id": str(payment_id)},
@@ -82,7 +95,8 @@ class PaymentRepository:
                         "SELECT p.* FROM payments p "
                         "LEFT JOIN sessions sess ON sess.session_id = p.session_id "
                         "LEFT JOIN store_orders so ON so.order_id = p.order_id "
-                        "WHERE COALESCE(sess.clinic_id, so.clinic_id) = :clinic_id "
+                        "LEFT JOIN appointments appt ON appt.appointment_id = p.appointment_id "
+                        "WHERE COALESCE(sess.clinic_id, so.clinic_id, appt.clinic_id) = :clinic_id "
                         "ORDER BY p.created_at DESC"
                     ),
                     {"clinic_id": str(clinic_id)},

@@ -4,10 +4,20 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db import RequestContext
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, NotFoundError
+from app.core.scoping import assert_clinic_scope, assert_owns_profile
 from app.integrations import razorpay as razorpay_client
 from app.modules.payments.repository import PaymentRepository
+
+# ponytail: flat placeholder until reference.billable_items pricing lands
+# (Anava_Payments_Implementation_Plan_v3 §7 resolve_price) — that engine
+# needs seeded catalog prices nobody has supplied yet (plan §16 Q5/Q6). This
+# mock flow only needs *a* number to show on a Razorpay-shaped checkout
+# screen; swap this constant for a real resolve_price() call once the
+# catalog is seeded and pricing is approved.
+MOCK_APPOINTMENT_AMOUNT = 500.00
 
 
 class PaymentService:
@@ -124,4 +134,101 @@ class PaymentService:
                 text("UPDATE treatment_sessions SET payment_status = :status WHERE session_id = :sid"),
                 {"status": status, "sid": str(updated["session_id"])},
             )
+        return updated  # type: ignore[return-value]
+
+    # ── mock payment (dummy checkout, real appointment lifecycle) ────────────
+    #
+    # Same two-step shape a real gateway would have (create an order, then
+    # confirm it) so this can be swapped for the real Razorpay flow later
+    # without the frontend checkout screen changing shape. The only thing
+    # "mock" about it is that confirm_mock_payment marks itself paid on the
+    # caller's say-so instead of a signed webhook.
+
+    async def _get_appointment_for_pay(self, appointment_id: UUID, ctx: RequestContext) -> dict:
+        from app.modules.scheduling.service import AppointmentService
+
+        appt = await AppointmentService(self.session).get(appointment_id)
+        if ctx.role == "patient":
+            assert_owns_profile(ctx, appt["patient_id"])
+        else:
+            await assert_clinic_scope(ctx, self.session, appt["clinic_id"])
+        return appt
+
+    async def create_mock_order(self, appointment_id: UUID, ctx: RequestContext) -> dict:
+        appt = await self._get_appointment_for_pay(appointment_id, ctx)
+
+        existing = await self.repo.get_for_appointment(appointment_id)
+        if existing and existing["status"] in ("pending", "paid"):
+            return existing
+
+        if appt["status"] != "selected":
+            raise BusinessRuleError(
+                f"Appointment is '{appt['status']}', not awaiting payment", code="NOT_AWAITING_PAYMENT"
+            )
+
+        rzp_order = razorpay_client.create_order(
+            amount=MOCK_APPOINTMENT_AMOUNT, currency="INR", receipt=f"appt-{appointment_id}"
+        )
+        payment = await self.repo.create(
+            session_id=None,
+            order_id=None,
+            appointment_id=appointment_id,
+            amount=MOCK_APPOINTMENT_AMOUNT,
+            currency="INR",
+            idempotency_key=rzp_order["id"],
+            razorpay_order_id=rzp_order["id"],
+        )
+        await emit_event(
+            self.session,
+            aggregate_type="payment",
+            aggregate_id=payment["payment_id"],
+            event_type="payment_created",
+            payload={
+                "payment_id": str(payment["payment_id"]),
+                "appointment_id": str(appointment_id),
+                "amount": MOCK_APPOINTMENT_AMOUNT,
+                "razorpay_order_id": rzp_order["id"],
+            },
+        )
+        return payment
+
+    async def confirm_mock_payment(self, payment_id: UUID, ctx: RequestContext) -> dict:
+        from app.core.db import text_set_local
+        from app.modules.scheduling.service import PatientBookingService
+
+        payment = await self.get(payment_id)
+        if not payment.get("appointment_id"):
+            raise BusinessRuleError("Payment is not linked to an appointment", code="NOT_A_MOCK_PAYMENT")
+
+        await self._get_appointment_for_pay(payment["appointment_id"], ctx)
+
+        if payment["status"] == "paid":
+            return payment
+        if payment["status"] != "pending":
+            raise BusinessRuleError(f"Payment is '{payment['status']}', cannot confirm", code="PAYMENT_NOT_PENDING")
+
+        # The caller may be authenticated as 'patient' — rls_payments_update
+        # only grants staff/system, matching every other unattended write in
+        # this codebase (handle_webhook above does the identical thing).
+        # Ownership was already proven by _get_appointment_for_pay above.
+        await self.session.execute(text_set_local("app.current_user_role", "system"))
+        updated = await self.repo.set_status(
+            payment_id,
+            status="paid",
+            payment_method="mock",
+            waived_by=None,
+            waived_reason=None,
+            razorpay_payment_id=f"pay_mock_{payment_id.hex[:14]}",
+        )
+        await emit_event(
+            self.session,
+            aggregate_type="payment",
+            aggregate_id=payment_id,
+            event_type="payment_completed",
+            payload={"payment_id": str(payment_id), "appointment_id": str(payment["appointment_id"]), "status": "paid"},
+        )
+
+        await PatientBookingService(self.session).mark_paid(
+            payment["appointment_id"], changed_by=UUID(ctx.user_id), changed_by_role=ctx.role
+        )
         return updated  # type: ignore[return-value]

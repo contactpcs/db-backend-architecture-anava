@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     # releasing abandoned holds, and the payment webhook calls mark_paid().
     # No other code changes — that is the point of routing both paths through
     # the same service methods now rather than bolting payment on later.
-    appointment_payment_required: bool = False
+    appointment_payment_required: bool = True
     # How long an unpaid 'selected' slot is held before the sweeper releases it.
     # 15 minutes matches a typical gateway checkout session: long enough to
     # finish paying, short enough that abandoned holds do not starve a calendar.

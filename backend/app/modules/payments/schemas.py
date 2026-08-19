@@ -21,9 +21,12 @@ class PaymentRead(BaseModel):
     payment_id: UUID
     session_id: UUID | None
     order_id: UUID | None
+    appointment_id: UUID | None = None
     amount: float
     currency: str
     status: str
+    payment_method: str | None = None
+    razorpay_order_id: str | None = None
     waived_by: UUID | None
     paid_at: datetime | None
     created_at: datetime

@@ -57,6 +57,30 @@ async def update_payment_status(
     )
 
 
+@router.post("/appointments/{appointment_id}/payments/mock-order", response_model=s.PaymentRead, status_code=201)
+async def create_mock_payment_order(
+    appointment_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    """Step 1 of the dummy checkout — mirrors a real Razorpay order-create
+    call so the frontend checkout screen can be built against this exactly
+    like it would be against the real gateway later."""
+    return await PaymentService(db).create_mock_order(appointment_id, ctx)
+
+
+@router.post("/payments/{payment_id}/mock-confirm", response_model=s.PaymentRead)
+async def confirm_mock_payment(
+    payment_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    """Step 2 — the "Pay Now" click. Marks the payment paid and flips the
+    appointment selected -> paid in the same call (no separate webhook,
+    since there's no real gateway to call one back)."""
+    return await PaymentService(db).confirm_mock_payment(payment_id, ctx)
+
+
 @router.post("/webhooks/razorpay")
 async def razorpay_webhook(request: Request, db=Depends(get_db)):
     """Public endpoint (added to PUBLIC_PATHS) — Razorpay calls this
