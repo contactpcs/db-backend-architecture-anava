@@ -104,6 +104,24 @@ async def _get_patient_row(session: AsyncSession, *, profile_id: UUID) -> dict:
     return dict(row)
 
 
+def _initial_status_and_hold(settings) -> tuple[str, dt.datetime | None]:
+    """The payment seam, in one place.
+
+    payment_required False -> land on 'paid', no hold, sweeper idle.
+    payment_required True  -> land on 'selected' with a hold; the gateway
+                              webhook calls mark_paid() to finish.
+
+    Both satisfy chk_appointments_hold, which requires exactly the
+    'selected' rows to carry an expiry and no others. Used by every booking
+    path (patient self-booking and staff booking) — a row without one of
+    these two statuses set explicitly falls back to the DB column default
+    ('scheduled'), a value the status FSM below has no transition for at all.
+    """
+    if settings.appointment_payment_required:
+        return STATUS_SELECTED, dt.datetime.now(dt.UTC) + dt.timedelta(minutes=settings.appointment_hold_minutes)
+    return STATUS_PAID, None
+
+
 def _hours_until(appointment_date: dt.date, start_time: dt.time) -> float:
     target = dt.datetime.combine(appointment_date, start_time)
     return (target - dt.datetime.now()).total_seconds() / 3600.0
@@ -354,6 +372,7 @@ class AppointmentService:
         self.session = session
         self.repo = AppointmentRepository(session)
         self.audit = AppointmentAuditLogRepository(session)
+        self.settings = get_settings()
 
     async def create(
         self,
@@ -366,6 +385,18 @@ class AppointmentService:
         _doctor_profile_id_override=False,
     ) -> dict:
         patient_profile_id = _patient_profile_id_override or await _resolve_patient_profile_id(self.session, data["patient_id"])
+
+        # A self-registered patient starts approval_status='pending' and is
+        # not bookable until a receptionist has reviewed their ID (decide_
+        # approval in patients/service.py). Staff-registered patients are
+        # 'not_required' forever and skip this gate entirely.
+        patient = await _get_patient_row(self.session, profile_id=patient_profile_id)
+        if patient["approval_status"] not in ("not_required", "approved"):
+            raise BusinessRuleError(
+                "This patient's registration is still pending approval",
+                code="PATIENT_APPROVAL_PENDING",
+            )
+
         doctor_profile_id = (
             await _resolve_doctor_profile_id(self.session, data["doctor_id"])
             if data.get("doctor_id") and not _doctor_profile_id_override
@@ -388,6 +419,7 @@ class AppointmentService:
             or (dt.datetime.combine(data["appointment_date"], data["start_time"]) + dt.timedelta(minutes=duration)).time()
         )
 
+        status, hold = _initial_status_and_hold(self.settings)
         payload = {
             "clinic_id": str(data["clinic_id"]),
             "patient_id": str(patient_profile_id),
@@ -398,7 +430,9 @@ class AppointmentService:
             "start_time": data["start_time"],
             "end_time": end_time,
             "slot_duration_minutes": duration,
-            "appointment_type": data.get("appointment_type", "initial_assessment"),
+            "appointment_type": data.get("appointment_type", TYPE_INITIAL),
+            "status": status,
+            "hold_expires_at": hold,
             "reason": data.get("reason"),
             "patient_complaint": data.get("patient_complaint"),
             "booked_by": str(booked_by),
@@ -784,18 +818,7 @@ class PatientBookingService:
     # ── helpers ─────────────────────────────────────────────────────────────
 
     def _initial_status_and_hold(self) -> tuple[str, dt.datetime | None]:
-        """The payment seam, in one place.
-
-        payment_required False -> land on 'paid', no hold, sweeper idle.
-        payment_required True  -> land on 'selected' with a hold; the gateway
-                                  webhook calls mark_paid() to finish.
-
-        Both satisfy chk_appointments_hold, which requires exactly the
-        'selected' rows to carry an expiry and no others.
-        """
-        if self.settings.appointment_payment_required:
-            return STATUS_SELECTED, dt.datetime.now(dt.UTC) + dt.timedelta(minutes=self.settings.appointment_hold_minutes)
-        return STATUS_PAID, None
+        return _initial_status_and_hold(self.settings)
 
     async def _own_patient_row(self, ctx: RequestContext) -> dict:
         return await _get_patient_row(self.session, profile_id=UUID(ctx.user_id))
