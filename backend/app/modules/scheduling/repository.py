@@ -365,9 +365,9 @@ class AppointmentRepository:
         """The sweeper's whole job, as two statements.
 
         Expiry is asymmetric, and the asymmetry is the point (31 header):
-          plan_id IS NULL      patient-booked. DELETED — nothing unpaid persists
+          no plan_id, no protocol_id  patient-booked. DELETED — nothing unpaid persists
                                and the patient simply books again.
-          plan_id IS NOT NULL  protocol-born. Reverts to 'planned' with its time
+          plan_id OR protocol_id      protocol-born. Reverts to 'planned' with its time
                                cleared. The doctor's prescribed DATE survives;
                                only the slot is released. Deleting these would
                                destroy a prescription because of a payment
@@ -381,11 +381,14 @@ class AppointmentRepository:
             text(
                 "UPDATE appointments SET status = 'planned', start_time = NULL, end_time = NULL, "
                 "hold_expires_at = NULL, updated_at = NOW() "
-                "WHERE status = 'selected' AND hold_expires_at < NOW() AND plan_id IS NOT NULL"
+                "WHERE status = 'selected' AND hold_expires_at < NOW() "
+                "AND (plan_id IS NOT NULL OR protocol_id IS NOT NULL)"
             )
         )
         deleted = await self.session.execute(
-            text("DELETE FROM appointments WHERE status = 'selected' AND hold_expires_at < NOW() AND plan_id IS NULL")
+            text(
+                "DELETE FROM appointments WHERE status = 'selected' AND hold_expires_at < NOW() AND plan_id IS NULL AND protocol_id IS NULL"
+            )
         )
         return {
             "reverted_to_planned": reverted.rowcount or 0,  # type: ignore[attr-defined]

@@ -10,8 +10,12 @@ The rulebook, in one place, because the DB can only carry part of it:
     a TRIGGER in the schema (a CHECK cannot read another table), and a
     pre-flight check here so the caller gets a 422 with a readable message
     instead of a raised PL/pgSQL exception.
-  * Session generation writes onto the appointments spine, always with
-    plan_id set - see ProtocolSessionRepository for why that matters.
+  * Session generation writes onto the appointments spine. Device sessions
+    carry clinic_device_id (41); follow-ups must not. plan_id is stamped when
+    the protocol has one - see ProtocolSessionRepository for why that matters.
+  * A protocol hangs off a protocol_instance (45), not off a treatment_plan.
+    A plan is the clinical picture; an instance is one course of device
+    treatment. Either may parent a protocol, exactly one is required.
 """
 
 from __future__ import annotations
@@ -27,12 +31,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import RequestContext
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, ValidationError
+from app.core.resolve import resolve_patient_profile_id as _resolve_patient_profile_id
 from app.core.scoping import assert_clinic_scope
 from app.modules.treatment_protocols import schemas as s
 from app.modules.treatment_protocols.repository import (
     CatalogueRepository,
     CustomMontageRepository,
     ProtocolDetailRepository,
+    ProtocolInstanceRepository,
     ProtocolPrsRepository,
     ProtocolRepository,
     ProtocolSessionRepository,
@@ -355,6 +361,7 @@ class ProtocolService:
         self.catalogue = CatalogueRepository(session)
         self.catalogue_svc = CatalogueService(session)
         self.details = ProtocolDetailRepository(session)
+        self.instances = ProtocolInstanceRepository(session)
 
     # -- reads -------------------------------------------------------------
 
@@ -396,6 +403,13 @@ class ProtocolService:
         # what they asked for.
         if ctx.role not in ("super_admin", "regional_admin"):
             filters["clinic_id"] = UUID(ctx.clinic_id) if ctx.clinic_id else None
+        # The API takes patients.patient_id; every patient_id-shaped FK in the
+        # schema stores profiles.id (NOTES.md). Filtering on the raw API id
+        # matched nothing and returned an empty list with no error — the
+        # Treatment Protocol tab showed "no protocol yet" for a patient who
+        # had one.
+        if filters.get("patient_id"):
+            filters["patient_id"] = await _resolve_patient_profile_id(self.session, filters["patient_id"])
         return await self.repo.list(**filters)
 
     async def list_sessions(self, protocol_id: UUID, ctx: RequestContext, *, appointment_type: str | None = None) -> builtins.list[dict]:
@@ -408,10 +422,12 @@ class ProtocolService:
     async def create(self, body: s.ProtocolCreate, ctx: RequestContext) -> dict:
         """Step 8. Creates the protocol and every appointment in one
         transaction, so a partially-booked course can never exist."""
-        plan = await self.repo.plan_context(body.plan_id)
-        if not plan:
-            raise NotFoundError("Treatment plan not found", code="PLAN_NOT_FOUND")
-        await assert_clinic_scope(ctx, self.session, plan["clinic_id"])
+        # 45 re-parented the protocol onto protocol_instances. Resolve
+        # whichever parent the caller gave into one shape the rest of this
+        # method can use — patient, doctor, clinic, and the plan_id to stamp
+        # onto generated appointments (which may legitimately be None now).
+        parent = await self._resolve_parent(body)
+        await assert_clinic_scope(ctx, self.session, parent["clinic_id"])
 
         device = await self.catalogue_svc.get_device_or_404(body.device_id)
         if not device["is_active"]:
@@ -443,7 +459,7 @@ class ProtocolService:
         # _at_clinic (37) enforces this, but a readable 422 beats a raised
         # PL/pgSQL exception, and the doctor needs to know it is an inventory
         # problem rather than a prescribing one.
-        if not await self.repo.clinic_has_device(plan["clinic_id"], body.device_id):
+        if not await self.repo.clinic_has_device(parent["clinic_id"], body.device_id):
             raise BusinessRuleError(
                 f"{device['device_name']} is not available at this clinic.",
                 code="DEVICE_NOT_AT_CLINIC",
@@ -461,7 +477,7 @@ class ProtocolService:
             appt = await self.sessions.get_appointment(body.authored_in_appointment_id)
             if not appt:
                 raise NotFoundError("Authoring appointment not found", code="APPOINTMENT_NOT_FOUND")
-            if str(appt["patient_id"]) != str(plan["patient_id"]):
+            if str(appt["patient_id"]) != str(parent["patient_id"]):
                 raise ValidationError(
                     "Authoring appointment belongs to a different patient",
                     code="APPOINTMENT_PATIENT_MISMATCH",
@@ -471,7 +487,8 @@ class ProtocolService:
         # correct pair of the twelve nullable FK columns. The exactly-one
         # CHECKs then hold by construction.
         payload: dict[str, Any] = {
-            "plan_id": str(body.plan_id),
+            "instance_id": str(body.instance_id) if body.instance_id else None,
+            "plan_id": str(body.plan_id) if body.plan_id else None,
             "device_id": str(body.device_id),
             "set_by": ctx.user_id,
             placement_pk(slug): str(body.placement_id),
@@ -514,7 +531,7 @@ class ProtocolService:
                 extra_dates=body.extra_dates,
             )
         )
-        counts = await self._generate_appointments(protocol_id, plan, preview, ctx)
+        counts = await self._generate_appointments(protocol_id, parent, preview, ctx, device_id=body.device_id)
 
         await emit_event(
             self.session,
@@ -523,7 +540,8 @@ class ProtocolService:
             event_type="treatment_protocol.created",
             payload={
                 "protocol_id": str(protocol_id),
-                "plan_id": str(body.plan_id),
+                "instance_id": str(body.instance_id) if body.instance_id else None,
+                "plan_id": str(body.plan_id) if body.plan_id else None,
                 "device_id": str(body.device_id),
                 "modality": device["modality"],
                 "session_count": body.session_count,
@@ -564,7 +582,55 @@ class ProtocolService:
         if missing:
             raise NotFoundError(f"Unknown scale_id: {', '.join(sorted(missing))}", code="SCALE_NOT_FOUND")
 
-    async def _generate_appointments(self, protocol_id: UUID, plan: dict, preview: dict, ctx: RequestContext) -> dict:
+    async def _resolve_parent(self, body: s.ProtocolCreate) -> dict:
+        """One shape for whichever parent the caller gave.
+
+        45 made instance_id the protocol's real parent and plan_id optional.
+        Both paths have to yield patient, doctor and clinic, plus the plan_id
+        to stamp onto generated appointments — which is now legitimately None
+        when the protocol was authored without a treatment plan.
+        """
+        if body.instance_id is not None:
+            instance = await self.repo.instance_context(body.instance_id)
+            if not instance:
+                raise NotFoundError("Protocol instance not found", code="INSTANCE_NOT_FOUND")
+            if instance["instance_status"] in ("cancelled", "completed", "superseded"):
+                raise BusinessRuleError(
+                    f"Protocol instance is '{instance['instance_status']}' and cannot take a new prescription",
+                    code="INSTANCE_NOT_OPEN",
+                )
+            if body.plan_id is not None:
+                plan = await self.repo.plan_context(body.plan_id)
+                if not plan:
+                    raise NotFoundError("Treatment plan not found", code="PLAN_NOT_FOUND")
+                if str(plan["cycle_id"]) != str(instance["cycle_id"]):
+                    raise ValidationError(
+                        "Treatment plan belongs to a different cycle than the protocol instance",
+                        code="PLAN_INSTANCE_MISMATCH",
+                    )
+            return {
+                "patient_id": instance["patient_id"],
+                "doctor_id": instance["doctor_id"],
+                "clinic_id": instance["clinic_id"],
+                "plan_id": body.plan_id,
+            }
+
+        # _needs_a_parent has already rejected the both-None case, so reaching
+        # here with instance_id unset means plan_id is set. Asserted rather
+        # than cast: if that validator is ever relaxed, this fails loudly
+        # instead of passing None into a query that would quietly match nothing.
+        assert body.plan_id is not None
+        plan = await self.repo.plan_context(body.plan_id)
+        if not plan:
+            raise NotFoundError("Treatment plan not found", code="PLAN_NOT_FOUND")
+        return {
+            "patient_id": plan["patient_id"],
+            "doctor_id": plan["doctor_id"],
+            "clinic_id": plan["clinic_id"],
+            "plan_id": plan["plan_id"],
+        }
+
+    async def _generate_appointments(self, protocol_id: UUID, parent: dict, preview: dict, ctx: RequestContext, *, device_id: UUID) -> dict:
         """Writes the whole course onto the appointments spine.
 
         Every row is 'planned' with a date and no time - exactly the state
@@ -572,16 +638,36 @@ class ProtocolService:
         hold"). The patient picks a time later, moving the row to 'selected'.
         A device session carries no doctor_id: 30 made that column nullable
         so a CA-run session does not occupy the supervising doctor's diary.
+
+        Device sessions also carry clinic_device_id, which 41 made mandatory:
+        chk_appointments_device_session_has_device is a biconditional, so a
+        device session MUST name the unit it runs on and a follow-up must NOT.
+        Resolved once here rather than per row, the same way 41's own
+        fn_generate_protocol_sessions resolves it.
         """
         role = ctx.role or "doctor"
+        clinic_id = parent["clinic_id"]
+        plan_id = parent.get("plan_id")
+
+        clinic_device_id = await self.repo.clinic_device_for(clinic_id, device_id)
+        if clinic_device_id is None:
+            # trg_check_device_available_at_clinic (37) would refuse the
+            # protocol too, but this fires before any appointment is written
+            # and names the actual problem instead of a CHECK violation.
+            raise BusinessRuleError(
+                "The clinic has no active unit of this device to book sessions against.",
+                code="NO_CLINIC_DEVICE",
+            )
+
         for item in preview["sessions"]:
             await self.sessions.create(
                 {
-                    "clinic_id": str(plan["clinic_id"]),
-                    "patient_id": str(plan["patient_id"]),
+                    "clinic_id": str(clinic_id),
+                    "patient_id": str(parent["patient_id"]),
                     "doctor_id": None,
-                    "plan_id": str(plan["plan_id"]),
+                    "plan_id": str(plan_id) if plan_id else None,
                     "protocol_id": str(protocol_id),
+                    "clinic_device_id": str(clinic_device_id),
                     "appointment_date": item["planned_date"],
                     "appointment_type": _TYPE_DEVICE_SESSION,
                     "session_number": item["session_number"],
@@ -593,12 +679,13 @@ class ProtocolService:
         for item in preview["follow_ups"]:
             await self.sessions.create(
                 {
-                    "clinic_id": str(plan["clinic_id"]),
-                    "patient_id": str(plan["patient_id"]),
+                    "clinic_id": str(clinic_id),
+                    "patient_id": str(parent["patient_id"]),
                     # A follow-up IS a doctor consultation, so this one does
-                    # carry the doctor.
-                    "doctor_id": str(plan["doctor_id"]),
-                    "plan_id": str(plan["plan_id"]),
+                    # carry the doctor - and no device: the same CHECK that
+                    # requires clinic_device_id on a session forbids it here.
+                    "doctor_id": str(parent["doctor_id"]) if parent.get("doctor_id") else None,
+                    "plan_id": str(plan_id) if plan_id else None,
                     "protocol_id": str(protocol_id),
                     "appointment_date": item["planned_date"],
                     "appointment_type": _TYPE_FOLLOW_UP,
@@ -715,6 +802,108 @@ class ProtocolService:
             payload={"protocol_id": str(protocol_id)},
         )
         return updated or row
+
+
+class ProtocolInstanceService:
+    """core.protocol_instances (45) — the course of device treatment.
+
+    Sits between the cycle and the prescription. The Treatment Protocol tab
+    lists instances; each instance holds the protocols prescribed within it,
+    including amendments (a new protocol superseding an earlier one).
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repo = ProtocolInstanceRepository(session)
+        self.protocols = ProtocolRepository(session)
+
+    async def get_or_404(self, instance_id: UUID) -> dict:
+        row = await self.repo.get(instance_id)
+        if not row:
+            raise NotFoundError("Protocol instance not found", code="INSTANCE_NOT_FOUND")
+        return row
+
+    async def create(self, body: s.ProtocolInstanceCreate, ctx: RequestContext) -> dict:
+        cycle = await self.protocols.cycle_context(body.cycle_id)
+        if not cycle:
+            raise NotFoundError("Treatment cycle not found", code="CYCLE_NOT_FOUND")
+        await assert_clinic_scope(ctx, self.session, cycle["clinic_id"])
+
+        if cycle["status"] != "in_progress":
+            raise BusinessRuleError(
+                f"Treatment cycle is '{cycle['status']}' — a protocol course can only be opened on an active cycle",
+                code="CYCLE_NOT_ACTIVE",
+            )
+
+        # uq_protocol_instances_one_active enforces this too; checking first
+        # turns a 23505 into a message naming the instance already open, which
+        # is what the caller should reuse rather than duplicate.
+        existing = await self.repo.get_open_for_cycle(body.cycle_id)
+        if existing:
+            raise ConflictError(
+                f"This cycle already has an open protocol course (instance {existing['instance_number']}). "
+                "Complete or cancel it before opening another.",
+                code="INSTANCE_ALREADY_OPEN",
+            )
+
+        number = await self.repo.next_instance_number(body.cycle_id)
+        try:
+            created = await self.repo.create(
+                {
+                    "cycle_id": str(body.cycle_id),
+                    "patient_id": str(cycle["patient_id"]),
+                    "created_by": ctx.user_id,
+                    "instance_number": number,
+                    "status": "draft",
+                    "notes": body.notes,
+                }
+            )
+        except IntegrityError as exc:
+            raise ConflictError("A protocol course already exists for this cycle", code="INSTANCE_ALREADY_OPEN") from exc
+
+        await emit_event(
+            self.session,
+            aggregate_type="protocol_instance",
+            aggregate_id=created["instance_id"],
+            event_type="protocol_instance.created",
+            payload={
+                "instance_id": str(created["instance_id"]),
+                "cycle_id": str(body.cycle_id),
+                "instance_number": number,
+            },
+        )
+        return await self.get_or_404(created["instance_id"])
+
+    async def list(self, ctx: RequestContext, **filters) -> builtins.list[dict]:
+        if ctx.role not in ("super_admin", "regional_admin"):
+            filters["clinic_id"] = UUID(ctx.clinic_id) if ctx.clinic_id else None
+        # protocol_instances.patient_id is profiles.id — same resolution the
+        # protocol list needs, for the same reason.
+        if filters.get("patient_id"):
+            filters["patient_id"] = await _resolve_patient_profile_id(self.session, filters["patient_id"])
+        return await self.repo.list(**filters)
+
+    async def set_status(self, instance_id: UUID, status: str, ctx: RequestContext) -> dict:
+        row = await self.get_or_404(instance_id)
+        await assert_clinic_scope(ctx, self.session, row["clinic_id"])
+        if status not in ("active", "completed", "cancelled", "superseded"):
+            raise ValidationError(f"Unknown instance status '{status}'", code="INVALID_STATUS")
+        if row["status"] == status:
+            return row
+        if row["status"] in ("completed", "cancelled") and status != "superseded":
+            raise BusinessRuleError(
+                f"A '{row['status']}' instance cannot move to '{status}'",
+                code="INSTANCE_NOT_MUTABLE",
+            )
+        updated = await self.repo.set_status(instance_id, status)
+        await emit_event(
+            self.session,
+            aggregate_type="protocol_instance",
+            aggregate_id=instance_id,
+            event_type=f"protocol_instance.{status}",
+            payload={"instance_id": str(instance_id), "status": status},
+        )
+        return await self.get_or_404(instance_id) if updated else row
 
 
 class CustomMontageService:

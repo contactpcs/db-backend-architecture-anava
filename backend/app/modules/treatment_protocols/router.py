@@ -33,6 +33,7 @@ from app.modules.treatment_protocols import schemas as s
 from app.modules.treatment_protocols.service import (
     CatalogueService,
     CustomMontageService,
+    ProtocolInstanceService,
     ProtocolPrsService,
     ProtocolService,
     ScheduleService,
@@ -282,6 +283,57 @@ async def preview_schedule(
 # --------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------
+# Protocol instances (45) — the course of device treatment
+# --------------------------------------------------------------------------
+# An instance sits between the treatment cycle and the prescription. It is what
+# the Treatment Protocol tab lists, and what "Start New Treatment Protocol"
+# should create — NOT a new treatment cycle, which is a different object with a
+# one-active-per-patient rule of its own.
+
+
+@router.post("/protocol-instances", response_model=s.ProtocolInstanceRead, status_code=201)
+async def create_protocol_instance(
+    body: s.ProtocolInstanceCreate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_PRESCRIBERS)),
+):
+    """Opens a course of device treatment on an existing cycle."""
+    return await ProtocolInstanceService(db).create(body, ctx)
+
+
+@router.get("/protocol-instances", response_model=list[s.ProtocolInstanceRead])
+async def list_protocol_instances(
+    patient_id: UUID | None = Query(None),
+    cycle_id: UUID | None = Query(None),
+    status: str | None = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_READERS)),
+):
+    return await ProtocolInstanceService(db).list(ctx, patient_id=patient_id, cycle_id=cycle_id, status=status, skip=skip, limit=limit)
+
+
+@router.get("/protocol-instances/{instance_id}", response_model=s.ProtocolInstanceRead)
+async def get_protocol_instance(
+    instance_id: UUID,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role(*_READERS)),
+):
+    return await ProtocolInstanceService(db).get_or_404(instance_id)
+
+
+@router.patch("/protocol-instances/{instance_id}/status", response_model=s.ProtocolInstanceRead)
+async def set_protocol_instance_status(
+    instance_id: UUID,
+    status: str = Body(..., embed=True),
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_PRESCRIBERS)),
+):
+    return await ProtocolInstanceService(db).set_status(instance_id, status, ctx)
+
+
 @router.post("/treatment-protocols", response_model=s.ProtocolRead, status_code=201)
 async def create_protocol(
     body: s.ProtocolCreate,
@@ -296,6 +348,7 @@ async def create_protocol(
 @router.get("/treatment-protocols", response_model=list[s.ProtocolRead])
 async def list_protocols(
     plan_id: UUID | None = Query(None),
+    instance_id: UUID | None = Query(None),
     patient_id: UUID | None = Query(None),
     status: str | None = Query(None),
     skip: int = Query(0, ge=0),
@@ -303,7 +356,9 @@ async def list_protocols(
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
 ):
-    return await ProtocolService(db).list(ctx, plan_id=plan_id, patient_id=patient_id, status=status, skip=skip, limit=limit)
+    return await ProtocolService(db).list(
+        ctx, plan_id=plan_id, instance_id=instance_id, patient_id=patient_id, status=status, skip=skip, limit=limit
+    )
 
 
 @router.get("/treatment-protocols/{protocol_id}", response_model=s.ProtocolDetail)

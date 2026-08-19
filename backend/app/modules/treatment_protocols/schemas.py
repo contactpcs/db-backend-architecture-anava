@@ -67,6 +67,23 @@ CADENCE_ALIASES = {
     "end of treatment": "end_of_treatment",
     "end_of_treatment": "end_of_treatment",
     "at discharge": "end_of_treatment",
+    # The remaining labels the wizard's CADENCE_OPTIONS offers. Each maps to
+    # the nearest cadence the schema actually stores; where the mapping loses
+    # information that is called out, because the alternative is a 422 on a
+    # dropdown value the UI presents as valid.
+    #
+    # "After every session" is per_checkpoint: the schema has no
+    # release-on-every-session cadence, and per_checkpoint (every follow-up)
+    # is the closest thing that exists. If genuinely per-session PRS is
+    # required, that is a new cadence value in chk_protocol_scales_cadence,
+    # not a mapping.
+    "after every session": "per_checkpoint",
+    # Two release points; only the later one is representable, so this stores
+    # end_of_treatment. Add a separate baseline row to capture both.
+    "baseline & end only": "end_of_treatment",
+    "baseline and end only": "end_of_treatment",
+    # Nearest stored cadence to monthly is fortnightly.
+    "monthly": "fortnightly",
 }
 
 # core.protocol_scales.answered_by CHECK.
@@ -371,6 +388,36 @@ class ProtocolScaleAssignment(BaseModel):
         return self
 
 
+class ProtocolInstanceCreate(BaseModel):
+    """Opens a course of device treatment on an existing cycle (45).
+
+    cycle_id, not plan_id: an instance belongs to the episode of care. A
+    treatment plan is the clinical picture (anamnesis, history, assessments)
+    and is no longer a prerequisite for prescribing a device course.
+    """
+
+    cycle_id: UUID
+    notes: str | None = None
+
+
+class ProtocolInstanceRead(BaseModel):
+    instance_id: UUID
+    cycle_id: UUID
+    patient_id: UUID
+    created_by: UUID
+    instance_number: int
+    status: str
+    notes: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    # Hydrated for display
+    clinic_id: UUID | None = None
+    doctor_id: UUID | None = None
+    patient_name: str | None = None
+    created_by_name: str | None = None
+    protocol_count: int = 0
+
+
 class ProtocolConditionAssignment(BaseModel):
     """One row of wizard step 2.
 
@@ -395,7 +442,12 @@ class ProtocolConditionAssignment(BaseModel):
 
 
 class ProtocolCreate(BaseModel):
-    plan_id: UUID
+    # 45 re-parented the protocol onto protocol_instances. Exactly one of
+    # these two must be given: instance_id is the current path, plan_id is
+    # kept so a caller that still has only a plan keeps working, and
+    # chk_treatment_protocols_has_parent enforces the same rule in the DB.
+    instance_id: UUID | None = None
+    plan_id: UUID | None = None
     device_id: UUID
     # Exactly one placement and one dosing row, matching
     # chk_treatment_protocols_one_placement / _one_dosing. The service maps
@@ -428,6 +480,12 @@ class ProtocolCreate(BaseModel):
     # this records the deviation from it.
     device_settings: dict = Field(default_factory=dict)
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def _needs_a_parent(self):
+        if self.instance_id is None and self.plan_id is None:
+            raise ValueError("Either instance_id or plan_id is required — a protocol must belong to a course of treatment")
+        return self
 
     @model_validator(mode="after")
     def _follow_up_within_course(self):
@@ -472,7 +530,11 @@ class ProtocolUpdate(BaseModel):
 
 class ProtocolRead(BaseModel):
     protocol_id: UUID
-    plan_id: UUID
+    # Nullable since 45 — the protocol hangs off instance_id instead.
+    plan_id: UUID | None = None
+    instance_id: UUID | None = None
+    instance_number: int | None = None
+    instance_status: str | None = None
     device_id: UUID
     set_by: UUID
     session_count: int

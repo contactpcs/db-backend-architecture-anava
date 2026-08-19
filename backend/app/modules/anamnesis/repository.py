@@ -59,9 +59,7 @@ class AnamnesisAssessmentRepository:
         )
         return row["v"]
 
-    async def create(
-        self, *, patient_id: UUID, submitted_by: UUID, taken_by: str, cycle_id, version: int, assessment_stage: str
-    ) -> dict:
+    async def create(self, *, patient_id: UUID, submitted_by: UUID, taken_by: str, cycle_id, version: int, assessment_stage: str) -> dict:
         # '-' not '/' — this ID is used as a URL path parameter
         # (GET/PATCH /anamnesis/{anamnesis_id}); '/' is a path separator and
         # breaks routing (a real bug hit and fixed during Stage 5 testing).

@@ -162,13 +162,9 @@ class PaymentService:
             return existing
 
         if appt["status"] != "selected":
-            raise BusinessRuleError(
-                f"Appointment is '{appt['status']}', not awaiting payment", code="NOT_AWAITING_PAYMENT"
-            )
+            raise BusinessRuleError(f"Appointment is '{appt['status']}', not awaiting payment", code="NOT_AWAITING_PAYMENT")
 
-        rzp_order = razorpay_client.create_order(
-            amount=MOCK_APPOINTMENT_AMOUNT, currency="INR", receipt=f"appt-{appointment_id}"
-        )
+        rzp_order = razorpay_client.create_order(amount=MOCK_APPOINTMENT_AMOUNT, currency="INR", receipt=f"appt-{appointment_id}")
         payment = await self.repo.create(
             session_id=None,
             order_id=None,

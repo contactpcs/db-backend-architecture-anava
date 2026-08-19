@@ -19,6 +19,26 @@ from app.modules.clinical.repository import (
 )
 
 
+async def _resolve_patient_filter(session: AsyncSession, filters: dict) -> dict:
+    """Turn an API patients.patient_id filter into the profiles.id actually stored.
+
+    Every patient_id-shaped column in core stores profiles.id (NOTES.md), while
+    the API accepts patients.patient_id for consistency with GET /patients/{id}.
+    The create paths already resolve this via _resolve_patient_profile_id; the
+    LIST paths did not, so filtering by patient matched nothing and returned an
+    empty list with no error.
+
+    That was not cosmetic: the wizard's resolveOrCreatePlanId reads
+    GET /treatment-cycles?patient_id=..., saw no cycle, and POSTed a new one —
+    which the one-active-cycle rule then rejected with 400. The fix belongs
+    here rather than in the caller, because every list endpoint has the same
+    hole.
+    """
+    if filters.get("patient_id"):
+        filters = {**filters, "patient_id": await _resolve_patient_profile_id(session, filters["patient_id"])}
+    return filters
+
+
 class TreatmentCycleService:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -57,7 +77,7 @@ class TreatmentCycleService:
         return cycle
 
     async def list(self, **filters) -> list[dict]:
-        return await self.repo.list(**filters)
+        return await self.repo.list(**await _resolve_patient_filter(self.session, filters))
 
     async def set_status(self, cycle_id: UUID, status: str) -> dict:
         await self.get(cycle_id)
@@ -98,7 +118,7 @@ class ProtocolRequestService:
         return req
 
     async def list(self, **filters) -> list[dict]:
-        return await self.repo.list(**filters)
+        return await self.repo.list(**await _resolve_patient_filter(self.session, filters))
 
     async def decide(self, request_id: UUID, *, decision: str, doctor_notes: str | None) -> dict:
         req = await self.get(request_id)
@@ -206,7 +226,7 @@ class SessionService:
         return record
 
     async def list(self, **filters) -> list[dict]:
-        return await self.repo.list(**filters)
+        return await self.repo.list(**await _resolve_patient_filter(self.session, filters))
 
     async def update_status(self, session_id: UUID, *, status: str, outcome: str | None) -> dict:
         await self.get(session_id)
@@ -262,7 +282,7 @@ class TreatmentPlanService:
         return plan
 
     async def list(self, **filters) -> list[dict]:
-        return await self.repo.list(**filters)
+        return await self.repo.list(**await _resolve_patient_filter(self.session, filters))
 
     async def update(self, plan_id: UUID, fields: dict) -> dict:
         await self.get(plan_id)
@@ -308,7 +328,7 @@ class TreatmentSessionService:
         return ts
 
     async def list(self, **filters) -> list[dict]:
-        return await self.repo.list(**filters)
+        return await self.repo.list(**await _resolve_patient_filter(self.session, filters))
 
     async def update_status(self, ts_id: UUID, *, status: str, session_notes, patient_feedback) -> dict:
         ts = await self.get(ts_id)
