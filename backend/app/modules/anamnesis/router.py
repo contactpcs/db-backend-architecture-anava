@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.core.db import RequestContext, get_db
 from app.core.permissions import require_role
@@ -32,9 +32,14 @@ async def start_anamnesis(
 
 
 @router.get("/patients/{patient_id}/anamnesis", response_model=s.AnamnesisAssessmentRead)
-async def get_current_anamnesis(patient_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+async def get_current_anamnesis(
+    patient_id: UUID,
+    assessment_stage: str | None = Query(default=None),
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
     await assert_patient_self(ctx, db, patient_id)
-    return await AnamnesisService(db).get_current(patient_id)
+    return await AnamnesisService(db).get_current(patient_id, assessment_stage)
 
 
 @router.get("/anamnesis/{anamnesis_id}/responses", response_model=list[s.AnamnesisResponseRead])
