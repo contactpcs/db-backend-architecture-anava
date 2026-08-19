@@ -436,23 +436,27 @@ class AppointmentAuditLogRepository:
 
 
 class ClinicDeviceScheduleRepository:
-    """The pool a device_session books against (36_clinic_device_schedules.sql).
+    """The pool a device_session books against (36_clinic_device_schedules.sql,
+    re-keyed to one pool per device by 41_device_capacity_per_device.sql).
 
     Deliberately the same shape as WeeklyScheduleRepository /
     ScheduleOverrideRepository, because AvailabilityService's slot builder is
     reused for both — it takes a schedule and emits slots, and does not care
-    whose schedule it was.
+    whose schedule it was. The scoping key is now clinic_device_id, not
+    clinic_id — clinic_id is still carried on both tables (for RLS) and still
+    accepted here where a query needs it, but a device's week competes only
+    against that same device's bookings, never another device's.
     """
 
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def list_for_clinic(self, clinic_id: UUID) -> builtins.list[dict]:
+    async def list_for_device(self, clinic_device_id: UUID) -> builtins.list[dict]:
         rows = (
             (
                 await self.session.execute(
-                    text("SELECT * FROM clinic_device_schedules WHERE clinic_id = :id AND is_active = TRUE ORDER BY day_of_week"),
-                    {"id": str(clinic_id)},
+                    text("SELECT * FROM clinic_device_schedules WHERE clinic_device_id = :id AND is_active = TRUE ORDER BY day_of_week"),
+                    {"id": str(clinic_device_id)},
                 )
             )
             .mappings()
@@ -460,25 +464,56 @@ class ClinicDeviceScheduleRepository:
         )
         return [dict(r) for r in rows]
 
-    async def replace_for_clinic(self, clinic_id: UUID, items: builtins.list[dict], *, created_by: UUID) -> builtins.list[dict]:
-        """Atomic delete-then-insert of a clinic's whole week.
+    async def list_for_devices(self, clinic_device_ids: builtins.list[UUID]) -> dict[UUID, builtins.list[dict]]:
+        """Every active weekly row for a set of devices, grouped by device —
+        one query for the clinic overview screen instead of one per device."""
+        if not clinic_device_ids:
+            return {}
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT * FROM clinic_device_schedules "
+                        "WHERE clinic_device_id = ANY(:ids) AND is_active = TRUE "
+                        "ORDER BY clinic_device_id, day_of_week"
+                    ),
+                    {"ids": [str(i) for i in clinic_device_ids]},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        out: dict[UUID, builtins.list[dict]] = {i: [] for i in clinic_device_ids}
+        for r in rows:
+            out.setdefault(r["clinic_device_id"], []).append(dict(r))
+        return out
+
+    async def replace_for_device(
+        self, clinic_device_id: UUID, clinic_id: UUID, items: builtins.list[dict], *, created_by: UUID
+    ) -> builtins.list[dict]:
+        """Atomic delete-then-insert of one device's whole week.
 
         Matches how a doctor redraws their own timetable: there is no natural
         per-day PATCH when the admin is editing the entire week in one form.
         """
-        await self.session.execute(text("DELETE FROM clinic_device_schedules WHERE clinic_id = :id"), {"id": str(clinic_id)})
+        await self.session.execute(
+            text("DELETE FROM clinic_device_schedules WHERE clinic_device_id = :id"), {"id": str(clinic_device_id)}
+        )
         out: builtins.list[dict] = []
         for item in items:
-            sql, params = insert_returning("clinic_device_schedules", {**item, "clinic_id": str(clinic_id), "created_by": str(created_by)})
+            sql, params = insert_returning(
+                "clinic_device_schedules",
+                {**item, "clinic_device_id": str(clinic_device_id), "clinic_id": str(clinic_id), "created_by": str(created_by)},
+            )
             out.append(await fetch_one(self.session, sql, params))
         return out
 
-    async def overrides_for_range(self, clinic_id: UUID, from_date, to_date) -> dict:
+    async def overrides_for_range(self, clinic_device_id: UUID, from_date, to_date) -> dict:
         rows = (
             (
                 await self.session.execute(
-                    text("SELECT * FROM clinic_device_schedule_overrides WHERE clinic_id = :id AND override_date BETWEEN :f AND :t"),
-                    {"id": str(clinic_id), "f": from_date, "t": to_date},
+                    text("SELECT * FROM clinic_device_schedule_overrides WHERE clinic_device_id = :id AND override_date BETWEEN :f AND :t"),
+                    {"id": str(clinic_device_id), "f": from_date, "t": to_date},
                 )
             )
             .mappings()
@@ -486,9 +521,9 @@ class ClinicDeviceScheduleRepository:
         )
         return {r["override_date"]: dict(r) for r in rows}
 
-    async def list_overrides(self, clinic_id: UUID, *, from_date=None) -> builtins.list[dict]:
-        clause = "clinic_id = :id"
-        params: dict[str, Any] = {"id": str(clinic_id)}
+    async def list_overrides(self, clinic_device_id: UUID, *, from_date=None) -> builtins.list[dict]:
+        clause = "clinic_device_id = :id"
+        params: dict[str, Any] = {"id": str(clinic_device_id)}
         if from_date:
             clause += " AND override_date >= :f"
             params["f"] = from_date
@@ -522,35 +557,35 @@ class ClinicDeviceScheduleRepository:
 
     # ── capacity ────────────────────────────────────────────────────────────
 
-    async def lock_capacity_for_day(self, clinic_id: UUID, day_of_week: int) -> int | None:
-        """Takes a row lock on this clinic's weekly rule and returns its capacity.
+    async def lock_capacity_for_day(self, clinic_device_id: UUID, day_of_week: int) -> int | None:
+        """Takes a row lock on this device's weekly rule and returns its capacity.
 
         THE LOCK IS THE ENTIRE CORRECTNESS ARGUMENT, and it must not be removed
         as an optimisation. PostgreSQL has no constraint form meaning "at most N
         rows matching a predicate", so capacity cannot be enforced declaratively
         (36 header). Without FOR UPDATE, two patients booking the same slot at
-        the same instant both count 2-of-3, both pass, and the clinic is
+        the same instant both count 2-of-3, both pass, and the device is
         overbooked with no error raised anywhere.
 
         With it, the second booking blocks here until the first commits, then
         counts 3-of-3 and is correctly rejected.
 
-        Returns None when the clinic has no active rule for that weekday — the
+        Returns None when this device has no active rule for that weekday — the
         caller treats that as "closed", not as "unlimited".
         """
         return (
             await self.session.execute(
                 text(
                     "SELECT capacity FROM clinic_device_schedules "
-                    "WHERE clinic_id = :cid AND day_of_week = :dow AND is_active = TRUE "
+                    "WHERE clinic_device_id = :did AND day_of_week = :dow AND is_active = TRUE "
                     "FOR UPDATE"
                 ),
-                {"cid": str(clinic_id), "dow": day_of_week},
+                {"did": str(clinic_device_id), "dow": day_of_week},
             )
         ).scalar_one_or_none()
 
-    async def count_device_sessions_in_slot(self, clinic_id: UUID, on_date, start_time) -> int:
-        """How many device sessions already occupy one clinic slot.
+    async def count_device_sessions_in_slot(self, clinic_device_id: UUID, on_date, start_time) -> int:
+        """How many sessions already occupy one slot on THIS device.
 
         Counts only slot-occupying statuses: a 'planned' row has no time and
         occupies nothing, and cancelled/rescheduled/completed rows have let go.
@@ -561,16 +596,16 @@ class ClinicDeviceScheduleRepository:
             await self.session.execute(
                 text(
                     "SELECT count(*) FROM appointments "
-                    "WHERE clinic_id = :cid AND appointment_type = 'device_session' "
+                    "WHERE clinic_device_id = :did AND appointment_type = 'device_session' "
                     "AND appointment_date = :d AND start_time = :st "
                     "AND status IN ('selected','paid','checked_in','in_progress')"
                 ),
-                {"cid": str(clinic_id), "d": on_date, "st": start_time},
+                {"did": str(clinic_device_id), "d": on_date, "st": start_time},
             )
         ).scalar_one()
 
-    async def booked_counts_for_range(self, clinic_id: UUID, from_date, to_date) -> dict:
-        """(date, start_time) -> how many device sessions are booked.
+    async def booked_counts_for_range(self, clinic_device_id: UUID, from_date, to_date) -> dict:
+        """(date, start_time) -> how many sessions on THIS device are booked.
 
         One query for the whole range, so building a month of availability does
         not fire a count per slot.
@@ -580,12 +615,12 @@ class ClinicDeviceScheduleRepository:
                 await self.session.execute(
                     text(
                         "SELECT appointment_date, start_time, count(*) AS booked FROM appointments "
-                        "WHERE clinic_id = :cid AND appointment_type = 'device_session' "
+                        "WHERE clinic_device_id = :did AND appointment_type = 'device_session' "
                         "AND appointment_date BETWEEN :f AND :t AND start_time IS NOT NULL "
                         "AND status IN ('selected','paid','checked_in','in_progress') "
                         "GROUP BY appointment_date, start_time"
                     ),
-                    {"cid": str(clinic_id), "f": from_date, "t": to_date},
+                    {"did": str(clinic_device_id), "f": from_date, "t": to_date},
                 )
             )
             .mappings()

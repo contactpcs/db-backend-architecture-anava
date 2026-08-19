@@ -83,9 +83,9 @@ UNION ALL SELECT 'B spine guards', 20, 'uq_one_active_initial_per_patient', 'pre
 UNION ALL SELECT 'B spine guards', 21, 'uq_appointments_protocol_session', 'present',
        (SELECT CASE WHEN count(*)>0 THEN 'present' ELSE 'MISSING' END
         FROM pg_class WHERE relname='uq_appointments_protocol_session')
-UNION ALL SELECT 'B spine guards', 22, 'uq_payments_one_captured_per_appointment', 'present',
+UNION ALL SELECT 'B spine guards', 22, 'uq_payments_one_paid_per_appointment', 'present',
        (SELECT CASE WHEN count(*)>0 THEN 'present' ELSE 'MISSING' END
-        FROM pg_class WHERE relname='uq_payments_one_captured_per_appointment')
+        FROM pg_class WHERE relname='uq_payments_one_paid_per_appointment')
 
 -- ------------------------------------------------ C. functions and triggers
 UNION ALL SELECT 'C functions', 30, 'fn_check_device_modality (bug fix)', 'present',

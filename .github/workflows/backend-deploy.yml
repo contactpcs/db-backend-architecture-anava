@@ -15,7 +15,11 @@ env:
   AWS_REGION: ap-south-1
   ECR_REPOSITORY: anava-backend
   ECS_CLUSTER: anava-cluster
-  ECS_SERVICE: anava-backend-service-xzknhp50
+  # The ALB-fronted service. The previous value here,
+  # anava-backend-service-xzknhp50, was deleted when the load balancer was
+  # attached — update-service against it fails with ServiceNotFoundException,
+  # so CI would go green while production kept serving the old image.
+  ECS_SERVICE: anava-backend-lb
 
 jobs:
   build-and-push:
@@ -65,3 +69,27 @@ jobs:
           aws ecs wait services-stable \
             --cluster "$ECS_CLUSTER" \
             --services "$ECS_SERVICE"
+
+      # Proves the deployed image actually contains the code that was built,
+      # rather than assuming update-service succeeded. The treatment protocol
+      # routes 404'd in production for a full day because a force-new-deployment
+      # reused the previous image tag: the service was healthy, the routes were
+      # simply not in it. A health check would not have caught that; an
+      # OpenAPI check does.
+      - name: Verify the new routes are live
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 10); do
+            count=$(curl -fsS --max-time 20 https://api.anavaclinics.com/openapi.json \
+              | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('paths',{})))" || echo 0)
+            if [ "$count" -gt 150 ]; then
+              echo "OK: $count paths served"
+              exit 0
+            fi
+            echo "attempt $attempt: only $count paths, waiting for tasks to cut over"
+            sleep 15
+          done
+          echo "FAILED: deployed image is serving $count paths — expected >150." >&2
+          echo "The service is healthy but running older code. Check that the" >&2
+          echo "task definition references the :latest tag just pushed." >&2
+          exit 1

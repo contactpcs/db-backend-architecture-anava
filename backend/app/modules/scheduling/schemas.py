@@ -197,6 +197,9 @@ class AppointmentRead(BaseModel):
     cycle_id: UUID | None = None
     plan_id: UUID | None = None
     protocol_id: UUID | None = None
+    # Set only for appointment_type = device_session — which of the clinic's
+    # devices this session runs on and books capacity against.
+    clinic_device_id: UUID | None = None
     session_number: int | None = None
     appointment_date: date
     # Nullable: a 'planned' row has a date and no time yet — the doctor
@@ -256,6 +259,7 @@ class DeviceScheduleReplace(BaseModel):
 class DeviceScheduleRead(BaseModel):
     schedule_id: UUID
     clinic_id: UUID
+    clinic_device_id: UUID
     day_of_week: int
     start_time: time
     end_time: time
@@ -280,12 +284,27 @@ class DeviceOverrideCreate(BaseModel):
 class DeviceOverrideRead(BaseModel):
     override_id: UUID
     clinic_id: UUID
+    clinic_device_id: UUID
     override_date: date
     is_available: bool
     start_time: time | None = None
     end_time: time | None = None
     capacity: int | None = None
     reason: str | None = None
+
+
+class ClinicDeviceScheduleOverview(BaseModel):
+    """One entry per device the clinic owns, for the admin landing screen —
+    every device it could set a schedule for, with the week it has so far
+    (empty if unset). Hydrated fields (device_name/modality/quantity) mirror
+    ClinicDeviceRead so the screen can render without a second fetch."""
+
+    clinic_device_id: UUID
+    device_id: UUID
+    device_name: str | None = None
+    modality: str | None = None
+    quantity: int
+    week: list[DeviceScheduleRead]
 
 
 class DeviceSlotRead(BaseModel):
