@@ -47,6 +47,11 @@ PROTOCOL_BORN_TYPES = {TYPE_DEVICE_SESSION, TYPE_PROTOCOL_FOLLOWUP}
 # Everything except a device session consumes a doctor's time.
 DOCTOR_SCHEDULED_TYPES = {TYPE_INITIAL, TYPE_FOLLOW_UP, TYPE_PROTOCOL_FOLLOWUP}
 
+# Always bookable, regardless of what's priced in reference.billable_items —
+# matches scheduling/schemas.py's APPOINTMENT_TYPES. Anything outside this
+# set must exist as an active billable_items row (see AppointmentService.create).
+_LEGACY_APPOINTMENT_TYPES = PATIENT_BOOKABLE_TYPES | PROTOCOL_BORN_TYPES
+
 # ── the lifecycle ───────────────────────────────────────────────────────────
 # planned    doctor set a DATE at protocol setup. No slot, no hold.
 # selected   patient picked a slot. NOT PAID. Held, and the hold expires.
@@ -409,6 +414,19 @@ class AppointmentService:
         if ctx is not None:
             await assert_clinic_scope(ctx, self.session, data["clinic_id"])
 
+        appointment_type = data.get("appointment_type", TYPE_INITIAL)
+        if appointment_type not in _LEGACY_APPOINTMENT_TYPES:
+            from app.modules.admin.repository import BillableItemRepository
+
+            priced = await BillableItemRepository(self.session).resolve_price(
+                category="appointment", clinic_id=data["clinic_id"], appointment_type=appointment_type
+            )
+            if not priced:
+                raise BusinessRuleError(
+                    f"appointment_type {appointment_type!r} is not priced — add it under Billable Items first",
+                    code="APPOINTMENT_TYPE_NOT_PRICED",
+                )
+
         is_available, duration = await AvailabilityService(self.session).check_slot(
             doctor_profile_id, data["appointment_date"], data["start_time"]
         )
@@ -533,7 +551,7 @@ class AppointmentService:
         await self.audit.create(
             {
                 "appointment_id": str(appointment_id),
-                "changed_by": str(changed_by),
+                "changed_by": str(changed_by) if changed_by else None,
                 "changed_by_role": changed_by_role,
                 "previous_status": previous_status,
                 "new_status": new_status,
@@ -1008,13 +1026,15 @@ class PatientBookingService:
         )
         return await self.appointments.get(appointment_id)
 
-    async def mark_paid(self, appointment_id: UUID, *, changed_by: UUID, changed_by_role: str = "system") -> dict:
+    async def mark_paid(self, appointment_id: UUID, *, changed_by: UUID | None, changed_by_role: str = "system") -> dict:
         """selected -> paid. THE PAYMENT SEAM.
 
         Reachable today through the staff status endpoint so the transition is
         exercised and tested before any gateway exists. When Razorpay lands its
         webhook calls this identical method — no rework, and nothing else in the
-        booking path has to change.
+        booking path has to change. changed_by is None for an unattended
+        webhook call (system-initiated, not attributable to a person) — see
+        payments/service.py's update_status.
 
         Idempotent: the repository UPDATE matches only rows still 'selected', so
         a webhook delivered twice (which gateways do, by design) is a no-op the

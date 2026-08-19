@@ -107,6 +107,10 @@ class Settings(BaseSettings):
     # Empty in early development; payments module runs in stub mode until set.
     razorpay_key_id: str | None = None
     razorpay_key_secret: str | None = None
+    # Separate secret Razorpay signs webhook deliveries with (set in the
+    # Razorpay dashboard's webhook config) — NOT the same value as
+    # razorpay_key_secret, which only signs API requests.
+    razorpay_webhook_secret: str | None = None
 
     # CORS
     cors_allowed_origins: list[str] = [

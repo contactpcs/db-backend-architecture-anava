@@ -10,6 +10,7 @@ from app.modules.admin import schemas as s
 from app.modules.admin.repository import ClinicRepository
 from app.modules.admin.service import (
     AdminAccountsService,
+    BillableItemService,
     ClinicRequestService,
     ClinicService,
     RegionService,
@@ -17,6 +18,48 @@ from app.modules.admin.service import (
 )
 
 router = APIRouter()
+
+_CLINIC_STAFF = ("regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist")
+
+
+# --------------------------------------------------------- billable items --
+@router.post("/billable-items", response_model=s.BillableItemRead, status_code=201)
+async def create_billable_item(
+    body: s.BillableItemCreate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin")),
+):
+    return await BillableItemService(db).create(body.model_dump(), created_by=UUID(ctx.user_id))
+
+
+@router.get("/billable-items", response_model=list[s.BillableItemRead])
+async def list_billable_items(
+    active_only: bool = False,
+    category: str | None = None,
+    clinic_id: UUID | None = None,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role("super_admin", *_CLINIC_STAFF)),
+):
+    return await BillableItemService(db).list(active_only=active_only, category=category, clinic_id=clinic_id)
+
+
+@router.get("/billable-items/{item_id}", response_model=s.BillableItemRead)
+async def get_billable_item(
+    item_id: UUID,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role("super_admin", *_CLINIC_STAFF)),
+):
+    return await BillableItemService(db).get(item_id)
+
+
+@router.patch("/billable-items/{item_id}", response_model=s.BillableItemRead)
+async def update_billable_item(
+    item_id: UUID,
+    body: s.BillableItemUpdate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin")),
+):
+    return await BillableItemService(db).update(item_id, body.model_dump(), updated_by=UUID(ctx.user_id))
 
 
 # ---------------------------------------------------------------- regions --

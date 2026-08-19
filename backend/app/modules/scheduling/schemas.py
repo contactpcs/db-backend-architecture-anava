@@ -97,8 +97,14 @@ class AvailabilitySlotRead(BaseModel):
     is_available: bool
 
 
-# The four agreed visit types. All live on core.appointments; they differ in who
-# creates them and which pool of time they book against — see service.py.
+# The four original visit types, always valid regardless of the
+# billable_items catalog — keeps booking working in an environment where
+# nobody has priced anything yet (reference.billable_items ships empty).
+# Anything else must exist as an active reference.billable_items row
+# (category='appointment') — enforced in AppointmentService.create, not
+# here, since Pydantic can't do a DB lookup at parse time. A super admin
+# adding a new appointment_type under Billable Items makes it bookable
+# immediately, no deploy.
 APPOINTMENT_TYPES = "^(initial|follow_up|device_session|protocol_followup)$"
 
 
@@ -111,7 +117,7 @@ class AppointmentCreate(BaseModel):
     appointment_date: date
     start_time: time
     end_time: time | None = None
-    appointment_type: str = Field(default="initial", pattern=APPOINTMENT_TYPES)
+    appointment_type: str = Field(default="initial", min_length=1)
     reason: str | None = None
     patient_complaint: str | None = None
 

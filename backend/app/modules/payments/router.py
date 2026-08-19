@@ -54,6 +54,8 @@ async def update_payment_status(
         payment_method=body.payment_method,
         waived_by=UUID(ctx.user_id) if body.status == "waived" else None,
         waived_reason=body.waived_reason,
+        _changed_by=UUID(ctx.user_id),
+        _changed_by_role=ctx.role,
     )
 
 

@@ -26,6 +26,58 @@ class RegionRead(BaseModel):
     created_at: datetime
 
 
+class BillableItemCreate(BaseModel):
+    """appointment_type XOR device_id, matching chk_billable_items_category_shape
+    — the service nulls out whichever one doesn't apply to `category`.
+
+    clinic_id: None = platform default price. Set = an override for that one
+    clinic only. Not editable after creation (see BillableItemUpdate) — a
+    price scoped to the wrong clinic is deactivated and recreated, not moved."""
+
+    item_code: str
+    category: str = Field(pattern="^(appointment|device_session)$")
+    appointment_type: str | None = None
+    device_id: UUID | None = None
+    clinic_id: UUID | None = None
+    name: str
+    description: str | None = None
+    price: float = Field(ge=0)
+    currency: str = "INR"
+    duration_minutes: int | None = None
+
+
+class BillableItemUpdate(BaseModel):
+    """category/appointment_type/device_id are not editable after creation —
+    reprice by deactivating this row and creating a new active one instead
+    (matches the unique-one-active-per-appointment_type/device_id index)."""
+
+    name: str | None = None
+    description: str | None = None
+    price: float | None = Field(default=None, ge=0)
+    currency: str | None = None
+    duration_minutes: int | None = None
+    is_active: bool | None = None
+
+
+class BillableItemRead(BaseModel):
+    item_id: UUID
+    item_code: str
+    category: str
+    appointment_type: str | None
+    device_id: UUID | None
+    clinic_id: UUID | None
+    name: str
+    description: str | None
+    price: float
+    currency: str
+    duration_minutes: int | None
+    is_active: bool
+    created_by: UUID | None
+    updated_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
 class ClinicCreate(BaseModel):
     """clinic_admin_id is deliberately absent — clinic creation is a 2-step
     flow (create, then POST /clinics/{id}/assign-admin). is_main_branch is

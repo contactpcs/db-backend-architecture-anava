@@ -7,6 +7,7 @@ needs to know which mode is active."""
 import hashlib
 import hmac
 import uuid
+from decimal import Decimal, ROUND_HALF_UP
 
 from app.config import get_settings
 
@@ -17,14 +18,22 @@ def is_configured() -> bool:
     return bool(settings.razorpay_key_id and settings.razorpay_key_secret)
 
 
+def _to_paise(amount: float) -> int:
+    # str(amount) first — Decimal(float) would inherit the float's binary
+    # rounding error (e.g. 19.99 -> 19.9899999999999984...) before we ever
+    # get a chance to round it.
+    return int((Decimal(str(amount)) * 100).to_integral_value(rounding=ROUND_HALF_UP))
+
+
 def create_order(*, amount: float, currency: str, receipt: str) -> dict:
+    paise = _to_paise(amount)
     if not is_configured():
-        return {"id": f"order_stub_{uuid.uuid4().hex[:14]}", "status": "created", "amount": int(amount * 100), "currency": currency}
+        return {"id": f"order_stub_{uuid.uuid4().hex[:14]}", "status": "created", "amount": paise, "currency": currency}
 
     import razorpay  # imported lazily — only required once real keys exist
 
     client = razorpay.Client(auth=(settings.razorpay_key_id, settings.razorpay_key_secret))
-    return client.order.create({"amount": int(amount * 100), "currency": currency, "receipt": receipt})
+    return client.order.create({"amount": paise, "currency": currency, "receipt": receipt})
 
 
 def verify_webhook_signature(*, payload: bytes, signature: str) -> bool:
@@ -32,6 +41,9 @@ def verify_webhook_signature(*, payload: bytes, signature: str) -> bool:
         # Stub mode: no real webhook secret to verify against — callers
         # should not be hitting the real webhook path at all in this mode.
         return True
-    assert settings.razorpay_key_secret is not None  # guaranteed by is_configured()
-    expected = hmac.new(settings.razorpay_key_secret.encode(), payload, hashlib.sha256).hexdigest()
+    assert settings.razorpay_webhook_secret is not None, (
+        "RAZORPAY_WEBHOOK_SECRET must be set once razorpay_key_id/secret are configured "
+        "— it is a separate secret from the API key, set in the Razorpay dashboard's webhook config"
+    )
+    expected = hmac.new(settings.razorpay_webhook_secret.encode(), payload, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature)

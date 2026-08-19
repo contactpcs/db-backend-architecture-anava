@@ -52,6 +52,100 @@ class RegionRepository:
         await self.session.execute(text("DELETE FROM regions WHERE region_id = :id"), {"id": str(region_id)})
 
 
+class BillableItemRepository:
+    """reference.billable_items — explicitly schema-qualified since it's not
+    on the app's default search_path (matches treatment_protocols/repository.py's
+    reference.neuromod_devices etc, not store/repository.py's unqualified
+    `products`, which lives in a different schema)."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create(self, fields: dict, *, created_by: UUID) -> dict:
+        cols = {**fields, "created_by": str(created_by), "updated_by": str(created_by)}
+        col_names = ", ".join(cols)
+        placeholders = ", ".join(f":{k}" for k in cols)
+        row = (
+            (
+                await self.session.execute(
+                    text(f"INSERT INTO reference.billable_items ({col_names}) VALUES ({placeholders}) RETURNING *"),
+                    cols,
+                )
+            )
+            .mappings()
+            .one()
+        )
+        return dict(row)
+
+    async def get(self, item_id: UUID) -> dict | None:
+        row = (
+            (await self.session.execute(text("SELECT * FROM reference.billable_items WHERE item_id = :id"), {"id": str(item_id)}))
+            .mappings()
+            .first()
+        )
+        return dict(row) if row else None
+
+    async def list(self, *, active_only: bool = False, category: str | None = None, clinic_id: UUID | None = None) -> list[dict]:
+        where = []
+        params: dict = {}
+        if active_only:
+            where.append("is_active = TRUE")
+        if category:
+            where.append("category = :category")
+            params["category"] = category
+        if clinic_id:
+            # This clinic's overrides plus every platform default — the same
+            # "override or fall back" set resolve_price() picks from, just
+            # unfiltered to one row per key (a screen listing what applies
+            # to this clinic wants to see both, not just the winner).
+            where.append("(clinic_id = :clinic_id OR clinic_id IS NULL)")
+            params["clinic_id"] = str(clinic_id)
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        rows = (
+            (await self.session.execute(text(f"SELECT * FROM reference.billable_items {clause} ORDER BY category, name"), params))
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def resolve_price(
+        self, *, category: str, clinic_id: UUID | None, appointment_type: str | None = None, device_id: UUID | None = None
+    ) -> dict | None:
+        """The clinic's own override wins if one is active; otherwise the
+        platform default (clinic_id IS NULL). key_col is never user input —
+        always one of these two literal column names — so the f-string is safe."""
+        key_col = "appointment_type" if category == "appointment" else "device_id"
+        key_val = appointment_type if category == "appointment" else (str(device_id) if device_id else None)
+        row = (
+            (
+                await self.session.execute(
+                    text(
+                        f"SELECT * FROM reference.billable_items "
+                        f"WHERE category = :category AND {key_col} = :key_val AND is_active "
+                        f"AND (clinic_id = :clinic_id OR clinic_id IS NULL) "
+                        f"ORDER BY clinic_id NULLS LAST LIMIT 1"
+                    ),
+                    {"category": category, "key_val": key_val, "clinic_id": str(clinic_id) if clinic_id else None},
+                )
+            )
+            .mappings()
+            .first()
+        )
+        return dict(row) if row else None
+
+    async def update(self, item_id: UUID, fields: dict, *, updated_by: UUID) -> dict | None:
+        # updated_at is set by trg_updated_at_billable_items, not here.
+        cols = {**fields, "updated_by": str(updated_by)}
+        set_clause = ", ".join(f"{k} = :{k}" for k in cols)
+        params = {**cols, "id": str(item_id)}
+        row = (
+            (await self.session.execute(text(f"UPDATE reference.billable_items SET {set_clause} WHERE item_id = :id RETURNING *"), params))
+            .mappings()
+            .first()
+        )
+        return dict(row) if row else None
+
+
 class ClinicRepository:
     def __init__(self, session: AsyncSession):
         self.session = session

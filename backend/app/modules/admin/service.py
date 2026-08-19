@@ -10,6 +10,7 @@ from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError
 from app.core.fsm import assert_transition
 from app.modules.admin.repository import (
     AdminsRepository,
+    BillableItemRepository,
     ClinicRepository,
     ClinicRequestRepository,
     RegionRepository,
@@ -28,6 +29,53 @@ _VALID_CLINIC_TRANSITIONS = {
     "closed": set(),  # terminal
 }
 _MIN_STAFF_ROLES_FOR_ACTIVE = {"doctor", "clinical_assistant", "receptionist"}
+
+
+class BillableItemService:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repo = BillableItemRepository(session)
+
+    async def create(self, fields: dict, *, created_by: UUID) -> dict:
+        if fields["category"] == "appointment":
+            if not fields.get("appointment_type"):
+                raise BusinessRuleError("appointment_type is required for category='appointment'", code="BILLABLE_ITEM_SHAPE_INVALID")
+            fields["device_id"] = None
+        else:
+            if not fields.get("device_id"):
+                raise BusinessRuleError("device_id is required for category='device_session'", code="BILLABLE_ITEM_SHAPE_INVALID")
+            fields["appointment_type"] = None
+        clean = {k: (str(v) if isinstance(v, UUID) else v) for k, v in fields.items()}
+        try:
+            return await self.repo.create(clean, created_by=created_by)
+        except IntegrityError as exc:
+            raise ConflictError(
+                "item_code already exists, or an active item already prices this appointment_type/device",
+                code="BILLABLE_ITEM_CONFLICT",
+            ) from exc
+
+    async def get(self, item_id: UUID) -> dict:
+        item = await self.repo.get(item_id)
+        if not item:
+            raise NotFoundError("Billable item not found", code="BILLABLE_ITEM_NOT_FOUND")
+        return item
+
+    async def list(self, *, active_only: bool = False, category: str | None = None, clinic_id: UUID | None = None) -> list[dict]:
+        return await self.repo.list(active_only=active_only, category=category, clinic_id=clinic_id)
+
+    async def update(self, item_id: UUID, fields: dict, *, updated_by: UUID) -> dict:
+        await self.get(item_id)  # 404 if missing
+        clean = {k: v for k, v in fields.items() if v is not None}
+        if not clean:
+            return await self.get(item_id)
+        try:
+            updated = await self.repo.update(item_id, clean, updated_by=updated_by)
+        except IntegrityError as exc:
+            raise ConflictError(
+                "Another active item already prices this appointment_type/device",
+                code="BILLABLE_ITEM_CONFLICT",
+            ) from exc
+        return updated  # type: ignore[return-value]
 
 
 class RegionService:

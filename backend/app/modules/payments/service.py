@@ -9,14 +9,15 @@ from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, NotFoundError
 from app.core.scoping import assert_clinic_scope, assert_owns_profile
 from app.integrations import razorpay as razorpay_client
+from app.modules.admin.repository import BillableItemRepository
 from app.modules.payments.repository import PaymentRepository
 
-# ponytail: flat placeholder until reference.billable_items pricing lands
-# (Anava_Payments_Implementation_Plan_v3 §7 resolve_price) — that engine
-# needs seeded catalog prices nobody has supplied yet (plan §16 Q5/Q6). This
-# mock flow only needs *a* number to show on a Razorpay-shaped checkout
-# screen; swap this constant for a real resolve_price() call once the
-# catalog is seeded and pricing is approved.
+# Last-resort fallback only — used when reference.billable_items has no
+# active row (default or clinic-specific) for this appointment_type yet.
+# Keeps booking working in an unseeded environment instead of hard-failing
+# every checkout; once an admin prices an appointment_type via the Billable
+# Items screen, resolve_price() finds it and this constant stops mattering
+# for that type.
 MOCK_APPOINTMENT_AMOUNT = 500.00
 
 
@@ -85,6 +86,14 @@ class PaymentService:
         if payment["status"] == "paid":
             return payment
 
+        # Razorpay fires many event types at this same endpoint (order.paid,
+        # payment.failed, payment.authorized, refund.*, ...) and all of them
+        # carry an order_id — only a captured payment should ever flip
+        # status to 'paid'. Anything else is acknowledged (200) but ignored.
+        event = body.get("event", "")
+        if event not in ("payment.captured", "order.paid"):
+            return payment
+
         return await self.update_status(payment["payment_id"], status="paid", payment_method="upi", _razorpay_payment_id=rzp_payment_id)
 
     async def get(self, payment_id: UUID) -> dict:
@@ -105,8 +114,25 @@ class PaymentService:
         waived_by=None,
         waived_reason=None,
         _razorpay_payment_id=None,
+        _changed_by: UUID | None = None,
+        _changed_by_role: str = "system",
     ) -> dict:
-        await self.get(payment_id)
+        payment = await self.get(payment_id)
+
+        # core.appointments is the source of truth for "is this booking
+        # paid" — every caller (webhook, mock-confirm, staff PATCH) routes
+        # through here, and marks the appointment first; payments and
+        # treatment_sessions reflect from that, never the other way round.
+        # mark_paid() is idempotent (selected -> paid only), so calling it
+        # again on an already-paid appointment is a no-op, not an error.
+        appt = None
+        if payment.get("appointment_id") and status == "paid":
+            from app.modules.scheduling.service import PatientBookingService
+
+            appt = await PatientBookingService(self.session).mark_paid(
+                payment["appointment_id"], changed_by=_changed_by, changed_by_role=_changed_by_role
+            )
+
         updated = await self.repo.set_status(
             payment_id,
             status=status,
@@ -127,12 +153,19 @@ class PaymentService:
         # billing rule) — direct SQL, not a full clinical-module import, to
         # avoid a circular dependency (clinical doesn't need to know about
         # payments to function, payments just needs to unlock what it gates).
-        if updated and updated.get("session_id") and status in ("paid", "waived"):
+        # Sourced from the appointment's session_id when this payment is
+        # appointment-scoped — chk_payments_single_target guarantees the
+        # payment's own session_id is NULL in that case, so reading
+        # updated["session_id"] here would always miss it. Falls back to the
+        # payment's own session_id for the older direct-session flow, where
+        # there is no appointment in the picture at all.
+        session_id = (appt or {}).get("session_id") or updated.get("session_id")
+        if session_id and status in ("paid", "waived"):
             from sqlalchemy import text
 
             await self.session.execute(
                 text("UPDATE treatment_sessions SET payment_status = :status WHERE session_id = :sid"),
-                {"status": status, "sid": str(updated["session_id"])},
+                {"status": status, "sid": str(session_id)},
             )
         return updated  # type: ignore[return-value]
 
@@ -164,13 +197,19 @@ class PaymentService:
         if appt["status"] != "selected":
             raise BusinessRuleError(f"Appointment is '{appt['status']}', not awaiting payment", code="NOT_AWAITING_PAYMENT")
 
-        rzp_order = razorpay_client.create_order(amount=MOCK_APPOINTMENT_AMOUNT, currency="INR", receipt=f"appt-{appointment_id}")
+        priced = await BillableItemRepository(self.session).resolve_price(
+            category="appointment", clinic_id=appt["clinic_id"], appointment_type=appt["appointment_type"]
+        )
+        amount = float(priced["price"]) if priced else MOCK_APPOINTMENT_AMOUNT
+        currency = priced["currency"] if priced else "INR"
+
+        rzp_order = razorpay_client.create_order(amount=amount, currency=currency, receipt=f"appt-{appointment_id}")
         payment = await self.repo.create(
             session_id=None,
             order_id=None,
             appointment_id=appointment_id,
-            amount=MOCK_APPOINTMENT_AMOUNT,
-            currency="INR",
+            amount=amount,
+            currency=currency,
             idempotency_key=rzp_order["id"],
             razorpay_order_id=rzp_order["id"],
         )
@@ -182,7 +221,7 @@ class PaymentService:
             payload={
                 "payment_id": str(payment["payment_id"]),
                 "appointment_id": str(appointment_id),
-                "amount": MOCK_APPOINTMENT_AMOUNT,
+                "amount": amount,
                 "razorpay_order_id": rzp_order["id"],
             },
         )
@@ -190,7 +229,6 @@ class PaymentService:
 
     async def confirm_mock_payment(self, payment_id: UUID, ctx: RequestContext) -> dict:
         from app.core.db import text_set_local
-        from app.modules.scheduling.service import PatientBookingService
 
         payment = await self.get(payment_id)
         if not payment.get("appointment_id"):
@@ -208,23 +246,11 @@ class PaymentService:
         # this codebase (handle_webhook above does the identical thing).
         # Ownership was already proven by _get_appointment_for_pay above.
         await self.session.execute(text_set_local("app.current_user_role", "system"))
-        updated = await self.repo.set_status(
+        return await self.update_status(
             payment_id,
             status="paid",
             payment_method="mock",
-            waived_by=None,
-            waived_reason=None,
-            razorpay_payment_id=f"pay_mock_{payment_id.hex[:14]}",
+            _razorpay_payment_id=f"pay_mock_{payment_id.hex[:14]}",
+            _changed_by=UUID(ctx.user_id),
+            _changed_by_role=ctx.role,
         )
-        await emit_event(
-            self.session,
-            aggregate_type="payment",
-            aggregate_id=payment_id,
-            event_type="payment_completed",
-            payload={"payment_id": str(payment_id), "appointment_id": str(payment["appointment_id"]), "status": "paid"},
-        )
-
-        await PatientBookingService(self.session).mark_paid(
-            payment["appointment_id"], changed_by=UUID(ctx.user_id), changed_by_role=ctx.role
-        )
-        return updated  # type: ignore[return-value]
