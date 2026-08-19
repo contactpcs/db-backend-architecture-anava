@@ -387,16 +387,34 @@ class CatalogueRepository:
     # -- scales ------------------------------------------------------------
 
     async def list_scales(self, *, condition_ids: builtins.list[UUID] | None = None) -> builtins.list[dict]:
+        """Step 6's scale list, sourced from the PRS catalogue (51).
+
+        reference.prs_scales is what the questionnaire engine renders from, so
+        it is the only catalogue a protocol can usefully prescribe against.
+        The previous source, reference.neuromod_scales, overlapped it by 5 of
+        13 rows — PHQ-9, the default depression instrument, was never in PRS at
+        all, so every protocol prescribing it queued a questionnaire that could
+        not be rendered.
+
+        The join goes condition -> PRS disease -> scale, at the DISEASE level:
+        neuromod_condition_prs_diseases is the bridge, because the two
+        catalogues correspond as diseases and not as individual scale codes.
+        """
         if condition_ids:
             rows = (
                 (
                     await self.session.execute(
                         text(
-                            "SELECT s.*, MIN(m.display_order) AS display_order "
-                            "FROM reference.neuromod_scales s "
-                            "JOIN reference.neuromod_condition_scales m ON m.scale_id = s.scale_id "
+                            "SELECT s.scale_id, s.scale_code, s.scale_name, "
+                            "  s.is_common_scale, s.applicable_for, "
+                            "  MIN(dm.display_order) AS display_order, "
+                            "  bool_or(dm.is_required) AS is_required "
+                            "FROM reference.neuromod_condition_prs_diseases m "
+                            "JOIN reference.prs_disease_scale_map dm ON dm.disease_id = m.disease_id "
+                            "JOIN reference.prs_scales s ON s.scale_id = dm.scale_id "
                             "WHERE m.condition_id = ANY(:ids) "
-                            "GROUP BY s.scale_id ORDER BY display_order, s.scale_code"
+                            "GROUP BY s.scale_id, s.scale_code, s.scale_name, s.is_common_scale, s.applicable_for "
+                            "ORDER BY display_order, s.scale_code"
                         ),
                         {"ids": [str(c) for c in condition_ids]},
                     )
@@ -406,10 +424,34 @@ class CatalogueRepository:
             )
         else:
             rows = (
-                (await self.session.execute(text("SELECT s.*, 0 AS display_order FROM reference.neuromod_scales s ORDER BY s.scale_code")))
+                (
+                    await self.session.execute(
+                        text(
+                            "SELECT s.scale_id, s.scale_code, s.scale_name, "
+                            "  s.is_common_scale, s.applicable_for, 0 AS display_order, FALSE AS is_required "
+                            "FROM reference.prs_scales s ORDER BY s.scale_code"
+                        )
+                    )
+                )
                 .mappings()
                 .all()
             )
+        return [dict(r) for r in rows]
+
+    async def get_prs_scales_by_ids(self, prs_scale_ids: builtins.list[str]) -> builtins.list[dict]:
+        """Existence check for step 6 ids, against the PRS catalogue (51)."""
+        if not prs_scale_ids:
+            return []
+        rows = (
+            (
+                await self.session.execute(
+                    text("SELECT scale_id AS prs_scale_id, scale_code, scale_name FROM reference.prs_scales WHERE scale_id = ANY(:ids)"),
+                    {"ids": [str(s) for s in prs_scale_ids]},
+                )
+            )
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
     async def get_scales_by_ids(self, scale_ids: builtins.list[UUID]) -> builtins.list[dict]:
@@ -605,6 +647,7 @@ class ProtocolRepository:
             .first()
         )
         return row["clinic_device_id"] if row else None
+
 
 class ProtocolInstanceRepository:
     """core.protocol_instances (45) — one course of device treatment.
@@ -832,11 +875,14 @@ class ProtocolDetailRepository:
             result = await self.session.execute(
                 text(
                     "INSERT INTO protocol_scales "
-                    "  (protocol_id, scale_id, cadence, window_days, answered_by, display_order) "
+                    "  (protocol_id, prs_scale_id, cadence, window_days, answered_by, display_order) "
                     "VALUES (:pid, :sid, :cadence, :window, :answered_by, :ord) "
                     # A scale appears once per protocol; twice would release the
-                    # same questionnaire on the same trigger.
-                    "ON CONFLICT (protocol_id, scale_id) DO NOTHING"
+                    # same questionnaire on the same trigger. Inferred against
+                    # uq_protocol_scales_prs (51) — the pre-51 UNIQUE was on
+                    # scale_id, which PRS-sourced rows leave NULL.
+                    "ON CONFLICT (protocol_id, prs_scale_id) "
+                    "WHERE prs_scale_id IS NOT NULL DO NOTHING"
                 ),
                 {
                     "pid": str(protocol_id),
@@ -855,12 +901,18 @@ class ProtocolDetailRepository:
             (
                 await self.session.execute(
                     text(
-                        "SELECT ps.protocol_scale_id, ps.scale_id, ps.cadence, ps.window_days, "
-                        "  ps.answered_by, ps.display_order, "
-                        "  s.scale_code, s.scale_name, s.prs_scale_id "
+                        # LEFT JOINs and COALESCE because a row carries one catalogue
+                        # or the other (chk_protocol_scales_one_catalogue, 51): PRS for
+                        # anything written since, neuromod_scales for rows written before.
+                        "SELECT ps.protocol_scale_id, ps.scale_id, ps.prs_scale_id, "
+                        "  ps.cadence, ps.window_days, ps.answered_by, ps.display_order, "
+                        "  COALESCE(pr.scale_code, ns.scale_code) AS scale_code, "
+                        "  COALESCE(pr.scale_name, ns.scale_name) AS scale_name "
                         "FROM protocol_scales ps "
-                        "JOIN reference.neuromod_scales s ON s.scale_id = ps.scale_id "
-                        "WHERE ps.protocol_id = :id ORDER BY ps.display_order, s.scale_code"
+                        "LEFT JOIN reference.prs_scales pr      ON pr.scale_id = ps.prs_scale_id "
+                        "LEFT JOIN reference.neuromod_scales ns ON ns.scale_id = ps.scale_id "
+                        "WHERE ps.protocol_id = :id "
+                        "ORDER BY ps.display_order, COALESCE(pr.scale_code, ns.scale_code)"
                     ),
                     {"id": str(protocol_id)},
                 )

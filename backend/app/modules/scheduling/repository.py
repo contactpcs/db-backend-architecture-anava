@@ -354,18 +354,27 @@ class AppointmentRepository:
             },
         )
 
-    async def mark_paid(self, appointment_id: UUID) -> dict | None:
+    async def mark_paid(self, appointment_id: UUID, *, paid_by: UUID | None = None, paid_by_role: str | None = None) -> dict | None:
         """'selected' -> 'paid'. Clears the hold: a paid slot is held forever,
         not on a timer. The WHERE clause makes this idempotent against a
         gateway webhook that delivers twice — the second call matches no row
-        and returns None rather than re-running."""
+        and returns None rather than re-running.
+
+        Also stamps booked_by / booked_by_role, which is what those columns
+        mean: whoever confirmed the booking by paying for it — the receptionist
+        at the desk, the patient in the app, or 'system' for a gateway webhook.
+        COALESCE so a row booked at selection time keeps its original booker
+        rather than being overwritten by whoever settled the payment.
+        """
         return await fetch_optional(
             self.session,
             text(
-                "UPDATE appointments SET status = 'paid', hold_expires_at = NULL, updated_at = NOW() "
+                "UPDATE appointments SET status = 'paid', hold_expires_at = NULL, updated_at = NOW(), "
+                "  booked_by = COALESCE(booked_by, CAST(:paid_by AS uuid)), "
+                "  booked_by_role = COALESCE(booked_by_role, :paid_by_role) "
                 "WHERE appointment_id = :id AND status = 'selected' RETURNING *"
             ),
-            {"id": str(appointment_id)},
+            {"id": str(appointment_id), "paid_by": str(paid_by) if paid_by else None, "paid_by_role": paid_by_role},
         )
 
     async def release_expired_holds(self) -> dict:

@@ -534,7 +534,7 @@ class ProtocolService:
                 extra_dates=body.extra_dates,
             )
         )
-        counts = await self._generate_appointments(protocol_id, parent, preview, ctx, device_id=body.device_id)
+        counts = await self._generate_appointments(protocol_id, parent, preview, device_id=body.device_id)
 
         await emit_event(
             self.session,
@@ -576,11 +576,15 @@ class ProtocolService:
             raise NotFoundError(f"Unknown diagnosis_id: {', '.join(sorted(missing))}", code="DIAGNOSIS_NOT_FOUND")
 
     async def _assert_scales_exist(self, items: builtins.list[s.ProtocolScaleAssignment]) -> None:
+        """Checked against reference.prs_scales (51), which is the catalogue the
+        questionnaire engine renders from — a scale it does not have cannot be
+        released to the patient, so accepting the id would store a task that
+        never appears."""
         ids = [sc.scale_id for sc in items]
         if not ids:
             return
-        found = await self.catalogue.get_scales_by_ids(ids)
-        missing = {str(i) for i in ids} - {str(r["scale_id"]) for r in found}
+        found = await self.catalogue.get_prs_scales_by_ids(ids)
+        missing = set(ids) - {str(r["prs_scale_id"]) for r in found}
         if missing:
             raise NotFoundError(f"Unknown scale_id: {', '.join(sorted(missing))}", code="SCALE_NOT_FOUND")
 
@@ -604,7 +608,7 @@ class ProtocolService:
             "clinic_id": instance["clinic_id"],
         }
 
-    async def _generate_appointments(self, protocol_id: UUID, parent: dict, preview: dict, ctx: RequestContext, *, device_id: UUID) -> dict:
+    async def _generate_appointments(self, protocol_id: UUID, parent: dict, preview: dict, *, device_id: UUID) -> dict:
         """Writes the whole course onto the appointments spine, and — 47 — a
         matching protocol_device_sessions / protocol_followup row alongside
         each one, carrying the appointment_id it just got back.
@@ -612,8 +616,14 @@ class ProtocolService:
         Every appointments row is 'planned' with a date and no time - exactly
         the state 31 describes ("doctor set a DATE at protocol setup. No slot
         yet, no hold"). The patient picks a time later, moving the row to
-        'selected'. A device session carries no doctor_id: 30 made that
-        column nullable so a CA-run session does not occupy the supervising
+        Every row carries the responsible doctor. A device session is run by
+        a clinical assistant, so 52 excluded that type from
+        excl_doctor_overlap: the prescriber is recorded without their diary
+        being booked for work they do not attend.
+
+        booked_by / booked_by_role stay NULL. They mean "who confirmed the
+        booking" - the receptionist or the patient, at payment time - and a
+        planned row has neither a slot nor a payment yet.
         doctor's diary.
 
         Device sessions also carry clinic_device_id, which 41 made mandatory:
@@ -629,7 +639,11 @@ class ProtocolService:
         rolls back together, same as it already does for the appointments
         themselves.
         """
-        role = ctx.role or "doctor"
+        # The doctor responsible for the course. Set on every generated row,
+        # including device sessions: 52 narrowed excl_doctor_overlap to
+        # exclude device_session, so recording the prescriber no longer books
+        # out their calendar for work a clinical assistant performs.
+        doctor_id = parent.get("doctor_id")
         instance_id = parent["instance_id"]
         clinic_id = parent["clinic_id"]
 
@@ -648,15 +662,21 @@ class ProtocolService:
                 {
                     "clinic_id": str(clinic_id),
                     "patient_id": str(parent["patient_id"]),
-                    "doctor_id": None,
+                    "doctor_id": str(doctor_id) if doctor_id else None,
                     "protocol_id": str(protocol_id),
                     "clinic_device_id": str(clinic_device_id),
                     "appointment_date": item["planned_date"],
                     "appointment_type": _TYPE_DEVICE_SESSION,
                     "session_number": item["session_number"],
                     "status": _STATUS_PLANNED,
-                    "booked_by": ctx.user_id,
-                    "booked_by_role": role,
+                    # booked_by means "who confirmed the booking" - a
+                    # receptionist or the patient, at payment time. A planned
+                    # row has no slot and no payment, so nobody booked it;
+                    # writing the prescriber here claimed a doctor took a
+                    # payment (52). The booking path fills these in on
+                    # transition to selected/paid.
+                    "booked_by": None,
+                    "booked_by_role": None,
                 }
             )
             await self.device_sessions.create(
@@ -677,14 +697,14 @@ class ProtocolService:
                     # A follow-up IS a doctor consultation, so this one does
                     # carry the doctor - and no device: the same CHECK that
                     # requires clinic_device_id on a session forbids it here.
-                    "doctor_id": str(parent["doctor_id"]) if parent.get("doctor_id") else None,
+                    "doctor_id": str(doctor_id) if doctor_id else None,
                     "protocol_id": str(protocol_id),
                     "appointment_date": item["planned_date"],
                     "appointment_type": _TYPE_FOLLOW_UP,
                     "session_number": item["after_session_number"],
                     "status": _STATUS_PLANNED,
-                    "booked_by": ctx.user_id,
-                    "booked_by_role": role,
+                    "booked_by": None,
+                    "booked_by_role": None,
                 }
             )
             await self.followups.create(

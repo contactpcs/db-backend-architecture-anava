@@ -304,12 +304,21 @@ class DosingRead(BaseModel):
 
 
 class ScaleRead(BaseModel):
-    scale_id: UUID
+    """A scale from the PRS catalogue (51).
+
+    scale_id is reference.prs_scales.scale_id — a TEXT key like 'GAD-7/2026',
+    not a UUID. The wizard used to read reference.neuromod_scales, which
+    overlapped the PRS catalogue by 5 of 13 rows: PHQ-9, the default
+    depression instrument, was never a PRS scale at all, so prescribing it
+    queued a questionnaire the engine could not render.
+    """
+
+    scale_id: str
     scale_code: str
     scale_name: str
-    # Bridge into the PRS questionnaire engine. Nullable: not every
-    # recommended scale is built as a PRS scale.
-    prs_scale_id: str | None = None
+    is_common_scale: bool = False
+    applicable_for: str | None = None
+    is_required: bool = False
     display_order: int = 0
 
 
@@ -371,7 +380,9 @@ class ProtocolScaleAssignment(BaseModel):
     scale is added to the catalogue first.
     """
 
-    scale_id: UUID
+    # reference.prs_scales.scale_id — TEXT ('GAD-7/2026'), not a UUID. See
+    # ScaleRead.
+    scale_id: str
     # Accepts the wizard's own labels ("At re-assessment only") and stores the
     # value chk_protocol_scales_cadence allows.
     cadence: str = "per_checkpoint"
@@ -575,10 +586,13 @@ class ProtocolDiagnosisRead(BaseModel):
 
 class ProtocolScaleRead(BaseModel):
     protocol_scale_id: UUID
-    scale_id: UUID
+    # Exactly one of these is set (chk_protocol_scales_one_catalogue, 51):
+    # prs_scale_id for anything prescribed since, scale_id for rows written
+    # against the old neuromod catalogue.
+    scale_id: UUID | None = None
+    prs_scale_id: str | None = None
     scale_code: str | None = None
     scale_name: str | None = None
-    prs_scale_id: str | None = None
     cadence: str
     window_days: int | None = None
     answered_by: str

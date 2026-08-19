@@ -218,8 +218,12 @@ class AppointmentRead(BaseModel):
     patient_complaint: str | None = None
     notes: str | None = None
     cancellation_reason: str | None = None
-    booked_by: UUID
-    booked_by_role: str
+    # Nullable since 52: a 'planned' row has no slot and no payment, so
+    # nobody has booked it. Declaring these required made every protocol-born
+    # appointment 500 on serialization — the same shape as the
+    # extended_sessions bug on TreatmentPlanRead.
+    booked_by: UUID | None = None
+    booked_by_role: str | None = None
     cancelled_by: UUID | None = None
     rescheduled_from: UUID | None = None
     rescheduled_to: UUID | None = None

@@ -1021,7 +1021,7 @@ class PatientBookingService:
         second time rather than a double transition.
         """
         appt = await self.appointments.get(appointment_id)
-        updated = await self.repo.mark_paid(appointment_id)
+        updated = await self.repo.mark_paid(appointment_id, paid_by=changed_by, paid_by_role=changed_by_role)
         if updated is None:
             if appt["status"] == STATUS_PAID:
                 return appt
