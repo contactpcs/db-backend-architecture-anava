@@ -428,34 +428,28 @@ class CatalogueRepository:
         return [dict(r) for r in rows]
 
 
-# Every join off the parent is a LEFT join, and patient/doctor/clinic are
-# COALESCEd across the two possible parents.
-#
-# 45 made treatment_protocols.plan_id nullable: a protocol now hangs off a
-# protocol_instance (the course of device treatment) and only optionally off a
-# treatment_plan (the clinical picture). The previous version of this query
-# INNER JOINed treatment_plans, so the moment a protocol was created the new
-# way it vanished from every read — get(), list(), get_detail() — with no error
-# anywhere. Exactly the silent-empty-result failure 45 §3 describes for RLS.
+# 47 renamed treatment_protocols to protocol_plan and made instance_id NOT
+# NULL — every row has exactly one protocol_instances parent now, so the
+# instance/cycle joins are plain JOINs, not the COALESCE-across-two-possible-
+# parents shape 45 needed while plan_id was still a live alternative. 48
+# dropped plan_id entirely: protocol_plan no longer references treatment_plans
+# at all, protocol_instances is its only parent.
 _PROTOCOL_SELECT = (
     "SELECT tp.*, "
     "dev.device_name, dev.modality, dc.company_name, "
-    "COALESCE(pi.patient_id, pl.patient_id) AS patient_id, "
-    "COALESCE(icy.doctor_id, pl.doctor_id)  AS doctor_id, "
+    "pi.patient_id, icy.doctor_id, "
     "pp.first_name || ' ' || pp.last_name AS patient_name, "
     "dp.first_name || ' ' || dp.last_name AS doctor_name, "
-    "COALESCE(icy.clinic_id, cy.clinic_id) AS clinic_id, "
+    "icy.clinic_id, "
     "pi.instance_number, pi.status AS instance_status, "
     "(SELECT count(*) FROM appointments a WHERE a.protocol_id = tp.protocol_id) AS appointment_count "
-    "FROM treatment_protocols tp "
+    "FROM protocol_plan tp "
     "JOIN reference.neuromod_devices dev ON dev.device_id = tp.device_id "
     "LEFT JOIN reference.device_companies dc ON dc.company_id = dev.company_id "
-    "LEFT JOIN protocol_instances pi ON pi.instance_id = tp.instance_id "
-    "LEFT JOIN treatment_cycles icy   ON icy.cycle_id  = pi.cycle_id "
-    "LEFT JOIN treatment_plans pl     ON pl.plan_id    = tp.plan_id "
-    "LEFT JOIN treatment_cycles cy    ON cy.cycle_id   = pl.cycle_id "
-    "LEFT JOIN profiles pp ON pp.id = COALESCE(pi.patient_id, pl.patient_id) "
-    "LEFT JOIN profiles dp ON dp.id = COALESCE(icy.doctor_id, pl.doctor_id) "
+    "JOIN protocol_instances pi ON pi.instance_id = tp.instance_id "
+    "JOIN treatment_cycles icy  ON icy.cycle_id   = pi.cycle_id "
+    "LEFT JOIN profiles pp ON pp.id = pi.patient_id "
+    "LEFT JOIN profiles dp ON dp.id = icy.doctor_id "
 )
 
 
@@ -464,7 +458,7 @@ class ProtocolRepository:
         self.session = session
 
     async def create(self, data: dict) -> dict:
-        sql, params = insert_returning("treatment_protocols", data)
+        sql, params = insert_returning("protocol_plan", data)
         return await fetch_one(self.session, sql, params)
 
     async def get(self, protocol_id: UUID) -> dict | None:
@@ -473,7 +467,6 @@ class ProtocolRepository:
     async def list(
         self,
         *,
-        plan_id: UUID | None = None,
         instance_id: UUID | None = None,
         patient_id: UUID | None = None,
         clinic_id: UUID | None = None,
@@ -483,19 +476,14 @@ class ProtocolRepository:
     ) -> builtins.list[dict]:
         clauses: builtins.list[str] = []
         params: dict[str, Any] = {"skip": skip, "limit": limit}
-        if plan_id:
-            clauses.append("tp.plan_id = :plan_id")
-            params["plan_id"] = str(plan_id)
         if instance_id:
             clauses.append("tp.instance_id = :instance_id")
             params["instance_id"] = str(instance_id)
         if patient_id:
-            # Through whichever parent the protocol has — filtering on pl.
-            # alone would drop every instance-parented row.
-            clauses.append("COALESCE(pi.patient_id, pl.patient_id) = :patient_id")
+            clauses.append("pi.patient_id = :patient_id")
             params["patient_id"] = str(patient_id)
         if clinic_id:
-            clauses.append("COALESCE(icy.clinic_id, cy.clinic_id) = :clinic_id")
+            clauses.append("icy.clinic_id = :clinic_id")
             params["clinic_id"] = str(clinic_id)
         if status:
             clauses.append("tp.status = :status")
@@ -511,7 +499,7 @@ class ProtocolRepository:
     async def update(self, protocol_id: UUID, fields: dict) -> dict | None:
         if not fields:
             return await self.get(protocol_id)
-        sql, params = update_returning("treatment_protocols", "protocol_id", str(protocol_id), fields)
+        sql, params = update_returning("protocol_plan", "protocol_id", str(protocol_id), fields)
         return await fetch_optional(self.session, sql, params)
 
     async def set_status(self, protocol_id: UUID, status: str) -> dict | None:
@@ -522,7 +510,7 @@ class ProtocolRepository:
             stamp = ", completed_at = NOW()"
         return await fetch_optional(
             self.session,
-            text(f"UPDATE treatment_protocols SET status = :status, updated_at = NOW() {stamp} WHERE protocol_id = :id RETURNING *"),
+            text(f"UPDATE protocol_plan SET status = :status, updated_at = NOW() {stamp} WHERE protocol_id = :id RETURNING *"),
             {"status": status, "id": str(protocol_id)},
         )
 
@@ -618,25 +606,6 @@ class ProtocolRepository:
         )
         return row["clinic_device_id"] if row else None
 
-    async def plan_context(self, plan_id: UUID) -> dict | None:
-        """Patient, doctor and clinic for a plan.
-
-        treatment_plans carries no clinic_id of its own - it comes from the
-        cycle, which is why fn_generate_protocol_sessions resolves it the
-        same way.
-        """
-        return await fetch_optional(
-            self.session,
-            text(
-                "SELECT pl.plan_id, pl.patient_id, pl.doctor_id, pl.cycle_id, pl.status AS plan_status, "
-                "cy.clinic_id "
-                "FROM treatment_plans pl JOIN treatment_cycles cy ON cy.cycle_id = pl.cycle_id "
-                "WHERE pl.plan_id = :id"
-            ),
-            {"id": str(plan_id)},
-        )
-
-
 class ProtocolInstanceRepository:
     """core.protocol_instances (45) — one course of device treatment.
 
@@ -660,7 +629,7 @@ class ProtocolInstanceRepository:
                 "SELECT pi.*, cy.clinic_id, cy.doctor_id, cy.cycle_type, cy.status AS cycle_status, "
                 "  pp.first_name || ' ' || pp.last_name AS patient_name, "
                 "  cp.first_name || ' ' || cp.last_name AS created_by_name, "
-                "  (SELECT count(*) FROM treatment_protocols x WHERE x.instance_id = pi.instance_id) AS protocol_count "
+                "  (SELECT count(*) FROM protocol_plan x WHERE x.instance_id = pi.instance_id) AS protocol_count "
                 "FROM protocol_instances pi "
                 "JOIN treatment_cycles cy ON cy.cycle_id = pi.cycle_id "
                 "LEFT JOIN profiles pp ON pp.id = pi.patient_id "
@@ -702,7 +671,7 @@ class ProtocolInstanceRepository:
                         "SELECT pi.*, cy.clinic_id, cy.doctor_id, "
                         "  pp.first_name || ' ' || pp.last_name AS patient_name, "
                         "  cp.first_name || ' ' || cp.last_name AS created_by_name, "
-                        "  (SELECT count(*) FROM treatment_protocols x WHERE x.instance_id = pi.instance_id) AS protocol_count "
+                        "  (SELECT count(*) FROM protocol_plan x WHERE x.instance_id = pi.instance_id) AS protocol_count "
                         "FROM protocol_instances pi "
                         "JOIN treatment_cycles cy ON cy.cycle_id = pi.cycle_id "
                         "LEFT JOIN profiles pp ON pp.id = pi.patient_id "
@@ -1042,6 +1011,63 @@ class ProtocolSessionRepository:
             {"id": str(protocol_id), "reason": reason},
         )
         return result.rowcount or 0  # type: ignore[attr-defined]
+
+
+class ProtocolDeviceSessionRepository:
+    """core.protocol_device_sessions (47) — one row per device session as the
+    doctor set it up, pointing at the appointments row it generated.
+
+    Never mirrors appointments' mutable state (status, start_time,
+    hold_expires_at) — see 47's header for why that column set was left out
+    on purpose.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create(self, data: dict) -> dict:
+        sql, params = insert_returning("protocol_device_sessions", data)
+        return await fetch_one(self.session, sql, params)
+
+    async def list_for_protocol(self, protocol_id: UUID) -> builtins.list[dict]:
+        rows = (
+            (
+                await self.session.execute(
+                    text("SELECT * FROM protocol_device_sessions WHERE protocol_id = :id ORDER BY session_number"),
+                    {"id": str(protocol_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+
+class ProtocolFollowupRepository:
+    """core.protocol_followup (47) — one row per follow-up as the doctor set
+    it up, pointing at the appointments row it generated. Same shape and same
+    reasoning as ProtocolDeviceSessionRepository.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create(self, data: dict) -> dict:
+        sql, params = insert_returning("protocol_followup", data)
+        return await fetch_one(self.session, sql, params)
+
+    async def list_for_protocol(self, protocol_id: UUID) -> builtins.list[dict]:
+        rows = (
+            (
+                await self.session.execute(
+                    text("SELECT * FROM protocol_followup WHERE protocol_id = :id ORDER BY after_session_number"),
+                    {"id": str(protocol_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
 
 
 class ProtocolPrsRepository:

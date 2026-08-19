@@ -1252,7 +1252,7 @@ class ClinicDeviceService:
                 "A protocol at this clinic has prescribed this device — deactivate it instead of deleting",
                 code="CLINIC_DEVICE_IN_USE",
             )
-        # is_used_by_a_protocol only catches treatment_protocols.device_id
+        # is_used_by_a_protocol only catches protocol_plan.device_id
         # (the catalogue device). clinic_device_schedules, its overrides, and
         # appointments.clinic_device_id all FK to THIS row (clinic_device_id)
         # with ON DELETE RESTRICT — a device with a schedule configured but

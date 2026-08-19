@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field, model_validator
 MODALITIES = ("tDCS", "HD-tDCS", "taVNS", "TPS", "rTMS", "other")
 
 # reference.neuromod_devices.modality -> the table-name stem for that
-# device's placement/dosing tables and the FK column on treatment_protocols.
+# device's placement/dosing tables and the FK column on protocol_plan.
 MODALITY_SLUG = {
     "tDCS": "tdcs",
     "HD-tDCS": "hd_tdcs",
@@ -442,15 +442,13 @@ class ProtocolConditionAssignment(BaseModel):
 
 
 class ProtocolCreate(BaseModel):
-    # 45 re-parented the protocol onto protocol_instances. Exactly one of
-    # these two must be given: instance_id is the current path, plan_id is
-    # kept so a caller that still has only a plan keeps working, and
-    # chk_treatment_protocols_has_parent enforces the same rule in the DB.
-    instance_id: UUID | None = None
-    plan_id: UUID | None = None
+    # 45 re-parented the protocol onto protocol_instances; 47 made instance_id
+    # the only parent; 48 dropped plan_id entirely — protocol_plan no longer
+    # references treatment_plans at all.
+    instance_id: UUID
     device_id: UUID
     # Exactly one placement and one dosing row, matching
-    # chk_treatment_protocols_one_placement / _one_dosing. The service maps
+    # chk_protocol_plan_one_placement / _one_dosing. The service maps
     # these onto the correct per-device FK column from the device's modality,
     # so the caller never has to know which of the twelve columns to fill.
     placement_id: UUID
@@ -482,12 +480,6 @@ class ProtocolCreate(BaseModel):
     notes: str | None = None
 
     @model_validator(mode="after")
-    def _needs_a_parent(self):
-        if self.instance_id is None and self.plan_id is None:
-            raise ValueError("Either instance_id or plan_id is required — a protocol must belong to a course of treatment")
-        return self
-
-    @model_validator(mode="after")
     def _follow_up_within_course(self):
         if self.follow_up_every_n is not None and self.follow_up_every_n > self.session_count:
             raise ValueError("follow_up_every_n cannot exceed session_count")
@@ -495,7 +487,7 @@ class ProtocolCreate(BaseModel):
 
     @model_validator(mode="after")
     def _cadence_is_storable(self):
-        # chk_treatment_protocols_sessions_per_week (39) allows exactly these.
+        # chk_protocol_plan_sessions_per_week (39) allows exactly these.
         # The schedule generator accepts 4 and 6 as well, so a value that
         # previews fine would fail at INSERT - caught here instead.
         if self.sessions_per_week not in (1, 2, 3, 5, 7):
@@ -530,9 +522,7 @@ class ProtocolUpdate(BaseModel):
 
 class ProtocolRead(BaseModel):
     protocol_id: UUID
-    # Nullable since 45 — the protocol hangs off instance_id instead.
-    plan_id: UUID | None = None
-    instance_id: UUID | None = None
+    instance_id: UUID
     instance_number: int | None = None
     instance_status: str | None = None
     device_id: UUID

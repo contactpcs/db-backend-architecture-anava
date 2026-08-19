@@ -347,7 +347,6 @@ async def create_protocol(
 
 @router.get("/treatment-protocols", response_model=list[s.ProtocolRead])
 async def list_protocols(
-    plan_id: UUID | None = Query(None),
     instance_id: UUID | None = Query(None),
     patient_id: UUID | None = Query(None),
     status: str | None = Query(None),
@@ -356,9 +355,7 @@ async def list_protocols(
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
 ):
-    return await ProtocolService(db).list(
-        ctx, plan_id=plan_id, instance_id=instance_id, patient_id=patient_id, status=status, skip=skip, limit=limit
-    )
+    return await ProtocolService(db).list(ctx, instance_id=instance_id, patient_id=patient_id, status=status, skip=skip, limit=limit)
 
 
 @router.get("/treatment-protocols/{protocol_id}", response_model=s.ProtocolDetail)

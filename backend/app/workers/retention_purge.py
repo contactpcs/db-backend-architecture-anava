@@ -55,12 +55,17 @@ DATA_CATEGORIES: list[tuple[str, str, str | None, str]] = [
     ("doctor_session_notes", "doctor_session_notes", "patient_id", "retain_locked"),
     ("disease_selection", "patient_disease_selection", "patient_id", "retain_locked"),
     ("appointments", "appointments", "patient_id", "retain_locked"),
-    # Protocol module (SQL/v1/32). All three are annotated Bucket 2 in their
-    # table comments; without these entries an erasure request would walk right
-    # past a patient's prescribed protocol and their post-session assessments.
-    # treatment_protocols carries no patient_id of its own — reached through
-    # treatment_plans, the same way payments is reached through sessions.
-    ("treatment_protocols", "treatment_protocols", None, "retain_locked"),
+    # Protocol module (SQL/v1/32, renamed by 47). All annotated Bucket 2 in
+    # their table comments; without these entries an erasure request would
+    # walk right past a patient's prescribed protocol and their post-session
+    # assessments. protocol_plan carries no patient_id of its own — reached
+    # through protocol_instances, the same way payments is reached through
+    # sessions.
+    ("protocol_plan", "protocol_plan", None, "retain_locked"),
+    # 47's two prescription tables. No patient_id of their own either —
+    # reached through instance_id, the same as protocol_plan.
+    ("protocol_device_sessions", "protocol_device_sessions", None, "retain_locked"),
+    ("protocol_followup", "protocol_followup", None, "retain_locked"),
     ("device_session_prs", "device_session_prs_responses", "patient_id", "retain_locked"),
     ("followup_prs", "followup_prs_responses", "patient_id", "retain_locked"),
     ("sessions", "sessions", "patient_id", "retain_locked"),
@@ -124,15 +129,28 @@ async def classify_erasure_requests(session) -> int:
                         {"pid": req["patient_id"]},
                     )
                 ).first()
-            elif table == "treatment_protocols":
-                # No patient_id column — a protocol belongs to a plan, and the
-                # plan names the patient.
+            elif table == "protocol_plan":
+                # No patient_id column — a protocol belongs to a course
+                # (protocol_instances), and the instance names the patient.
                 exists = (
                     await session.execute(
                         text(
-                            "SELECT 1 FROM treatment_protocols tp "
-                            "JOIN treatment_plans pl ON pl.plan_id = tp.plan_id "
-                            "WHERE pl.patient_id = :pid LIMIT 1"
+                            "SELECT 1 FROM protocol_plan tp "
+                            "JOIN protocol_instances pi ON pi.instance_id = tp.instance_id "
+                            "WHERE pi.patient_id = :pid LIMIT 1"
+                        ),
+                        {"pid": req["patient_id"]},
+                    )
+                ).first()
+            elif table in ("protocol_device_sessions", "protocol_followup"):
+                # Same shape as protocol_plan just above: no patient_id
+                # column, reached through the instance_id every row carries.
+                exists = (
+                    await session.execute(
+                        text(
+                            f"SELECT 1 FROM {table} x "
+                            "JOIN protocol_instances pi ON pi.instance_id = x.instance_id "
+                            "WHERE pi.patient_id = :pid LIMIT 1"
                         ),
                         {"pid": req["patient_id"]},
                     )

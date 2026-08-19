@@ -633,7 +633,7 @@ class ClinicDeviceScheduleRepository:
 class ClinicDeviceRepository:
     """Which device types a clinic owns (37_clinic_devices.sql).
 
-    Feeds the protocol picker at Step 1 — treatment_protocols joins this table
+    Feeds the protocol picker at Step 1 — protocol_plan joins this table
     when a clinic_id is supplied — and is independently enforced by
     trg_check_device_available_at_clinic, so filtering here is a convenience,
     never the guarantee.
@@ -704,13 +704,18 @@ class ClinicDeviceRepository:
         If so the inventory row should be deactivated rather than deleted —
         deleting it would leave a historic protocol pointing at a device the
         clinic has no record of owning.
+
+        Joins through protocol_instances, not plan_id (47) — protocol_plan.
+        plan_id is optional, and the old plan_id-only join silently missed
+        every instance-parented protocol, the same failure class 45 hunted
+        for RLS.
         """
         row = (
             await self.session.execute(
                 text(
-                    "SELECT 1 FROM treatment_protocols tp "
-                    "JOIN treatment_plans pl ON pl.plan_id = tp.plan_id "
-                    "JOIN treatment_cycles tc ON tc.cycle_id = pl.cycle_id "
+                    "SELECT 1 FROM protocol_plan tp "
+                    "JOIN protocol_instances pi ON pi.instance_id = tp.instance_id "
+                    "JOIN treatment_cycles tc ON tc.cycle_id = pi.cycle_id "
                     "WHERE tc.clinic_id = :cid AND tp.device_id = :did LIMIT 1"
                 ),
                 {"cid": str(clinic_id), "did": str(device_id)},
