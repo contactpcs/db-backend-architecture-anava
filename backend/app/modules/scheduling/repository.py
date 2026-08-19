@@ -212,6 +212,7 @@ class AppointmentRepository:
         doctor_id: UUID | None = None,
         patient_id: UUID | None = None,
         status: str | None = None,
+        appointment_type: str | None = None,
         date_from=None,
         date_to=None,
         skip: int = 0,
@@ -234,6 +235,12 @@ class AppointmentRepository:
         if status:
             clauses.append("a.status = :status")
             params["status"] = status
+        if appointment_type:
+            # The clinical assistant's queue is device sessions only; a doctor's
+            # list wants everything except them. Filtering server-side keeps the
+            # caller from pulling every appointment and discarding most of it.
+            clauses.append("a.appointment_type = :appointment_type")
+            params["appointment_type"] = appointment_type
         if date_from:
             clauses.append("a.appointment_date >= :date_from")
             params["date_from"] = date_from

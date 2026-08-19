@@ -1,7 +1,7 @@
 from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.core.db import RequestContext, get_db
 from app.core.exceptions import NotFoundError, PermissionError_
@@ -152,6 +152,7 @@ async def list_appointments(
     doctor_id: UUID | None = None,
     patient_id: UUID | None = None,
     status: str | None = None,
+    appointment_type: str | None = Query(None, description="device_session | protocol_followup | initial | follow_up"),
     date_from: date | None = None,
     date_to: date | None = None,
     skip: int = 0,
@@ -165,6 +166,7 @@ async def list_appointments(
         doctor_id=doctor_id,
         patient_id=patient_id,
         status=status,
+        appointment_type=appointment_type,
         date_from=date_from,
         date_to=date_to,
         skip=skip,

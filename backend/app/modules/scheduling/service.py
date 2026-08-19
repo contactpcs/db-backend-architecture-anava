@@ -465,6 +465,7 @@ class AppointmentService:
         doctor_id=None,
         patient_id=None,
         status=None,
+        appointment_type=None,
         date_from=None,
         date_to=None,
         skip: int = 0,
@@ -494,6 +495,7 @@ class AppointmentService:
         if ctx.role == "regional_admin" and not clinic_id:
             region_id = UUID(ctx.region_id) if ctx.region_id else None
         return await self.repo.list(
+            appointment_type=appointment_type,
             clinic_id=clinic_id,
             region_id=region_id,
             doctor_id=doctor_id,
