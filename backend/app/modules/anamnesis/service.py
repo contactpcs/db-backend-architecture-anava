@@ -50,9 +50,9 @@ class AnamnesisService:
         )
         return assessment
 
-    async def get_current(self, patient_id: UUID) -> dict:
+    async def get_current(self, patient_id: UUID, assessment_stage: str | None = None) -> dict:
         profile_id = await _resolve_profile_id(self.session, patient_id)
-        assessment = await self.assessments.get_latest_for_patient(profile_id)
+        assessment = await self.assessments.get_latest_for_patient(profile_id, assessment_stage)
         if not assessment:
             raise NotFoundError("No anamnesis assessment found for this patient", code="ANAMNESIS_NOT_FOUND")
         return assessment
