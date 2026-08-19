@@ -394,9 +394,7 @@ async def list_device_overrides(
     return await ClinicDeviceScheduleService(db).device_overrides(clinic_id, clinic_device_id, ctx, from_date=from_date)
 
 
-@router.post(
-    "/clinics/{clinic_id}/devices/{clinic_device_id}/schedule/overrides", response_model=s.DeviceOverrideRead, status_code=201
-)
+@router.post("/clinics/{clinic_id}/devices/{clinic_device_id}/schedule/overrides", response_model=s.DeviceOverrideRead, status_code=201)
 async def create_device_override(
     clinic_id: UUID,
     clinic_device_id: UUID,

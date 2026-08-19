@@ -496,9 +496,7 @@ class ClinicDeviceScheduleRepository:
         Matches how a doctor redraws their own timetable: there is no natural
         per-day PATCH when the admin is editing the entire week in one form.
         """
-        await self.session.execute(
-            text("DELETE FROM clinic_device_schedules WHERE clinic_device_id = :id"), {"id": str(clinic_device_id)}
-        )
+        await self.session.execute(text("DELETE FROM clinic_device_schedules WHERE clinic_device_id = :id"), {"id": str(clinic_device_id)})
         out: builtins.list[dict] = []
         for item in items:
             sql, params = insert_returning(
