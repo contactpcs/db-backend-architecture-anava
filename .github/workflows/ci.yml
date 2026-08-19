@@ -143,6 +143,12 @@ jobs:
               [0-9]*) ;;
               *) echo "Skipping $base (not a numbered migration)"; continue ;;
             esac
+            case "$base" in
+              47_protocol_prescription_tables.sql|48_protocol_plan_drop_plan_id.sql|49_protocol_plan_fix_dropped_dependents.sql)
+                echo "Skipping $base (the corresponding .run.sql file is applied)"
+                continue
+                ;;
+            esac
             echo "Applying $base"
             if [ "$base" = "19_search_path.sql" ]; then
               # Source file targets the real RDS database name; CI's
