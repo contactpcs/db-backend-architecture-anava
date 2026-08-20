@@ -319,13 +319,40 @@ GRANT SELECT ON reference."billable_items" TO anava_readonly;
 --    defaults for the same field (scheduling/service.py:393 vs :488). Adding the
 --    constraint now would break every booking. Lands with the code change.
 --
+--    UPDATE (43_mock_payment_lifecycle_lock.sql): DONE. chk_appointments_
+--    appointment_type landed there, CHECK ("appointment_type" IN ('initial',
+--    'follow_up', 'device_session', 'protocol_followup')) — the code had by
+--    then converged on those four values via TYPE_INITIAL/TYPE_FOLLOW_UP
+--    (scheduling/service.py) and _TYPE_DEVICE_SESSION/_TYPE_FOLLOW_UP
+--    (treatment_protocols/service.py, "protocol_followup" is a distinct
+--    concept from "follow_up", not a spelling variant). The two-default bug
+--    named above no longer exists at those line numbers; both call sites now
+--    resolve through the same TYPE_INITIAL/TYPE_FOLLOW_UP constants. This
+--    item's narrative is left as-is above for history — see 43 for the
+--    actual landing.
+--
 -- 2. CHECK on appointments.status. Needs 'planned' and 'pending_payment' added to
 --    the existing eight-value FSM in scheduling/service.py first.
+--
+--    UPDATE (43_mock_payment_lifecycle_lock.sql): DONE, with a scope change.
+--    chk_appointments_status landed there covering ('planned', 'selected',
+--    'paid', 'cancelled', 'rescheduled', 'checked_in', 'in_progress',
+--    'completed', 'no_show') — 'planned' was added as originally planned,
+--    but 'pending_payment' was dropped from scope: it is never written by
+--    any Python code path (grep confirms), so the FSM as actually
+--    implemented had no transition needing it. If a pending-payment state is
+--    ever introduced, it needs a new migration, not a reopening of this one.
 --
 -- 3. Dropping core.sessions and the five session_id columns that reference it.
 --    Contract step of expand-contract: only after the code reads and writes
 --    appointment_id everywhere. Nothing is lost by waiting; a great deal is lost
 --    by dropping a table the running app still queries.
+--
+--    STILL OPEN as of this comment. core.sessions and core.treatment_sessions
+--    remain live — app/modules/clinical/ still reads and writes them in
+--    parallel with core.appointments, and core.doctor_session_notes.session_id
+--    still FKs to core.sessions.session_id. See the phased-cutover plan
+--    tracked separately (not yet a numbered migration file as of this note).
 --
 -- 4. Reservation/hold expiry, refunds, packages, ledger. Not modelled at all yet
 --    — the agreed model is one payment per visit, and none of that is needed for it.
