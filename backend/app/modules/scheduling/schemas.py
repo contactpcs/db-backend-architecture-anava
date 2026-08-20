@@ -149,8 +149,8 @@ class AppointmentStatusUpdate(BaseModel):
     # 'paid' says it once instead of two states saying it twice. 'selected' is
     # not settable here either — a slot is claimed through the booking
     # endpoints, which also write the time and the hold in the same statement.
-    # 'paid' is not settable here either — the payment confirmation endpoints
-    # (payments/router.py: create_mock_order / confirm_mock_payment) are the
+    # 'paid' is not settable here either — the Razorpay webhook
+    # (payments/router.py: POST /webhooks/razorpay -> handle_webhook) is the
     # only sanctioned route to 'paid', so a payment row always exists behind
     # the transition. This used to be a backdoor: staff could PATCH straight
     # to 'paid' with no payment record at all.

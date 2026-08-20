@@ -1,7 +1,9 @@
+import io
 import json
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import StreamingResponse
 
 from app.core.db import RequestContext, get_db
 from app.core.exceptions import BusinessRuleError, PermissionError_
@@ -59,28 +61,69 @@ async def update_payment_status(
     )
 
 
-@router.post("/appointments/{appointment_id}/payments/mock-order", response_model=s.PaymentRead, status_code=201)
-async def create_mock_payment_order(
+@router.get("/me/payments", response_model=list[s.PaymentHistoryRead])
+async def list_my_payments(db=Depends(get_db), ctx: RequestContext = Depends(require_role("patient"))):
+    return await PaymentService(db).list_mine(UUID(ctx.user_id))
+
+
+@router.get("/appointments/{appointment_id}/payments/amount", response_model=s.PaymentAmountRead)
+async def get_appointment_payment_amount(
     appointment_id: UUID,
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
-    """Step 1 of the dummy checkout — mirrors a real Razorpay order-create
-    call so the frontend checkout screen can be built against this exactly
-    like it would be against the real gateway later."""
-    return await PaymentService(db).create_mock_order(appointment_id, ctx)
+    """Step 2 — resolved price for display, before checkout starts."""
+    return await PaymentService(db).get_payment_amount(appointment_id, ctx)
 
 
-@router.post("/payments/{payment_id}/mock-confirm", response_model=s.PaymentRead)
-async def confirm_mock_payment(
-    payment_id: UUID,
+@router.post("/appointments/{appointment_id}/payments/order", response_model=s.PaymentOrderRead, status_code=201)
+async def create_appointment_payment_order(
+    appointment_id: UUID,
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
-    """Step 2 — the "Pay Now" click. Marks the payment paid and flips the
-    appointment selected -> paid in the same call (no separate webhook,
-    since there's no real gateway to call one back)."""
-    return await PaymentService(db).confirm_mock_payment(payment_id, ctx)
+    """Step 3 — "Pay Now". Creates a real Razorpay order; the frontend opens
+    Razorpay Checkout with razorpay_order_id + razorpay_key_id from the
+    response. Only the signed webhook or the signature-verified /verify
+    call below can ever mark this paid."""
+    return await PaymentService(db).create_order(appointment_id, ctx)
+
+
+@router.post("/payments/{payment_id}/verify", response_model=s.PaymentRead)
+async def verify_appointment_payment(
+    payment_id: UUID,
+    body: s.PaymentVerify,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    """Client-callback confirmation — Razorpay Checkout's success handler
+    hands the browser these fields, the frontend forwards them here. A
+    second, independent confirmation path alongside the webhook (step 5-7),
+    not a replacement for it: both are signature-verified and idempotent."""
+    return await PaymentService(db).verify_payment(
+        payment_id,
+        razorpay_order_id=body.razorpay_order_id,
+        razorpay_payment_id=body.razorpay_payment_id,
+        razorpay_signature=body.razorpay_signature,
+        ctx=ctx,
+    )
+
+
+@router.get("/appointments/{appointment_id}/payments/receipt")
+async def get_appointment_receipt(
+    appointment_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    """Branded PDF, built fresh from DB data on every request — nothing
+    stored on disk. Same ownership/scope check as the amount/order endpoints
+    above (_get_appointment_for_pay), so a patient can only pull their own."""
+    pdf_bytes = await PaymentService(db).get_receipt_pdf(appointment_id, ctx)
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="receipt-{appointment_id}.pdf"'},
+    )
 
 
 @router.post("/webhooks/razorpay")

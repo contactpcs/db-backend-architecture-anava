@@ -1,0 +1,100 @@
+"""Branded PDF receipt — built fresh from DB data on every request, nothing
+stored on disk. fpdf2 imported lazily (matches integrations/razorpay.py's
+lazy `import razorpay`) since it's only needed on this one code path."""
+
+from __future__ import annotations
+
+import os
+from decimal import Decimal
+
+_LOGO_PATH = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "assets", "anava_logo.png"))
+_CLINIC_TITLE = "Anava Clinics By Mana Health Sciences"
+
+
+def _fmt_amount(amount, currency: str) -> str:
+    return f"{currency} {Decimal(str(amount)):.2f}"
+
+
+def _fmt_payment_method(payment_method) -> str:
+    if not payment_method:
+        return "-"
+    # Internal path-tracking values (razorpay_webhook / razorpay_checkout,
+    # see payments/service.py) collapse to one label on a customer-facing
+    # document — which of our two confirmation paths caught it isn't the
+    # patient's concern.
+    if str(payment_method).startswith("razorpay"):
+        return "Razorpay (Online)"
+    return str(payment_method).replace("_", " ").title()
+
+
+def build_receipt_pdf(*, payment: dict, appointment: dict, clinic: dict, item_name: str) -> bytes:
+    from fpdf import FPDF
+
+    pdf = FPDF(format="A4", unit="mm")
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    if os.path.exists(_LOGO_PATH):
+        pdf.image(_LOGO_PATH, x=15, y=12, w=22)
+
+    pdf.set_xy(42, 14)
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 8, _CLINIC_TITLE, ln=1)
+
+    pdf.set_font("Helvetica", "", 10)
+    branch = clinic.get("clinic_name") or "Anava Clinic"
+    address = ", ".join(b for b in (clinic.get("address"), clinic.get("city"), clinic.get("state")) if b)
+    pdf.set_x(42)
+    pdf.cell(0, 5, branch, ln=1)
+    if address:
+        pdf.set_x(42)
+        pdf.cell(0, 5, address, ln=1)
+    if clinic.get("phone"):
+        pdf.set_x(42)
+        pdf.cell(0, 5, f"Phone: {clinic['phone']}", ln=1)
+
+    pdf.ln(6)
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.cell(0, 8, "PAYMENT RECEIPT", ln=1, align="C")
+
+    pdf.set_font("Helvetica", "", 10)
+    receipt_no = f"RCPT-{str(payment['payment_id']).replace('-', '')[:10].upper()}"
+    paid_at = payment.get("paid_at")
+    pdf.cell(0, 6, f"Receipt No: {receipt_no}", ln=1)
+    pdf.cell(0, 6, f"Date: {paid_at.strftime('%d %b %Y, %I:%M %p') if paid_at else '-'}", ln=1)
+    pdf.ln(4)
+
+    def row(label: str, value) -> None:
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(50, 7, label)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(0, 7, str(value) if value else "-", ln=1)
+
+    row("Patient", appointment.get("patient_name"))
+    if appointment.get("doctor_name"):
+        row("Doctor", appointment.get("doctor_name"))
+    row("Appointment Type", str(appointment.get("appointment_type") or "").replace("_", " ").title())
+    appt_date, appt_time = appointment.get("appointment_date"), appointment.get("start_time")
+    date_str = appt_date.strftime("%d %b %Y") if appt_date else ""
+    time_str = appt_time.strftime("%I:%M %p") if appt_time else ""
+    row("Date & Time", f"{date_str} {time_str}".strip())
+
+    pdf.ln(4)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(90, 8, "Description", border=1)
+    pdf.cell(0, 8, "Amount", border=1, ln=1, align="R")
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(90, 8, item_name, border=1)
+    pdf.cell(0, 8, _fmt_amount(payment["amount"], payment["currency"]), border=1, ln=1, align="R")
+    pdf.ln(4)
+
+    row("Payment Method", _fmt_payment_method(payment.get("payment_method")))
+    row("Razorpay Payment ID", payment.get("razorpay_payment_id"))
+    row("Status", str(payment.get("status") or "").title())
+
+    pdf.ln(8)
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(120, 120, 120)
+    pdf.multi_cell(0, 5, "This is a computer-generated receipt and does not require a signature.")
+
+    return bytes(pdf.output())

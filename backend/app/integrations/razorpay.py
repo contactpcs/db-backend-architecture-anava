@@ -33,7 +33,10 @@ def create_order(*, amount: float, currency: str, receipt: str) -> dict:
     import razorpay  # imported lazily — only required once real keys exist
 
     client = razorpay.Client(auth=(settings.razorpay_key_id, settings.razorpay_key_secret))
-    return client.order.create({"amount": paise, "currency": currency, "receipt": receipt})
+    # payment_capture=1 — auto-capture on successful authorization. Without
+    # it Razorpay leaves the payment merely 'authorized', payment.captured
+    # never fires, and the webhook (the only route to 'paid') never sees it.
+    return client.order.create({"amount": paise, "currency": currency, "receipt": receipt, "payment_capture": 1})
 
 
 def verify_webhook_signature(*, payload: bytes, signature: str) -> bool:
@@ -47,3 +50,21 @@ def verify_webhook_signature(*, payload: bytes, signature: str) -> bool:
     )
     expected = hmac.new(settings.razorpay_webhook_secret.encode(), payload, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature)
+
+
+def verify_payment_signature(*, razorpay_order_id: str, razorpay_payment_id: str, razorpay_signature: str) -> bool:
+    """Verifies the response Razorpay Checkout hands the *browser* on
+    success (order_id/payment_id/signature) — a second, independent
+    confirmation path alongside the webhook, signed with key_secret (not
+    webhook_secret — different secret, per Razorpay's own docs). Lets the
+    frontend confirm a payment even if the webhook is delayed or (in local
+    dev) unreachable; both paths are idempotent and converge on the same
+    update_status call, so whichever arrives first wins."""
+    if not is_configured():
+        return True
+    expected = hmac.new(
+        settings.razorpay_key_secret.encode(),
+        f"{razorpay_order_id}|{razorpay_payment_id}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, razorpay_signature)

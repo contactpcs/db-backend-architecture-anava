@@ -107,6 +107,29 @@ class PaymentRepository:
         )
         return [dict(r) for r in rows]
 
+    async def list_for_patient(self, patient_id: UUID) -> list[dict]:
+        # Same 3-way join as list_by_clinic, scoped to patient_id instead of
+        # clinic_id — appointment_type/appointment_date come along so the
+        # billing-history screen needs no per-row follow-up fetch.
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT p.*, appt.appointment_type, appt.appointment_date FROM payments p "
+                        "LEFT JOIN sessions sess ON sess.session_id = p.session_id "
+                        "LEFT JOIN store_orders so ON so.order_id = p.order_id "
+                        "LEFT JOIN appointments appt ON appt.appointment_id = p.appointment_id "
+                        "WHERE COALESCE(sess.patient_id, so.patient_id, appt.patient_id) = :patient_id "
+                        "ORDER BY p.created_at DESC"
+                    ),
+                    {"patient_id": str(patient_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
     async def set_status(
         self, payment_id: UUID, *, status: str, payment_method, waived_by, waived_reason, razorpay_payment_id=None
     ) -> dict | None:
