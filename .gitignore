@@ -25,3 +25,5 @@ venv/
 ~$*.docx
 ~$*.doc
 .gstack/
+
+
