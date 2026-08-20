@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import builtins
 from uuid import UUID
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
-
-logger = structlog.get_logger()
 
 from app.core.db import RequestContext
 from app.core.events import emit_event
@@ -14,6 +13,9 @@ from app.core.scoping import assert_clinic_scope, assert_owns_profile
 from app.integrations import razorpay as razorpay_client
 from app.modules.admin.repository import BillableItemRepository, ClinicRepository
 from app.modules.payments.repository import PaymentRepository
+
+logger = structlog.get_logger()
+
 
 class PaymentService:
     """Real Razorpay order creation when settings.razorpay_key_id/secret are
@@ -96,7 +98,12 @@ class PaymentService:
         if event not in ("payment.captured", "order.paid"):
             return payment
 
-        return await self.update_status(payment["payment_id"], status="paid", payment_method="razorpay_webhook", _razorpay_payment_id=rzp_payment_id)
+        return await self.update_status(
+            payment["payment_id"],
+            status="paid",
+            payment_method="razorpay_webhook",
+            _razorpay_payment_id=rzp_payment_id,
+        )
 
     async def get(self, payment_id: UUID) -> dict:
         payment = await self.repo.get(payment_id)
@@ -104,10 +111,10 @@ class PaymentService:
             raise NotFoundError("Payment not found", code="PAYMENT_NOT_FOUND")
         return payment
 
-    async def list(self, clinic_id: UUID) -> list[dict]:
+    async def list(self, clinic_id: UUID) -> builtins.list[dict]:
         return await self.repo.list_by_clinic(clinic_id)
 
-    async def list_mine(self, patient_id: UUID) -> list[dict]:
+    async def list_mine(self, patient_id: UUID) -> builtins.list[dict]:
         return await self.repo.list_for_patient(patient_id)
 
     async def update_status(
@@ -164,7 +171,7 @@ class PaymentService:
         # updated["session_id"] here would always miss it. Falls back to the
         # payment's own session_id for the older direct-session flow, where
         # there is no appointment in the picture at all.
-        session_id = (appt or {}).get("session_id") or updated.get("session_id")
+        session_id = (appt or {}).get("session_id") or (updated or {}).get("session_id")
         if session_id and status in ("paid", "waived"):
             from sqlalchemy import text
 
@@ -196,9 +203,7 @@ class PaymentService:
             category="appointment", clinic_id=appt["clinic_id"], appointment_type=appt["appointment_type"]
         )
         if not priced:
-            raise BusinessRuleError(
-                f"No price configured for appointment_type '{appt['appointment_type']}'", code="PRICE_NOT_CONFIGURED"
-            )
+            raise BusinessRuleError(f"No price configured for appointment_type '{appt['appointment_type']}'", code="PRICE_NOT_CONFIGURED")
         return {"amount": float(priced["price"]), "currency": priced["currency"], "item_name": priced["name"]}
 
     async def get_payment_amount(self, appointment_id: UUID, ctx: RequestContext) -> dict:

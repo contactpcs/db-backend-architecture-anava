@@ -538,7 +538,7 @@ class AppointmentService:
         self,
         appointment_id: UUID,
         *,
-        changed_by: UUID,
+        changed_by: UUID | None,
         changed_by_role: str,
         previous_status,
         new_status,

@@ -7,7 +7,7 @@ needs to know which mode is active."""
 import hashlib
 import hmac
 import uuid
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 
 from app.config import get_settings
 
@@ -62,6 +62,7 @@ def verify_payment_signature(*, razorpay_order_id: str, razorpay_payment_id: str
     update_status call, so whichever arrives first wins."""
     if not is_configured():
         return True
+    assert settings.razorpay_key_secret is not None
     expected = hmac.new(
         settings.razorpay_key_secret.encode(),
         f"{razorpay_order_id}|{razorpay_payment_id}".encode(),
