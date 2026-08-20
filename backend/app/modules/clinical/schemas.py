@@ -54,41 +54,6 @@ class ProtocolRequestRead(BaseModel):
     submitted_at: datetime
 
 
-class SessionCreate(BaseModel):
-    patient_id: UUID
-    doctor_id: UUID | None = None
-    ca_id: UUID | None = None
-    cycle_id: UUID | None = None
-    clinic_id: UUID | None = None
-    session_date: datetime
-    session_phase: str | None = Field(
-        default=None,
-        pattern="^(clinical_assistant|doctor_consultation|additional_tests|doctor_additional_review|treatment|home_treatment_visit)$",
-    )
-    session_number_in_cycle: int | None = None
-
-
-class SessionStatusUpdate(BaseModel):
-    status: str = Field(pattern="^(in_progress|completed|cancelled|missed)$")
-    outcome: str | None = Field(
-        default=None,
-        pattern="^(session1_complete|treatment_plan_given|additional_tests_requested|session3_complete|home_treatment_visit_complete)$",
-    )
-
-
-class SessionRead(BaseModel):
-    session_id: UUID
-    patient_id: UUID
-    doctor_id: UUID | None
-    ca_id: UUID | None
-    cycle_id: UUID | None
-    session_date: datetime
-    session_phase: str | None
-    status: str
-    outcome: str | None
-    payment_status: str | None
-
-
 class TreatmentPlanCreate(BaseModel):
     patient_id: UUID
     doctor_id: UUID
@@ -125,44 +90,3 @@ class TreatmentPlanRead(BaseModel):
     created_at: datetime
 
 
-class TreatmentSessionCreate(BaseModel):
-    plan_id: UUID
-    session_id: UUID
-    patient_id: UUID
-    ca_id: UUID
-    session_number: int
-    billing_type: str = Field(pattern="^(standard|extended)$")
-
-
-class TreatmentSessionStatusUpdate(BaseModel):
-    status: str = Field(pattern="^(in_progress|completed|missed)$")
-    session_notes: str | None = None
-    patient_feedback: str | None = None
-
-
-class TreatmentSessionRead(BaseModel):
-    ts_id: UUID
-    plan_id: UUID
-    session_id: UUID
-    patient_id: UUID
-    ca_id: UUID
-    session_number: int
-    billing_type: str
-    status: str
-    payment_status: str
-
-
-class DoctorSessionNoteCreate(BaseModel):
-    session_id: UUID
-    cycle_id: UUID
-    patient_id: UUID
-    doctor_id: UUID
-    session_number: int
-    session_phase: str = Field(pattern="^(doctor_consultation|doctor_additional_review)$")
-    chief_complaint: str | None = None
-    clinical_observations: str | None = None
-    assessment: str | None = None
-    treatment_plan_notes: str | None = None
-    follow_up_instructions: str | None = None
-    referrals: str | None = None
-    note_content: str | None = None

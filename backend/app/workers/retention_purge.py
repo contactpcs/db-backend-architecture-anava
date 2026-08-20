@@ -51,7 +51,6 @@ DATA_CATEGORIES: list[tuple[str, str, str | None, str]] = [
     ("eeg_files", "patient_eeg_files", "patient_id", "retain_locked"),
     ("medical_history_files", "patient_medical_history_files", "patient_id", "retain_locked"),
     ("treatment_plans", "treatment_plans", "patient_id", "retain_locked"),
-    ("treatment_sessions", "treatment_sessions", "patient_id", "retain_locked"),
     ("doctor_session_notes", "doctor_session_notes", "patient_id", "retain_locked"),
     ("disease_selection", "patient_disease_selection", "patient_id", "retain_locked"),
     ("appointments", "appointments", "patient_id", "retain_locked"),
@@ -68,8 +67,7 @@ DATA_CATEGORIES: list[tuple[str, str, str | None, str]] = [
     ("protocol_followup", "protocol_followup", None, "retain_locked"),
     ("device_session_prs", "device_session_prs_responses", "patient_id", "retain_locked"),
     ("followup_prs", "followup_prs_responses", "patient_id", "retain_locked"),
-    ("sessions", "sessions", "patient_id", "retain_locked"),
-    ("payments", "payments", None, "retain_locked"),  # joined via session_id, see _classify_payments
+    ("payments", "payments", None, "retain_locked"),  # joined via appointment_id, see _classify_payments
     ("store_orders", "store_orders", "patient_id", "retain_locked"),
     ("consent_records", "consent_records", "patient_id", "compliance_evidence"),
     ("notifications", "notifications", "recipient_id", "delete_now"),
@@ -84,8 +82,8 @@ async def _compute_retention_clock(session, patient_profile_id: str) -> dict:
             text(
                 "SELECT GREATEST("
                 "  (SELECT max(appointment_date::timestamptz) FROM appointments WHERE patient_id = :pid),"
-                "  (SELECT max(session_date) FROM sessions WHERE patient_id = :pid),"
-                "  (SELECT max(completed_at) FROM treatment_sessions WHERE patient_id = :pid)"
+                "  (SELECT max(ds.completed_at) FROM device_sessions ds "
+                "     JOIN appointments a ON a.appointment_id = ds.appointment_id WHERE a.patient_id = :pid)"
                 ") AS last_clinical"
             ),
             {"pid": patient_profile_id},
@@ -94,7 +92,10 @@ async def _compute_retention_clock(session, patient_profile_id: str) -> dict:
 
     last_financial = (
         await session.execute(
-            text("SELECT max(p.paid_at) FROM payments p JOIN sessions s ON s.session_id = p.session_id WHERE s.patient_id = :pid"),
+            text(
+                "SELECT max(p.paid_at) FROM payments p "
+                "JOIN appointments a ON a.appointment_id = p.appointment_id WHERE a.patient_id = :pid"
+            ),
             {"pid": patient_profile_id},
         )
     ).scalar()
@@ -125,7 +126,10 @@ async def classify_erasure_requests(session) -> int:
             if table == "payments":
                 exists = (
                     await session.execute(
-                        text("SELECT 1 FROM payments p JOIN sessions s ON s.session_id = p.session_id WHERE s.patient_id = :pid LIMIT 1"),
+                        text(
+                            "SELECT 1 FROM payments p JOIN appointments a ON a.appointment_id = p.appointment_id "
+                            "WHERE a.patient_id = :pid LIMIT 1"
+                        ),
                         {"pid": req["patient_id"]},
                     )
                 ).first()

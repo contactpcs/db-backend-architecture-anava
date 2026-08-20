@@ -90,45 +90,6 @@ class ProtocolRequestRepository:
         )
 
 
-class SessionRepository:
-    def __init__(self, session: AsyncSession):
-        self.session = session
-
-    async def create(self, data: dict) -> dict:
-        sql, params = insert_returning("sessions", data)
-        return await fetch_one(self.session, sql, params)
-
-    async def get(self, session_id: UUID) -> dict | None:
-        return await fetch_optional(self.session, text("SELECT * FROM sessions WHERE session_id = :id"), {"id": str(session_id)})
-
-    async def list(self, *, patient_id: UUID | None = None, cycle_id: UUID | None = None) -> list[dict]:
-        clauses, params = [], {}
-        if patient_id:
-            clauses.append("patient_id = :pid")
-            params["pid"] = str(patient_id)
-        if cycle_id:
-            clauses.append("cycle_id = :cid")
-            params["cid"] = str(cycle_id)
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        rows = (await self.session.execute(text(f"SELECT * FROM sessions {where} ORDER BY session_date DESC"), params)).mappings().all()
-        return [dict(r) for r in rows]
-
-    async def update_status(self, session_id: UUID, *, status: str, outcome: str | None) -> dict | None:
-        timestamps = ""
-        if status == "in_progress":
-            timestamps = ", started_at = NOW()"
-        elif status == "completed":
-            timestamps = ", completed_at = NOW()"
-        return await fetch_optional(
-            self.session,
-            text(
-                f"UPDATE sessions SET status = :status, outcome = COALESCE(:outcome, outcome) "
-                f"{timestamps} WHERE session_id = :id RETURNING *"
-            ),
-            {"status": status, "outcome": outcome, "id": str(session_id)},
-        )
-
-
 class TreatmentPlanRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -168,54 +129,3 @@ class TreatmentPlanRepository:
         )
 
 
-class TreatmentSessionRepository:
-    def __init__(self, session: AsyncSession):
-        self.session = session
-
-    async def create(self, data: dict) -> dict:
-        sql, params = insert_returning("treatment_sessions", data)
-        return await fetch_one(self.session, sql, params)
-
-    async def get(self, ts_id: UUID) -> dict | None:
-        return await fetch_optional(self.session, text("SELECT * FROM treatment_sessions WHERE ts_id = :id"), {"id": str(ts_id)})
-
-    async def list(self, *, plan_id: UUID | None = None, patient_id: UUID | None = None) -> list[dict]:
-        clauses, params = [], {}
-        if plan_id:
-            clauses.append("plan_id = :pid")
-            params["pid"] = str(plan_id)
-        if patient_id:
-            clauses.append("patient_id = :ptid")
-            params["ptid"] = str(patient_id)
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        rows = (
-            (await self.session.execute(text(f"SELECT * FROM treatment_sessions {where} ORDER BY session_number"), params)).mappings().all()
-        )
-        return [dict(r) for r in rows]
-
-    async def update_status(self, ts_id: UUID, *, status: str, session_notes, patient_feedback) -> dict | None:
-        timestamps = ""
-        if status == "in_progress":
-            timestamps = ", started_at = NOW()"
-        elif status == "completed":
-            timestamps = ", completed_at = NOW()"
-        return await fetch_optional(
-            self.session,
-            text(
-                f"UPDATE treatment_sessions SET status = :status, session_notes = COALESCE(:notes, session_notes), "
-                f"patient_feedback = COALESCE(:feedback, patient_feedback) {timestamps} WHERE ts_id = :id RETURNING *"
-            ),
-            {"status": status, "notes": session_notes, "feedback": patient_feedback, "id": str(ts_id)},
-        )
-
-
-class DoctorSessionNoteRepository:
-    def __init__(self, session: AsyncSession):
-        self.session = session
-
-    async def create(self, data: dict) -> dict:
-        sql, params = insert_returning("doctor_session_notes", data)
-        return await fetch_one(self.session, sql, params)
-
-    async def get(self, note_id: UUID) -> dict | None:
-        return await fetch_optional(self.session, text("SELECT * FROM doctor_session_notes WHERE note_id = :id"), {"id": str(note_id)})

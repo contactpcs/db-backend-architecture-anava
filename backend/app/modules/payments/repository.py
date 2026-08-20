@@ -58,17 +58,17 @@ class PaymentRepository:
 
     async def get_owner_profile_id(self, payment_id: UUID) -> str | None:
         """A payment has no patient_id of its own — same two-hop join as
-        list_by_clinic, since it's for either a clinical session or a store
-        order, and both carry patient_id (already resolved to profiles.id
-        at creation time, see resolve_patient_profile_id). Used to enforce
-        assert_owns_profile on the single-payment read (no ownership check
-        existed at all here before the eng review — see get_payment)."""
+        list_by_clinic, since it's for either a store order or an
+        appointment, and both carry patient_id (already resolved to
+        profiles.id at creation time, see resolve_patient_profile_id). Used
+        to enforce assert_owns_profile on the single-payment read (no
+        ownership check existed at all here before the eng review — see
+        get_payment)."""
         row = await fetch_optional(
             self.session,
             text(
-                "SELECT COALESCE(sess.patient_id, so.patient_id, appt.patient_id) AS owner_profile_id "
+                "SELECT COALESCE(so.patient_id, appt.patient_id) AS owner_profile_id "
                 "FROM payments p "
-                "LEFT JOIN sessions sess ON sess.session_id = p.session_id "
                 "LEFT JOIN store_orders so ON so.order_id = p.order_id "
                 "LEFT JOIN appointments appt ON appt.appointment_id = p.appointment_id "
                 "WHERE p.payment_id = :id"
@@ -86,17 +86,16 @@ class PaymentRepository:
 
     async def list_by_clinic(self, clinic_id: UUID) -> list[dict]:
         # payments has no clinic_id of its own — scoped via a two-hop join,
-        # since a payment is for either a clinical session or a store order,
+        # since a payment is for either an appointment or a store order,
         # and both of those carry clinic_id.
         rows = (
             (
                 await self.session.execute(
                     text(
                         "SELECT p.* FROM payments p "
-                        "LEFT JOIN sessions sess ON sess.session_id = p.session_id "
                         "LEFT JOIN store_orders so ON so.order_id = p.order_id "
                         "LEFT JOIN appointments appt ON appt.appointment_id = p.appointment_id "
-                        "WHERE COALESCE(sess.clinic_id, so.clinic_id, appt.clinic_id) = :clinic_id "
+                        "WHERE COALESCE(so.clinic_id, appt.clinic_id) = :clinic_id "
                         "ORDER BY p.created_at DESC"
                     ),
                     {"clinic_id": str(clinic_id)},
@@ -108,7 +107,7 @@ class PaymentRepository:
         return [dict(r) for r in rows]
 
     async def list_for_patient(self, patient_id: UUID) -> list[dict]:
-        # Same 3-way join as list_by_clinic, scoped to patient_id instead of
+        # Same two-hop join as list_by_clinic, scoped to patient_id instead of
         # clinic_id — appointment_type/appointment_date come along so the
         # billing-history screen needs no per-row follow-up fetch.
         rows = (
@@ -116,10 +115,9 @@ class PaymentRepository:
                 await self.session.execute(
                     text(
                         "SELECT p.*, appt.appointment_type, appt.appointment_date FROM payments p "
-                        "LEFT JOIN sessions sess ON sess.session_id = p.session_id "
                         "LEFT JOIN store_orders so ON so.order_id = p.order_id "
                         "LEFT JOIN appointments appt ON appt.appointment_id = p.appointment_id "
-                        "WHERE COALESCE(sess.patient_id, so.patient_id, appt.patient_id) = :patient_id "
+                        "WHERE COALESCE(so.patient_id, appt.patient_id) = :patient_id "
                         "ORDER BY p.created_at DESC"
                     ),
                     {"patient_id": str(patient_id)},

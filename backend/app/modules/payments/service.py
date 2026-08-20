@@ -133,15 +133,14 @@ class PaymentService:
 
         # core.appointments is the source of truth for "is this booking
         # paid" — every caller (webhook, mock-confirm, staff PATCH) routes
-        # through here, and marks the appointment first; payments and
-        # treatment_sessions reflect from that, never the other way round.
-        # mark_paid() is idempotent (selected -> paid only), so calling it
-        # again on an already-paid appointment is a no-op, not an error.
-        appt = None
+        # through here, and marks the appointment first; payments reflect
+        # from that, never the other way round. mark_paid() is idempotent
+        # (selected -> paid only), so calling it again on an already-paid
+        # appointment is a no-op, not an error.
         if payment.get("appointment_id") and status == "paid":
             from app.modules.scheduling.service import PatientBookingService
 
-            appt = await PatientBookingService(self.session).mark_paid(
+            await PatientBookingService(self.session).mark_paid(
                 payment["appointment_id"], changed_by=_changed_by, changed_by_role=_changed_by_role
             )
 
@@ -161,24 +160,6 @@ class PaymentService:
             payload={"payment_id": str(payment_id), "status": status},
         )
 
-        # Propagate to the treatment_session's payment_status gate (Stage 8
-        # billing rule) — direct SQL, not a full clinical-module import, to
-        # avoid a circular dependency (clinical doesn't need to know about
-        # payments to function, payments just needs to unlock what it gates).
-        # Sourced from the appointment's session_id when this payment is
-        # appointment-scoped — chk_payments_single_target guarantees the
-        # payment's own session_id is NULL in that case, so reading
-        # updated["session_id"] here would always miss it. Falls back to the
-        # payment's own session_id for the older direct-session flow, where
-        # there is no appointment in the picture at all.
-        session_id = (appt or {}).get("session_id") or (updated or {}).get("session_id")
-        if session_id and status in ("paid", "waived"):
-            from sqlalchemy import text
-
-            await self.session.execute(
-                text("UPDATE treatment_sessions SET payment_status = :status WHERE session_id = :sid"),
-                {"status": status, "sid": str(session_id)},
-            )
         return updated  # type: ignore[return-value]
 
     # ── mock payment (dummy checkout, real appointment lifecycle) ────────────

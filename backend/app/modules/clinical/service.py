@@ -6,16 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, NotFoundError
-from app.core.resolve import resolve_ca_profile_id as _resolve_ca_profile_id
 from app.core.resolve import resolve_doctor_profile_id as _resolve_doctor_profile_id
 from app.core.resolve import resolve_patient_profile_id as _resolve_patient_profile_id
 from app.modules.clinical.repository import (
-    DoctorSessionNoteRepository,
     ProtocolRequestRepository,
-    SessionRepository,
     TreatmentCycleRepository,
     TreatmentPlanRepository,
-    TreatmentSessionRepository,
 )
 
 
@@ -172,75 +168,6 @@ class ProtocolRequestService:
         return updated  # type: ignore[return-value]
 
 
-class SessionService:
-    def __init__(self, session: AsyncSession):
-        self.session = session
-        self.repo = SessionRepository(session)
-        self.protocol_repo = ProtocolRequestRepository(session)
-
-    async def create(self, data: dict) -> dict:
-        patient_profile_id = await _resolve_patient_profile_id(self.session, data["patient_id"])
-
-        # Session 1 (clinical_assistant phase) cannot be booked until the CA's
-        # protocol has been authorized by the Doctor (Master Doc Section 6.3 /
-        # 7.3 — "Session 1 blocked until assessment_protocol_requests.status='approved'").
-        if data.get("session_phase") == "clinical_assistant" and data.get("cycle_id"):
-            protocols = await self.protocol_repo.list(patient_id=patient_profile_id, status="approved")
-            if not any(str(p.get("cycle_id")) == str(data["cycle_id"]) or p.get("cycle_id") is None for p in protocols):
-                raise BusinessRuleError(
-                    "Session 1 cannot be booked until the assessment protocol is approved", code="PROTOCOL_NOT_APPROVED"
-                )
-
-        doctor_profile_id = None
-        if data.get("doctor_id"):
-            doctor_profile_id = await _resolve_doctor_profile_id(self.session, data["doctor_id"])
-        ca_profile_id = None
-        if data.get("ca_id"):
-            ca_profile_id = await _resolve_ca_profile_id(self.session, data["ca_id"])
-
-        payload = {
-            "patient_id": str(patient_profile_id),
-            "doctor_id": str(doctor_profile_id) if doctor_profile_id else None,
-            "session_date": data["session_date"],
-            "session_type": data.get("session_type", "in_person"),
-            "cycle_id": str(data["cycle_id"]) if data.get("cycle_id") else None,
-            "clinic_id": str(data["clinic_id"]) if data.get("clinic_id") else None,
-            "ca_id": str(ca_profile_id) if ca_profile_id else None,
-            "session_phase": data.get("session_phase"),
-            "session_number_in_cycle": data.get("session_number_in_cycle"),
-        }
-        record = await self.repo.create(payload)
-        await emit_event(
-            self.session,
-            aggregate_type="session",
-            aggregate_id=record["session_id"],
-            event_type="session_created",
-            payload={"session_id": str(record["session_id"]), "phase": record["session_phase"]},
-        )
-        return record
-
-    async def get(self, session_id: UUID) -> dict:
-        record = await self.repo.get(session_id)
-        if not record:
-            raise NotFoundError("Session not found", code="SESSION_NOT_FOUND")
-        return record
-
-    async def list(self, **filters) -> list[dict]:
-        return await self.repo.list(**await _resolve_patient_filter(self.session, filters))
-
-    async def update_status(self, session_id: UUID, *, status: str, outcome: str | None) -> dict:
-        await self.get(session_id)
-        updated = await self.repo.update_status(session_id, status=status, outcome=outcome)
-        await emit_event(
-            self.session,
-            aggregate_type="session",
-            aggregate_id=session_id,
-            event_type="session_completed" if status == "completed" else "session_status_changed",
-            payload={"session_id": str(session_id), "status": status, "outcome": outcome},
-        )
-        return updated  # type: ignore[return-value]
-
-
 class TreatmentPlanService:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -291,75 +218,3 @@ class TreatmentPlanService:
         return updated  # type: ignore[return-value]
 
 
-class TreatmentSessionService:
-    def __init__(self, session: AsyncSession):
-        self.session = session
-        self.repo = TreatmentSessionRepository(session)
-
-    async def create(self, data: dict) -> dict:
-        patient_profile_id = await _resolve_patient_profile_id(self.session, data["patient_id"])
-        ca_profile_id = await _resolve_ca_profile_id(self.session, data["ca_id"])
-        payload = {
-            "plan_id": str(data["plan_id"]),
-            "session_id": str(data["session_id"]),
-            "patient_id": str(patient_profile_id),
-            "ca_id": str(ca_profile_id),
-            "session_number": data["session_number"],
-            "billing_type": data["billing_type"],
-            # Extended sessions require payment before they can start (Master
-            # Doc Section 7.8 / 13.2) — standard sessions follow clinic config,
-            # not gated here (that's the payments module's concern once billed).
-            "payment_status": "pending" if data["billing_type"] == "extended" else "not_required",
-        }
-        ts = await self.repo.create(payload)
-        await emit_event(
-            self.session,
-            aggregate_type="treatment_session",
-            aggregate_id=ts["ts_id"],
-            event_type="treatment_session_created",
-            payload={"ts_id": str(ts["ts_id"]), "billing_type": ts["billing_type"]},
-        )
-        return ts
-
-    async def get(self, ts_id: UUID) -> dict:
-        ts = await self.repo.get(ts_id)
-        if not ts:
-            raise NotFoundError("Treatment session not found", code="TREATMENT_SESSION_NOT_FOUND")
-        return ts
-
-    async def list(self, **filters) -> list[dict]:
-        return await self.repo.list(**await _resolve_patient_filter(self.session, filters))
-
-    async def update_status(self, ts_id: UUID, *, status: str, session_notes, patient_feedback) -> dict:
-        ts = await self.get(ts_id)
-        if status == "in_progress" and ts["billing_type"] == "extended" and ts["payment_status"] not in ("paid", "waived"):
-            raise BusinessRuleError("Extended treatment session cannot start until payment is paid or waived", code="PAYMENT_REQUIRED")
-        updated = await self.repo.update_status(ts_id, status=status, session_notes=session_notes, patient_feedback=patient_feedback)
-        await emit_event(
-            self.session,
-            aggregate_type="treatment_session",
-            aggregate_id=ts_id,
-            event_type="treatment_session_completed" if status == "completed" else "treatment_session_status_changed",
-            payload={"ts_id": str(ts_id), "status": status},
-        )
-        return updated  # type: ignore[return-value]
-
-
-class DoctorSessionNoteService:
-    def __init__(self, session: AsyncSession):
-        self.session = session
-        self.repo = DoctorSessionNoteRepository(session)
-
-    async def create(self, data: dict) -> dict:
-        patient_profile_id = await _resolve_patient_profile_id(self.session, data["patient_id"])
-        doctor_profile_id = await _resolve_doctor_profile_id(self.session, data["doctor_id"])
-        payload = {**data, "patient_id": str(patient_profile_id), "doctor_id": str(doctor_profile_id)}
-        for key in ("session_id", "cycle_id"):
-            payload[key] = str(payload[key])
-        return await self.repo.create(payload)
-
-    async def get(self, note_id: UUID) -> dict:
-        note = await self.repo.get(note_id)
-        if not note:
-            raise NotFoundError("Doctor session note not found", code="NOTE_NOT_FOUND")
-        return note

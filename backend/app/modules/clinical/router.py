@@ -7,12 +7,9 @@ from app.core.permissions import require_role
 from app.core.scoping import assert_owns_profile
 from app.modules.clinical import schemas as s
 from app.modules.clinical.service import (
-    DoctorSessionNoteService,
     ProtocolRequestService,
-    SessionService,
     TreatmentCycleService,
     TreatmentPlanService,
-    TreatmentSessionService,
 )
 
 router = APIRouter()
@@ -90,41 +87,6 @@ async def decide_protocol_request(
     return await ProtocolRequestService(db).decide(request_id, decision=body.decision, doctor_notes=body.doctor_notes)
 
 
-# --------------------------------------------------------------- sessions --
-@router.post("/sessions", response_model=s.SessionRead, status_code=201)
-async def create_session(body: s.SessionCreate, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
-    return await SessionService(db).create(body.model_dump())
-
-
-@router.get("/sessions", response_model=list[s.SessionRead])
-async def list_sessions(
-    patient_id: UUID | None = None,
-    cycle_id: UUID | None = None,
-    db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
-):
-    if ctx.role == "patient":
-        patient_id = UUID(ctx.user_id)
-    return await SessionService(db).list(patient_id=patient_id, cycle_id=cycle_id)
-
-
-@router.get("/sessions/{session_id}", response_model=s.SessionRead)
-async def get_session(session_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
-    record = await SessionService(db).get(session_id)
-    assert_owns_profile(ctx, record["patient_id"])
-    return record
-
-
-@router.patch("/sessions/{session_id}/status", response_model=s.SessionRead)
-async def update_session_status(
-    session_id: UUID,
-    body: s.SessionStatusUpdate,
-    db=Depends(get_db),
-    _ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
-):
-    return await SessionService(db).update_status(session_id, status=body.status, outcome=body.outcome)
-
-
 # ---------------------------------------------------------- treatment plans --
 @router.post("/treatment-plans", response_model=s.TreatmentPlanRead, status_code=201)
 async def create_treatment_plan(
@@ -162,52 +124,3 @@ async def update_treatment_plan(
     _ctx: RequestContext = Depends(require_role("doctor", "super_admin")),
 ):
     return await TreatmentPlanService(db).update(plan_id, body.model_dump())
-
-
-# ------------------------------------------------------- treatment sessions --
-@router.post("/treatment-sessions", response_model=s.TreatmentSessionRead, status_code=201)
-async def create_treatment_session(
-    body: s.TreatmentSessionCreate,
-    db=Depends(get_db),
-    _ctx: RequestContext = Depends(require_role("clinical_assistant", "super_admin")),
-):
-    return await TreatmentSessionService(db).create(body.model_dump())
-
-
-@router.get("/treatment-sessions", response_model=list[s.TreatmentSessionRead])
-async def list_treatment_sessions(
-    plan_id: UUID | None = None,
-    patient_id: UUID | None = None,
-    db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
-):
-    if ctx.role == "patient":
-        patient_id = UUID(ctx.user_id)
-    return await TreatmentSessionService(db).list(plan_id=plan_id, patient_id=patient_id)
-
-
-@router.patch("/treatment-sessions/{ts_id}/status", response_model=s.TreatmentSessionRead)
-async def update_treatment_session_status(
-    ts_id: UUID,
-    body: s.TreatmentSessionStatusUpdate,
-    db=Depends(get_db),
-    _ctx: RequestContext = Depends(require_role("clinical_assistant", "super_admin")),
-):
-    return await TreatmentSessionService(db).update_status(
-        ts_id, status=body.status, session_notes=body.session_notes, patient_feedback=body.patient_feedback
-    )
-
-
-# ---------------------------------------------------------- doctor notes --
-@router.post("/doctor-session-notes", status_code=201)
-async def create_doctor_session_note(
-    body: s.DoctorSessionNoteCreate,
-    db=Depends(get_db),
-    _ctx: RequestContext = Depends(require_role("doctor", "super_admin")),
-):
-    return await DoctorSessionNoteService(db).create(body.model_dump())
-
-
-@router.get("/doctor-session-notes/{note_id}")
-async def get_doctor_session_note(note_id: UUID, db=Depends(get_db), _ctx: RequestContext = Depends(require_role("doctor", "super_admin"))):
-    return await DoctorSessionNoteService(db).get(note_id)
