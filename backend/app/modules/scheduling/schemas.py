@@ -248,20 +248,19 @@ class AppointmentRead(BaseModel):
 class DeviceScheduleItem(BaseModel):
     """One weekday of a clinic's device timetable.
 
-    Same shape as MyWeeklyScheduleItem plus `capacity`, deliberately: the admin
-    screen is the doctor schedule screen they already understand, with one extra
-    field.
+    Same shape as MyWeeklyScheduleItem, minus slot_duration_minutes (session
+    length now comes from reference.billable_items.duration_minutes at
+    booking time) and minus capacity (how many sessions may run at once is
+    the clinic's owned unit count, clinic_devices.quantity — not a separate
+    admin-typed number; a DeviceOverrideCreate can still reduce it for one
+    day, e.g. a unit out for maintenance).
     """
 
     day_of_week: int = Field(ge=0, le=6)
     start_time: time
     end_time: time
-    slot_duration_minutes: int = 30
     break_start: time | None = None
     break_end: time | None = None
-    # How many device sessions may run at once in a slot. Set by the admin
-    # judging devices AND assistants on shift together — never computed.
-    capacity: int = Field(ge=1)
     is_active: bool = True
     effective_from: date | None = None
     effective_until: date | None = None
@@ -281,10 +280,8 @@ class DeviceScheduleRead(BaseModel):
     day_of_week: int
     start_time: time
     end_time: time
-    slot_duration_minutes: int
     break_start: time | None = None
     break_end: time | None = None
-    capacity: int
     is_active: bool
 
 
@@ -293,8 +290,9 @@ class DeviceOverrideCreate(BaseModel):
     is_available: bool = False
     start_time: time | None = None
     end_time: time | None = None
-    # NULL inherits the weekly capacity. Set it when a device is out for service
-    # or an assistant is on leave.
+    # NULL inherits the clinic's owned unit count (clinic_devices.quantity).
+    # Set it when fewer units are usable that day — one out for service, or
+    # an assistant on leave who normally runs a second unit.
     capacity: int | None = Field(default=None, ge=1)
     reason: str | None = None
 
@@ -342,13 +340,37 @@ class DeviceSlotRead(BaseModel):
     is_available: bool
 
 
+class DeviceBusyInterval(BaseModel):
+    start_time: time
+    end_time: time
+
+
+class DeviceDayAvailability(BaseModel):
+    """Continuous booked/free view of one device's day, for the patient's
+    own planned session — a red/green timeline instead of a discrete slot
+    list. duration_minutes is this appointment's own required length
+    (reference.billable_items), resolved server-side, not chosen by the
+    patient."""
+
+    date: date
+    is_open: bool
+    open_start: time | None = None
+    open_end: time | None = None
+    break_start: time | None = None
+    break_end: time | None = None
+    capacity: int | None = None
+    duration_minutes: int
+    busy: list[DeviceBusyInterval]
+
+
 # ── clinic device inventory ────────────────────────────────────────────────
 
 
 class ClinicDeviceCreate(BaseModel):
     device_id: UUID
-    # How many units the clinic owns. Not the number of concurrent sessions —
-    # that is capacity on the device schedule, which also depends on staffing.
+    # How many units the clinic owns — also directly how many device_session
+    # slots can run concurrently (DeviceCapacityService._resolve_capacity),
+    # reducible for one day only via a DeviceOverrideCreate (e.g. maintenance).
     quantity: int = Field(default=1, ge=1)
     acquired_on: date | None = None
     notes: str | None = None
