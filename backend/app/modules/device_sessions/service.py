@@ -551,7 +551,7 @@ class DeviceSessionService:
             raise NotFoundError("SOS event not found for this session", code="SOS_EVENT_NOT_FOUND")
         if sos["acknowledged_at"] is not None:
             raise ConflictError("SOS event has already been acknowledged", code="SOS_ALREADY_ACKNOWLEDGED")
-        updated = await self.sos_events.acknowledge(sos_id, acknowledged_by=ctx.user_id)
+        updated = await self.sos_events.acknowledge(sos_id, acknowledged_by=UUID(ctx.user_id))
         await self._write_event(
             header["device_session_record_id"],
             event_type="sos_acknowledged",

@@ -819,6 +819,12 @@ class DeviceCapacityService:
         from app.modules.admin.repository import BillableItemRepository
 
         clinic_device = await self.devices.get(appt["clinic_device_id"])
+        if not clinic_device:
+            # appt.clinic_device_id is FK-guaranteed at write time, but a
+            # unit can be deactivated/removed from clinic_devices after a
+            # session was already booked against it — a readable 404 beats
+            # crashing on clinic_device["device_id"] below.
+            raise NotFoundError("This session's device is no longer in the clinic's inventory", code="CLINIC_DEVICE_NOT_FOUND")
         priced = await BillableItemRepository(self.session).resolve_price(
             category="device_session", clinic_id=appt["clinic_id"], device_id=clinic_device["device_id"]
         )
@@ -836,6 +842,8 @@ class DeviceCapacityService:
         if override and override.get("capacity"):
             return override["capacity"]
         clinic_device = await self.devices.get(appt["clinic_device_id"])
+        if not clinic_device:
+            raise NotFoundError("This session's device is no longer in the clinic's inventory", code="CLINIC_DEVICE_NOT_FOUND")
         return clinic_device["quantity"]
 
     async def open_slots(
@@ -851,6 +859,8 @@ class DeviceCapacityService:
         # One grouped query for the whole range rather than a count per slot.
         booked = await self.repo.booked_counts_for_range(clinic_device_id, from_date, to_date)
         clinic_device = await self.devices.get(clinic_device_id)
+        if not clinic_device:
+            raise NotFoundError("Device not found in this clinic's inventory", code="CLINIC_DEVICE_NOT_FOUND")
         quantity = clinic_device["quantity"]
 
         out: builtins.list[dict] = []

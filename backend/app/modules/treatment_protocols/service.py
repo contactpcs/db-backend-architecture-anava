@@ -481,6 +481,13 @@ class ProtocolService:
             if custom_montage["clinic_id"] is not None and str(custom_montage["clinic_id"]) != str(parent["clinic_id"]):
                 raise ValidationError("Custom montage belongs to a different clinic", code="MONTAGE_CLINIC_MISMATCH")
         else:
+            # ProtocolCreate's own validator (schemas.py) already guarantees
+            # placement_id/dosing_id are both set whenever custom_montage_id
+            # is not - mypy can't follow that cross-field invariant through
+            # the branch, so it's asserted explicitly rather than cast.
+            assert body.placement_id is not None
+            assert body.dosing_id is not None
+
             # Same-device consistency. The schema enforces this with a trigger
             # because a CHECK cannot read another table; checking here first
             # turns a raw PL/pgSQL exception into a readable 422.

@@ -197,7 +197,12 @@ def test_effective_window_excludes_dates_outside_it():
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _device_rule(capacity=3, **over):
+def _device_rule(**over):
+    # capacity is no longer a weekly-rule field — 67d1868's refactor made
+    # quantity (clinic_devices.quantity, the clinic's owned unit count) the
+    # capacity source for the non-override path; a rule dict now only
+    # describes the day's open window and break, so there's nothing left to
+    # parametrize here besides the day-shape overrides callers actually use.
     return {
         "day_of_week": 1,
         "start_time": dt.time(9, 0),
@@ -205,7 +210,6 @@ def _device_rule(capacity=3, **over):
         "slot_duration_minutes": 60,
         "break_start": None,
         "break_end": None,
-        "capacity": capacity,
         "effective_from": None,
         "effective_until": None,
         **over,
@@ -216,7 +220,7 @@ def test_device_slot_stays_open_below_capacity():
     """THE distinction the whole capacity design rests on: a doctor's slot is
     taken by one booking, a device slot is taken by `capacity` of them."""
     booked = {(MONDAY, dt.time(9, 0)): 2}
-    slots = _build_device_day_slots(MONDAY, [_device_rule(capacity=3)], None, booked)
+    slots = _build_device_day_slots(MONDAY, [_device_rule()], None, booked, 3)
     first = slots[0]
     assert first["booked"] == 2
     assert first["remaining"] == 1
@@ -225,7 +229,7 @@ def test_device_slot_stays_open_below_capacity():
 
 def test_device_slot_closes_exactly_at_capacity():
     booked = {(MONDAY, dt.time(9, 0)): 3}
-    slots = _build_device_day_slots(MONDAY, [_device_rule(capacity=3)], None, booked)
+    slots = _build_device_day_slots(MONDAY, [_device_rule()], None, booked, 3)
     first = slots[0]
     assert first["remaining"] == 0
     assert first["is_available"] is False
@@ -234,7 +238,7 @@ def test_device_slot_closes_exactly_at_capacity():
 def test_device_slot_remaining_never_goes_negative():
     """Defensive: capacity can be lowered by an override after bookings exist."""
     booked = {(MONDAY, dt.time(9, 0)): 5}
-    slots = _build_device_day_slots(MONDAY, [_device_rule(capacity=3)], None, booked)
+    slots = _build_device_day_slots(MONDAY, [_device_rule()], None, booked, 3)
     assert slots[0]["remaining"] == 0
 
 
@@ -243,31 +247,32 @@ def test_override_capacity_replaces_the_weekly_one():
     week."""
     override = {"is_available": True, "start_time": None, "end_time": None, "capacity": 1}
     booked = {(MONDAY, dt.time(9, 0)): 1}
-    slots = _build_device_day_slots(MONDAY, [_device_rule(capacity=3)], override, booked)
+    slots = _build_device_day_slots(MONDAY, [_device_rule()], override, booked, 3)
     assert slots[0]["capacity"] == 1
     assert slots[0]["is_available"] is False
 
 
 def test_closed_override_yields_no_device_slots():
-    slots = _build_device_day_slots(MONDAY, [_device_rule()], {"is_available": False}, {})
+    slots = _build_device_day_slots(MONDAY, [_device_rule()], {"is_available": False}, {}, 3)
     assert slots == []
 
 
 def test_no_device_schedule_means_closed_not_unlimited():
     """A clinic with no rule for that weekday runs no device sessions. It must
     never be read as 'no limit'."""
-    assert _build_device_day_slots(MONDAY, [], None, {}) == []
+    assert _build_device_day_slots(MONDAY, [], None, {}, 3) == []
 
 
 def test_zero_capacity_yields_no_slots():
-    """chk_cds_capacity_positive blocks this at the database, but a per-day
-    override arriving as 0 must not produce infinite slots either."""
-    slots = _build_device_day_slots(MONDAY, [_device_rule(capacity=0)], None, {})
+    """chk_cds_capacity_positive blocks this at the database, but a clinic
+    owning zero units of a device (quantity=0) must not produce infinite
+    slots either."""
+    slots = _build_device_day_slots(MONDAY, [_device_rule()], None, {}, 0)
     assert slots == []
 
 
 def test_unbooked_device_slot_reports_full_capacity():
-    slots = _build_device_day_slots(MONDAY, [_device_rule(capacity=4)], None, {})
+    slots = _build_device_day_slots(MONDAY, [_device_rule()], None, {}, 4)
     assert slots[0]["booked"] == 0
     assert slots[0]["remaining"] == 4
 
