@@ -145,6 +145,5 @@ def downgrade() -> None:
     pre-migration snapshot, or re-add the column defaulted to quantity if
     history doesn't matter."""
     raise NotImplementedError(
-        "0038 is not reversible: the dropped column's historical values "
-        "cannot be reconstructed. Restore from a pre-migration snapshot."
+        "0038 is not reversible: the dropped column's historical values cannot be reconstructed. Restore from a pre-migration snapshot."
     )

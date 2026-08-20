@@ -127,5 +127,3 @@ class TreatmentPlanRepository:
             text("UPDATE treatment_plans SET status = 'superseded' WHERE plan_id = :id RETURNING *"),
             {"id": str(plan_id)},
         )
-
-

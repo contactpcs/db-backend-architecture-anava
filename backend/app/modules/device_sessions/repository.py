@@ -72,8 +72,7 @@ class DeviceSessionRepository:
                 set_parts.append(f"{key} = :{key}")
         params["__id"] = str(device_session_record_id)
         sql = text(
-            f"UPDATE device_sessions SET {', '.join(set_parts)}, updated_at = NOW() "
-            "WHERE device_session_record_id = :__id RETURNING *"
+            f"UPDATE device_sessions SET {', '.join(set_parts)}, updated_at = NOW() WHERE device_session_record_id = :__id RETURNING *"
         )
         return await fetch_optional(self.session, sql, params)
 

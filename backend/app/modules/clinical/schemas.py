@@ -88,5 +88,3 @@ class TreatmentPlanRead(BaseModel):
     status: str
     parent_plan_id: UUID | None
     created_at: datetime
-
-

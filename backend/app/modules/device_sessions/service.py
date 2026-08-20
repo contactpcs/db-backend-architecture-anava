@@ -183,9 +183,7 @@ class DeviceSessionService:
     async def start(self, appointment_id: UUID, ctx: RequestContext) -> dict:
         await self._resolve_scoped_appointment(appointment_id, ctx)
         header = await self._header_or_404(appointment_id)
-        assert_transition(
-            header["session_status"], "in_progress", _TRANSITIONS, entity="device session", code="INVALID_SESSION_TRANSITION"
-        )
+        assert_transition(header["session_status"], "in_progress", _TRANSITIONS, entity="device session", code="INVALID_SESSION_TRANSITION")
 
         now_columns = ["started_at"] if header.get("started_at") is None else []
         updated = await self.repo.update_with_now_columns(
@@ -229,9 +227,7 @@ class DeviceSessionService:
     async def resume(self, appointment_id: UUID, ctx: RequestContext) -> dict:
         await self._resolve_scoped_appointment(appointment_id, ctx)
         header = await self._header_or_404(appointment_id)
-        assert_transition(
-            header["session_status"], "in_progress", _TRANSITIONS, entity="device session", code="INVALID_SESSION_TRANSITION"
-        )
+        assert_transition(header["session_status"], "in_progress", _TRANSITIONS, entity="device session", code="INVALID_SESSION_TRANSITION")
 
         updated = await self.repo.update_with_now_columns(
             header["device_session_record_id"], {"session_status": "in_progress"}, now_columns=["resumed_at"]
@@ -277,9 +273,7 @@ class DeviceSessionService:
         # session must currently be in_progress. No further field-completeness
         # check is enforced here — that would over-engineer a guard the CA
         # workflow already walks the user through screen by screen.
-        assert_transition(
-            header["session_status"], "completed", _TRANSITIONS, entity="device session", code="INVALID_SESSION_TRANSITION"
-        )
+        assert_transition(header["session_status"], "completed", _TRANSITIONS, entity="device session", code="INVALID_SESSION_TRANSITION")
 
         updated = await self.repo.update_with_now_columns(
             header["device_session_record_id"], {"session_status": "completed"}, now_columns=["completed_at"]

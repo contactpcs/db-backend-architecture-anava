@@ -1,8 +1,12 @@
 """Regression test for the P0 finding from the eng review: clinical/router.py
 had zero ownership checks, so any authenticated patient could read another
-patient's treatment cycle/session/plan by UUID. Verifies the fix actually
-enforces ownership at the router layer, mocking the service so no DB is
-needed."""
+patient's treatment cycle/plan by UUID. Verifies the fix actually enforces
+ownership at the router layer, mocking the service so no DB is needed.
+
+The equivalent session-ownership test was removed alongside SessionService/
+get_session — core.sessions is a retired legacy table (see the commit
+retiring code-side dependency on core.sessions/treatment_sessions), the
+route no longer exists."""
 
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
@@ -46,15 +50,6 @@ async def test_get_cycle_blocks_other_patients_cycle():
         MockService.return_value.get = AsyncMock(return_value={"cycle_id": str(uuid4()), "patient_id": SOMEONE_ELSE})
         with pytest.raises(PermissionError_):
             await clinical_router.get_cycle(uuid4(), db=AsyncMock(), ctx=ctx)
-
-
-@pytest.mark.asyncio
-async def test_get_session_blocks_other_patients_session():
-    ctx = _patient_ctx()
-    with patch.object(clinical_router, "SessionService") as MockService:
-        MockService.return_value.get = AsyncMock(return_value={"session_id": str(uuid4()), "patient_id": SOMEONE_ELSE})
-        with pytest.raises(PermissionError_):
-            await clinical_router.get_session(uuid4(), db=AsyncMock(), ctx=ctx)
 
 
 @pytest.mark.asyncio

@@ -148,6 +148,5 @@ def downgrade() -> None:
     used to imply once it's gone. Restore from a pre-migration snapshot, or
     re-add the column with a chosen default if history doesn't matter."""
     raise NotImplementedError(
-        "0034 is not reversible: the dropped column's historical values "
-        "cannot be reconstructed. Restore from a pre-migration snapshot."
+        "0034 is not reversible: the dropped column's historical values cannot be reconstructed. Restore from a pre-migration snapshot."
     )

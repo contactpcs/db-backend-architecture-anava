@@ -216,5 +216,3 @@ class TreatmentPlanService:
         clean = {k: v for k, v in fields.items() if v is not None}
         updated = await self.repo.update(plan_id, clean)
         return updated  # type: ignore[return-value]
-
-

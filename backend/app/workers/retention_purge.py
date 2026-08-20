@@ -93,8 +93,7 @@ async def _compute_retention_clock(session, patient_profile_id: str) -> dict:
     last_financial = (
         await session.execute(
             text(
-                "SELECT max(p.paid_at) FROM payments p "
-                "JOIN appointments a ON a.appointment_id = p.appointment_id WHERE a.patient_id = :pid"
+                "SELECT max(p.paid_at) FROM payments p JOIN appointments a ON a.appointment_id = p.appointment_id WHERE a.patient_id = :pid"
             ),
             {"pid": patient_profile_id},
         )
