@@ -19,6 +19,7 @@ from app.modules.anamnesis.router import router as anamnesis_router
 from app.modules.auth.router import router as auth_router
 from app.modules.clinical.router import router as clinical_router
 from app.modules.consent.router import router as consent_router
+from app.modules.device_sessions.router import router as device_sessions_router
 from app.modules.files.router import router as files_router
 from app.modules.inventory.router import router as inventory_router
 from app.modules.notifications.router import router as notifications_router
@@ -137,6 +138,7 @@ app.include_router(files_router, prefix="/api/v1", tags=["files"])
 app.include_router(clinical_router, prefix="/api/v1", tags=["clinical"])
 app.include_router(scheduling_router, prefix="/api/v1", tags=["scheduling"])
 app.include_router(treatment_protocols_router, prefix="/api/v1", tags=["treatment-protocols"])
+app.include_router(device_sessions_router, prefix="/api/v1", tags=["device-sessions"])
 app.include_router(payments_router, prefix="/api/v1", tags=["payments"])
 app.include_router(store_router, prefix="/api/v1", tags=["store"])
 app.include_router(inventory_router, prefix="/api/v1", tags=["inventory"])
