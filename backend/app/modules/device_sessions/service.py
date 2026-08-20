@@ -49,11 +49,17 @@ _TYPE_DEVICE_SESSION = "device_session"
 
 # Session-level FSM. Deliberately separate from appointments.status — see
 # module docstring and 53's file header "WHAT THIS FILE DELIBERATELY DOES NOT DO".
+#
+# Keyed by CURRENT state -> allowed NEW states, matching app.core.fsm.
+# assert_transition's actual contract (`new not in transitions.get(current)`).
+# Originally written keyed by destination -> allowed sources (the inverse),
+# which made every single call raise unconditionally — not_started has no
+# entry as a KEY in that shape, so transitions.get("not_started") always
+# returned {}  and start() 400'd on every first session, always.
 _TRANSITIONS: dict[str, set[str]] = {
-    "in_progress": {"not_started", "paused"},
-    "paused": {"in_progress"},
-    "completed": {"in_progress"},
-    "stopped_early": {"in_progress", "paused"},
+    "not_started": {"in_progress"},
+    "in_progress": {"paused", "completed", "stopped_early"},
+    "paused": {"in_progress", "stopped_early"},
 }
 
 _DEFAULT_DELIVERY_MODE = "ca_administered"

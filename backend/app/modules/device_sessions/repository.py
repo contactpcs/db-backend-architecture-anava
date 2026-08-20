@@ -158,7 +158,11 @@ class DeviceSessionActivityRepository:
         self.session = session
 
     async def create(self, data: dict) -> dict:
-        sql, params = insert_returning("device_session_activities", data)
+        # activities is TEXT[] (56), not JSONB — insert_returning's default
+        # would CAST a JSON-serialized string to TEXT[] and fail
+        # (DatatypeMismatchError). Same fix as protocol_custom_montages'
+        # anode_sites/cathode_sites (sql_helpers.py).
+        sql, params = insert_returning("device_session_activities", data, array_columns={"activities"})
         return await fetch_one(self.session, sql, params)
 
     async def list_for_session(self, device_session_record_id: UUID) -> builtins.list[dict]:

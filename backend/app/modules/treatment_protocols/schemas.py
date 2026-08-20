@@ -12,7 +12,7 @@ its appointments.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from uuid import UUID
 
@@ -699,8 +699,12 @@ class ProtocolSessionRead(BaseModel):
     appointment_type: str
     session_number: int | None = None
     appointment_date: date
-    start_time: str | None = None
-    end_time: str | None = None
+    # appointments.start_time/end_time are TIME columns — asyncpg returns
+    # datetime.time, not a string. Was declared str, which FastAPI's
+    # response validation rejected outright (ResponseValidationError) the
+    # moment any session actually had a claimed slot.
+    start_time: time | None = None
+    end_time: time | None = None
     status: str
     doctor_id: UUID | None = None
     ca_id: UUID | None = None
