@@ -117,6 +117,9 @@ class PrsCatalogRepository:
         )
         return [dict(r) for r in rows]
 
+    async def scale_by_code(self, scale_code: str) -> dict | None:
+        return await fetch_optional(self.session, text("SELECT * FROM prs_scales WHERE scale_code = :code"), {"code": scale_code})
+
     async def scales_for_disease(self, disease_id: str, applicable_for: list[str]) -> list[dict]:
         rows = (
             (

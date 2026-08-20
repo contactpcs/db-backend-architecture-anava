@@ -95,11 +95,26 @@ class PatientScaleAssignmentService:
         self, patient_id: UUID, disease_id: str, assessment_stage: str, assigned_by: UUID
     ) -> builtins.list[dict]:
         """Master Doc Section 9.3 — at registration, scales are auto-assigned
-        based on disease_selection. Assigns every scale mapped to this disease
-        whose applicable_for matches this stage (or 'all')."""
+        based on disease_selection.
+
+        general_registration (self- and staff-assisted registration share
+        this one call, patients/service.py::select_disease) is deliberately
+        narrowed to just EQ-5D-5L regardless of disease — the full
+        disease-mapped set (every scale whose applicable_for matches this
+        stage or 'all': EQ-5D-5L, GAD-7, PSQI, COMPASS-31, DASS-21, ...) was
+        too much for a registering patient to fill in one sitting. Other
+        stages (e.g. main_clinical) keep the original disease-mapped
+        assignment — this narrowing is registration-specific, not a general
+        change to auto-assignment.
+        """
         profile_id = await _resolve_profile_id(self.repo.session, patient_id)
         catalog = PrsCatalogRepository(self.repo.session)
-        scales = await catalog.scales_for_disease(disease_id, [assessment_stage, "all"])
+        if assessment_stage == "general_registration":
+            eq5d = await catalog.scale_by_code("EQ-5D-5L")
+            scales = [eq5d] if eq5d else []
+        else:
+            scales = await catalog.scales_for_disease(disease_id, [assessment_stage, "all"])
+        assignment_reason = "registration_default" if assessment_stage == "general_registration" else "auto_disease_match"
         assigned = []
         for scale in scales:
             assigned.append(
@@ -109,7 +124,7 @@ class PatientScaleAssignmentService:
                     disease_id=disease_id,
                     assessment_stage=assessment_stage,
                     assigned_by=assigned_by,
-                    assignment_reason="auto_disease_match",
+                    assignment_reason=assignment_reason,
                 )
             )
         return assigned
