@@ -573,53 +573,57 @@ class ClinicDeviceScheduleRepository:
         return result.rowcount > 0  # type: ignore[attr-defined]
 
     # ── capacity ────────────────────────────────────────────────────────────
+    #
+    # No FOR UPDATE row lock here — clinic_device_schedules' RLS correctly
+    # denies patients UPDATE-level access, and a locking SELECT in Postgres
+    # requires satisfying the UPDATE policy too, not just SELECT, so a
+    # patient-initiated claim could never take one on this table. The
+    # concurrency lock lives in DeviceCapacityService.reserve() instead, as
+    # a pg_advisory_xact_lock (not a row write, RLS doesn't apply to it).
 
-    async def lock_capacity_for_day(self, clinic_device_id: UUID, day_of_week: int) -> int | None:
-        """Takes a row lock on this device's weekly rule and returns its capacity.
-
-        THE LOCK IS THE ENTIRE CORRECTNESS ARGUMENT, and it must not be removed
-        as an optimisation. PostgreSQL has no constraint form meaning "at most N
-        rows matching a predicate", so capacity cannot be enforced declaratively
-        (36 header). Without FOR UPDATE, two patients booking the same slot at
-        the same instant both count 2-of-3, both pass, and the device is
-        overbooked with no error raised anywhere.
-
-        With it, the second booking blocks here until the first commits, then
-        counts 3-of-3 and is correctly rejected.
-
-        Returns None when this device has no active rule for that weekday — the
-        caller treats that as "closed", not as "unlimited".
-        """
-        return (
-            await self.session.execute(
-                text(
-                    "SELECT capacity FROM clinic_device_schedules "
-                    "WHERE clinic_device_id = :did AND day_of_week = :dow AND is_active = TRUE "
-                    "FOR UPDATE"
-                ),
-                {"did": str(clinic_device_id), "dow": day_of_week},
-            )
-        ).scalar_one_or_none()
-
-    async def count_device_sessions_in_slot(self, clinic_device_id: UUID, on_date, start_time) -> int:
-        """How many sessions already occupy one slot on THIS device.
+    async def count_overlapping_sessions(self, clinic_device_id: UUID, on_date, start_time, end_time) -> int:
+        """How many sessions already occupy any part of [start_time, end_time)
+        on THIS device — a real time-range overlap count, not an exact-
+        start_time match, since sessions now vary in length
+        (billable_items.duration_minutes) instead of a fixed device chunk.
 
         Counts only slot-occupying statuses: a 'planned' row has no time and
         occupies nothing, and cancelled/rescheduled/completed rows have let go.
-        Backed by idx_appointments_device_capacity, whose predicate matches this
-        WHERE clause exactly.
+        Backed by idx_appointments_device_capacity.
         """
         return (
             await self.session.execute(
                 text(
                     "SELECT count(*) FROM appointments "
                     "WHERE clinic_device_id = :did AND appointment_type = 'device_session' "
-                    "AND appointment_date = :d AND start_time = :st "
+                    "AND appointment_date = :d AND start_time < :end_time AND end_time > :start_time "
                     "AND status IN ('selected','paid','checked_in','in_progress')"
                 ),
-                {"did": str(clinic_device_id), "d": on_date, "st": start_time},
+                {"did": str(clinic_device_id), "d": on_date, "start_time": start_time, "end_time": end_time},
             )
         ).scalar_one()
+
+    async def booked_intervals_for_day(self, clinic_device_id: UUID, on_date) -> builtins.list[dict]:
+        """Every occupied [start_time, end_time) window on this device for
+        one day — the raw data a continuous availability timeline is built
+        from, as opposed to booked_counts_for_range's per-slot counts."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT start_time, end_time FROM appointments "
+                        "WHERE clinic_device_id = :did AND appointment_type = 'device_session' "
+                        "AND appointment_date = :d AND start_time IS NOT NULL "
+                        "AND status IN ('selected','paid','checked_in','in_progress') "
+                        "ORDER BY start_time"
+                    ),
+                    {"did": str(clinic_device_id), "d": on_date},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
 
     async def booked_counts_for_range(self, clinic_device_id: UUID, from_date, to_date) -> dict:
         """(date, start_time) -> how many sessions on THIS device are booked.

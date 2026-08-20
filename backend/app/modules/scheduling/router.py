@@ -302,6 +302,18 @@ async def my_device_availability(
     return await PatientBookingService(db).device_availability(appointment_id, ctx, from_date, to_date or from_date)
 
 
+@router.get("/me/appointments/{appointment_id}/device-day-availability", response_model=s.DeviceDayAvailability)
+async def my_device_day_availability(
+    appointment_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("patient")),
+):
+    """Continuous booked/free view of one planned device session's own
+    date — a red/green timeline instead of the discrete slot list above.
+    No date param: always the appointment's own planned date."""
+    return await PatientBookingService(db).device_day_availability(appointment_id, ctx)
+
+
 @router.patch("/me/appointments/{appointment_id}/claim-slot", response_model=s.AppointmentRead)
 async def claim_slot(
     appointment_id: UUID,

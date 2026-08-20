@@ -199,9 +199,26 @@ class PaymentService:
         return appt
 
     async def _resolve_amount(self, appt: dict) -> dict:
-        priced = await BillableItemRepository(self.session).resolve_price(
-            category="appointment", clinic_id=appt["clinic_id"], appointment_type=appt["appointment_type"]
-        )
+        """billable_items keys an 'appointment' row by appointment_type, but
+        a 'device_session' row by device_id instead (chk_billable_items_
+        category_shape) — this always queried the appointment_type key,
+        which a device_session's row (appointment_type IS NULL) can never
+        match, so a real per-device price never resolved regardless of
+        whether one was set. Same clinic_device -> catalog device_id lookup
+        DeviceCapacityService._resolve_duration already uses for duration."""
+        if appt["appointment_type"] == "device_session":
+            from app.modules.scheduling.repository import ClinicDeviceRepository
+
+            clinic_device = await ClinicDeviceRepository(self.session).get(appt["clinic_device_id"])
+            priced = await BillableItemRepository(self.session).resolve_price(
+                category="device_session",
+                clinic_id=appt["clinic_id"],
+                device_id=clinic_device["device_id"] if clinic_device else None,
+            )
+        else:
+            priced = await BillableItemRepository(self.session).resolve_price(
+                category="appointment", clinic_id=appt["clinic_id"], appointment_type=appt["appointment_type"]
+            )
         if not priced:
             raise BusinessRuleError(f"No price configured for appointment_type '{appt['appointment_type']}'", code="PRICE_NOT_CONFIGURED")
         return {"amount": float(priced["price"]), "currency": priced["currency"], "item_name": priced["name"]}

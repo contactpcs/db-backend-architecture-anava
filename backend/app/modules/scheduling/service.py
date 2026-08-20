@@ -194,13 +194,18 @@ def _step_slots(
     return out
 
 
-def _build_device_day_slots(on_date: dt.date, weekly_rows: list[dict], override: dict | None, booked_counts: dict) -> list[dict]:
+def _build_device_day_slots(
+    on_date: dt.date, weekly_rows: list[dict], override: dict | None, booked_counts: dict, quantity: int
+) -> list[dict]:
     """Device-session slots for one day at one clinic.
 
     Same stepping as a doctor's day, one difference that matters: a doctor's
     slot is available when nobody has it, a clinic's device slot is available
     while FEWER THAN `capacity` people have it. Exclusive versus counted — the
-    distinction the whole capacity design rests on.
+    distinction the whole capacity design rests on. Capacity is the clinic's
+    owned unit count for this device (clinic_devices.quantity), reduced for
+    one day only if an override says fewer are usable (e.g. maintenance) —
+    not a separately admin-typed number.
     """
     if override and not override["is_available"]:
         return []
@@ -228,8 +233,13 @@ def _build_device_day_slots(on_date: dt.date, weekly_rows: list[dict], override:
         end = override["end_time"] or (rule["end_time"] if rule else None)
         # A per-day capacity override is how a clinic says "a device is out for
         # service today" or "one assistant is on leave" without editing the week.
-        capacity = override["capacity"] or (rule["capacity"] if rule else None)
-        slot_minutes = (rule["slot_duration_minutes"] if rule else None) or DEFAULT_SLOT_MINUTES
+        capacity = override["capacity"] or quantity
+        # Fixed display-grid step — this endpoint is the admin capacity/
+        # staffing board, a different question ("how full is this device
+        # today") from a patient's "find me a window", which now sizes
+        # itself from the appointment's own billable_items.duration_minutes
+        # instead (DeviceCapacityService.reserve/day_availability below).
+        slot_minutes = DEFAULT_SLOT_MINUTES
         break_start = break_end = None
     else:
         # Reaching here means the guard above did not return, and it returns
@@ -238,8 +248,8 @@ def _build_device_day_slots(on_date: dt.date, weekly_rows: list[dict], override:
         # cannot narrow through, hence the explicit assert rather than a cast.
         assert rule is not None
         start, end = rule["start_time"], rule["end_time"]
-        capacity = rule["capacity"]
-        slot_minutes = rule["slot_duration_minutes"]
+        capacity = quantity
+        slot_minutes = DEFAULT_SLOT_MINUTES
         break_start, break_end = rule.get("break_start"), rule.get("break_end")
 
     if start is None or end is None or not capacity:
@@ -260,6 +270,28 @@ def _build_device_day_slots(on_date: dt.date, weekly_rows: list[dict], override:
             }
         )
     return slots
+
+
+def _resolve_device_day_window(
+    rule: dict | None, override: dict | None
+) -> tuple[dt.time | None, dt.time | None, dt.time | None, dt.time | None]:
+    """(open_start, open_end, break_start, break_end) for one device day,
+    merging the weekly rule with any date override — the same merge
+    _build_device_day_slots does inline for its own (fixed-chunk display)
+    purpose. Shared by DeviceCapacityService.reserve() and day_availability(),
+    both of which need the real operating window rather than a pre-chunked
+    slot list. Capacity is resolved separately (DeviceCapacityService.
+    _resolve_capacity) since it now needs an async clinic_devices lookup,
+    not just these two dicts."""
+    if override and not override["is_available"]:
+        return None, None, None, None
+    if override and override["is_available"]:
+        start = override["start_time"] or (rule["start_time"] if rule else None)
+        end = override["end_time"] or (rule["end_time"] if rule else None)
+        return start, end, None, None
+    if rule:
+        return rule["start_time"], rule["end_time"], rule.get("break_start"), rule.get("break_end")
+    return None, None, None, None
 
 
 class WeeklyScheduleService:
@@ -759,6 +791,52 @@ class DeviceCapacityService:
         self.session = session
         self.repo = ClinicDeviceScheduleRepository(session)
         self.appointments = AppointmentRepository(session)
+        self.devices = ClinicDeviceRepository(session)
+
+    async def _resolve_duration(self, appt: dict) -> int:
+        """This appointment's real required session length.
+
+        Primary source: the doctor's own per-patient prescription
+        (protocol_plan.prescribed_duration_min) — every protocol-born
+        device_session carries a protocol_id straight to it, set at protocol
+        authoring and required (non-null, 0-120 min) before the protocol can
+        go 'active', so this is reliably populated for any real session.
+        Different patients on the SAME device can prescribe different
+        durations; billable_items.duration_minutes cannot express that (one
+        row per device per clinic, shared by everyone) — kept only as a
+        fallback for a device_session with no protocol_id, which the current
+        design shouldn't produce, but isn't worth hard-failing on."""
+        if appt.get("protocol_id"):
+            prescribed = (
+                await self.session.execute(
+                    text("SELECT prescribed_duration_min FROM protocol_plan WHERE protocol_id = :pid"),
+                    {"pid": str(appt["protocol_id"])},
+                )
+            ).scalar_one_or_none()
+            if prescribed:
+                return prescribed
+
+        from app.modules.admin.repository import BillableItemRepository
+
+        clinic_device = await self.devices.get(appt["clinic_device_id"])
+        priced = await BillableItemRepository(self.session).resolve_price(
+            category="device_session", clinic_id=appt["clinic_id"], device_id=clinic_device["device_id"]
+        )
+        if not priced or not priced.get("duration_minutes"):
+            raise BusinessRuleError(
+                "This device session has no configured duration — contact the clinic", code="DEVICE_DURATION_NOT_CONFIGURED"
+            )
+        return priced["duration_minutes"]
+
+    async def _resolve_capacity(self, appt: dict, override: dict | None) -> int:
+        """How many sessions may run at once on this device pool — the
+        clinic's owned unit count (clinic_devices.quantity), reduced for one
+        day only if an override says fewer units are usable (e.g. one out
+        for maintenance). Not a separately admin-typed weekly number."""
+        if override and override.get("capacity"):
+            return override["capacity"]
+        clinic_device = await self.devices.get(appt["clinic_device_id"])
+        return clinic_device["quantity"]
 
     async def open_slots(
         self, clinic_device_id: UUID, from_date: dt.date, to_date: dt.date, *, only_available: bool = False
@@ -772,51 +850,112 @@ class DeviceCapacityService:
         overrides = await self.repo.overrides_for_range(clinic_device_id, from_date, to_date)
         # One grouped query for the whole range rather than a count per slot.
         booked = await self.repo.booked_counts_for_range(clinic_device_id, from_date, to_date)
+        clinic_device = await self.devices.get(clinic_device_id)
+        quantity = clinic_device["quantity"]
 
         out: builtins.list[dict] = []
         current = from_date
         while current <= to_date:
-            out.extend(_build_device_day_slots(current, weekly, overrides.get(current), booked))
+            out.extend(_build_device_day_slots(current, weekly, overrides.get(current), booked, quantity))
             current += dt.timedelta(days=1)
         if only_available:
             out = [s for s in out if s["is_available"]]
         return out
 
-    async def reserve(self, clinic_device_id: UUID, on_date: dt.date, start_time: dt.time) -> int:
-        """Verifies one more session fits in this slot on THIS device, and holds
-        that answer until the caller's transaction commits.
+    async def reserve(self, appt: dict, on_date: dt.date, start_time: dt.time) -> int:
+        """Verifies THIS appointment's own required-duration window fits on
+        this device without exceeding capacity anywhere in that window, and
+        holds that answer until the caller's transaction commits.
 
-        THE LOCK IS THE WHOLE CORRECTNESS ARGUMENT. Without FOR UPDATE, two
-        patients claiming the same slot simultaneously both read 2-of-3, both
-        pass this check, and the device is overbooked with no error raised
-        anywhere. With it, the second blocks here until the first commits, then
-        reads 3-of-3 and is correctly rejected.
+        Duration comes from billable_items (§_resolve_duration), not a fixed
+        device chunk size — sessions vary in length per protocol/device, so
+        the capacity check has to be a real time-range overlap, not an
+        exact-start_time match.
+
+        THE LOCK IS THE WHOLE CORRECTNESS ARGUMENT — but it's a Postgres
+        advisory lock (pg_advisory_xact_lock), not SELECT ... FOR UPDATE on
+        clinic_device_schedules. That table's RLS correctly denies patients
+        UPDATE-level access (they must never modify a device's schedule),
+        but a locking SELECT in Postgres has to satisfy the UPDATE policy
+        too, not just SELECT — so a patient-initiated claim could never
+        take a FOR UPDATE lock on that row at all, and would silently see
+        zero rows (this shipped broken until caught live: a real patient
+        claim 409'd with "no sessions on that day" even though the day was
+        genuinely open). An advisory lock isn't a row write, so RLS doesn't
+        apply to it — same transaction-scoped serialization, no permission
+        change needed. Without it, two patients claiming overlapping
+        windows simultaneously both read the same pre-commit overlap count,
+        both pass, and the device is overbooked with no error raised
+        anywhere. With it, the second blocks here until the first commits,
+        then re-counts and is correctly rejected.
 
         Must be called inside the same transaction as the write it guards.
-        Returns the slot duration in minutes so the caller can derive end_time.
+        Returns the session duration in minutes so the caller can derive end_time.
         """
+        clinic_device_id = appt["clinic_device_id"]
+        duration_minutes = await self._resolve_duration(appt)
+        end_time = (dt.datetime.combine(on_date, start_time) + dt.timedelta(minutes=duration_minutes)).time()
+
+        await self.session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"device-day:{clinic_device_id}:{on_date.isoformat()}"},
+        )
+
         dow = on_date.isoweekday() % 7
-        capacity = await self.repo.lock_capacity_for_day(clinic_device_id, dow)
-        if capacity is None:
-            raise ConflictError("This device runs no sessions on that day", code="DEVICE_SCHEDULE_CLOSED")
-
         override = (await self.repo.overrides_for_range(clinic_device_id, on_date, on_date)).get(on_date)
-        if override:
-            if not override["is_available"]:
-                raise ConflictError("The device is closed for sessions on that date", code="DEVICE_SCHEDULE_CLOSED")
-            if override["capacity"]:
-                capacity = override["capacity"]
+        weekly = await self.repo.list_for_device(clinic_device_id)
+        rule = next((w for w in weekly if w["day_of_week"] == dow), None)
+        if not rule and not (override and override["is_available"]):
+            raise ConflictError("This device runs no sessions on that day", code="DEVICE_SCHEDULE_CLOSED")
+        if override and not override["is_available"]:
+            raise ConflictError("The device is closed for sessions on that date", code="DEVICE_SCHEDULE_CLOSED")
+        open_start, open_end, break_start, break_end = _resolve_device_day_window(rule, override)
+        if not (open_start and open_end and open_start <= start_time and end_time <= open_end):
+            raise ConflictError("That window falls outside the device's operating hours", code="OUTSIDE_OPERATING_HOURS")
+        if break_start and break_end and start_time < break_end and end_time > break_start:
+            raise ConflictError("That window overlaps the device's break", code="WINDOW_CROSSES_BREAK")
 
-        booked = await self.repo.count_device_sessions_in_slot(clinic_device_id, on_date, start_time)
-        if booked >= capacity:
+        capacity = await self._resolve_capacity(appt, override)
+        overlap = await self.repo.count_overlapping_sessions(clinic_device_id, on_date, start_time, end_time)
+        if overlap >= capacity:
             raise ConflictError(
-                f"That device slot is full ({booked} of {capacity} taken)",
+                f"That window is full ({overlap} of {capacity} taken)",
                 code="DEVICE_SLOT_FULL",
             )
 
+        return duration_minutes
+
+    async def day_availability(self, appt: dict) -> dict:
+        """Continuous view of one device's day for the appointment's own
+        planned date — real booked intervals + operating window, so the
+        frontend can render a red/green timeline instead of a discrete slot
+        list. duration_minutes here is this appointment's own required
+        length (billable_items), not something the patient chooses."""
+        clinic_device_id = appt["clinic_device_id"]
+        on_date = appt["appointment_date"]
+        dow = on_date.isoweekday() % 7
+
         weekly = await self.repo.list_for_device(clinic_device_id)
         rule = next((w for w in weekly if w["day_of_week"] == dow), None)
-        return (rule and rule["slot_duration_minutes"]) or DEFAULT_SLOT_MINUTES
+        override = (await self.repo.overrides_for_range(clinic_device_id, on_date, on_date)).get(on_date)
+        open_start, open_end, break_start, break_end = _resolve_device_day_window(rule, override)
+        is_open = bool(open_start and open_end)
+
+        busy = await self.repo.booked_intervals_for_day(clinic_device_id, on_date) if is_open else []
+        capacity = await self._resolve_capacity(appt, override) if is_open else None
+        duration_minutes = await self._resolve_duration(appt)
+
+        return {
+            "date": on_date,
+            "is_open": is_open,
+            "open_start": open_start,
+            "open_end": open_end,
+            "break_start": break_start,
+            "break_end": break_end,
+            "capacity": capacity,
+            "duration_minutes": duration_minutes,
+            "busy": busy,
+        }
 
 
 class PatientBookingService:
@@ -881,6 +1020,18 @@ class PatientBookingService:
                 code="NOT_A_DEVICE_SESSION",
             )
         return await self.capacity.open_slots(appt["clinic_device_id"], from_date, to_date, only_available=True)
+
+    async def device_day_availability(self, appointment_id: UUID, ctx: RequestContext) -> dict:
+        """Continuous booked/free view of a planned device session's own
+        date — see DeviceCapacityService.day_availability for the shape."""
+        appt = await self.appointments.get(appointment_id)
+        assert_owns_profile(ctx, appt["patient_id"])
+        if appt["appointment_type"] != TYPE_DEVICE_SESSION:
+            raise BusinessRuleError(
+                "Only a device session books against clinic device capacity",
+                code="NOT_A_DEVICE_SESSION",
+            )
+        return await self.capacity.day_availability(appt)
 
     # ── booking ─────────────────────────────────────────────────────────────
 
@@ -987,7 +1138,7 @@ class PatientBookingService:
         if appt["appointment_type"] == TYPE_DEVICE_SESSION:
             # Counted check under a row lock. Held until this transaction
             # commits, which is what stops two patients taking the last slot.
-            duration = await self.capacity.reserve(appt["clinic_device_id"], on_date, start_time)
+            duration = await self.capacity.reserve(appt, on_date, start_time)
         else:
             doctor_profile_id = UUID(str(appt["doctor_id"]))
             is_available, duration = await self.availability.check_slot(doctor_profile_id, on_date, start_time)
@@ -1201,9 +1352,10 @@ class ClinicDeviceScheduleService:
 class ClinicDeviceService:
     """Clinic-admin inventory: which devices this clinic owns, and how many.
 
-    Gates the protocol device picker. Nothing here decides how many sessions can
-    run at once — that is clinic_device_schedules.capacity, which the admin sets
-    separately because it also depends on assistants on shift.
+    Gates the protocol device picker. `quantity` here IS how many sessions
+    can run at once on this device pool (DeviceCapacityService._resolve_
+    capacity) — not a separate admin-typed capacity number; a per-day
+    override can still reduce it (e.g. a unit out for maintenance).
     """
 
     def __init__(self, session: AsyncSession):
