@@ -203,9 +203,7 @@ class PaymentService:
             category="appointment", clinic_id=appt["clinic_id"], appointment_type=appt["appointment_type"]
         )
         if not priced:
-            raise BusinessRuleError(
-                f"No price configured for appointment_type '{appt['appointment_type']}'", code="PRICE_NOT_CONFIGURED"
-            )
+            raise BusinessRuleError(f"No price configured for appointment_type '{appt['appointment_type']}'", code="PRICE_NOT_CONFIGURED")
         return {"amount": float(priced["price"]), "currency": priced["currency"], "item_name": priced["name"]}
 
     async def get_payment_amount(self, appointment_id: UUID, ctx: RequestContext) -> dict:
