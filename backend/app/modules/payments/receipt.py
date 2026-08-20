@@ -29,6 +29,7 @@ def _fmt_payment_method(payment_method) -> str:
 
 def build_receipt_pdf(*, payment: dict, appointment: dict, clinic: dict, item_name: str) -> bytes:
     from fpdf import FPDF
+    from fpdf.enums import XPos, YPos
 
     pdf = FPDF(format="A4", unit="mm")
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -39,36 +40,36 @@ def build_receipt_pdf(*, payment: dict, appointment: dict, clinic: dict, item_na
 
     pdf.set_xy(42, 14)
     pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 8, _CLINIC_TITLE, ln=1)
+    pdf.cell(0, 8, _CLINIC_TITLE, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
     pdf.set_font("Helvetica", "", 10)
     branch = clinic.get("clinic_name") or "Anava Clinic"
     address = ", ".join(b for b in (clinic.get("address"), clinic.get("city"), clinic.get("state")) if b)
     pdf.set_x(42)
-    pdf.cell(0, 5, branch, ln=1)
+    pdf.cell(0, 5, branch, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     if address:
         pdf.set_x(42)
-        pdf.cell(0, 5, address, ln=1)
+        pdf.cell(0, 5, address, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     if clinic.get("phone"):
         pdf.set_x(42)
-        pdf.cell(0, 5, f"Phone: {clinic['phone']}", ln=1)
+        pdf.cell(0, 5, f"Phone: {clinic['phone']}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
     pdf.ln(6)
     pdf.set_font("Helvetica", "B", 13)
-    pdf.cell(0, 8, "PAYMENT RECEIPT", ln=1, align="C")
+    pdf.cell(0, 8, "PAYMENT RECEIPT", new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
 
     pdf.set_font("Helvetica", "", 10)
     receipt_no = f"RCPT-{str(payment['payment_id']).replace('-', '')[:10].upper()}"
     paid_at = payment.get("paid_at")
-    pdf.cell(0, 6, f"Receipt No: {receipt_no}", ln=1)
-    pdf.cell(0, 6, f"Date: {paid_at.strftime('%d %b %Y, %I:%M %p') if paid_at else '-'}", ln=1)
+    pdf.cell(0, 6, f"Receipt No: {receipt_no}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.cell(0, 6, f"Date: {paid_at.strftime('%d %b %Y, %I:%M %p') if paid_at else '-'}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(4)
 
     def row(label: str, value) -> None:
         pdf.set_font("Helvetica", "B", 10)
         pdf.cell(50, 7, label)
         pdf.set_font("Helvetica", "", 10)
-        pdf.cell(0, 7, str(value) if value else "-", ln=1)
+        pdf.cell(0, 7, str(value) if value else "-", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
     row("Patient", appointment.get("patient_name"))
     if appointment.get("doctor_name"):
@@ -82,10 +83,10 @@ def build_receipt_pdf(*, payment: dict, appointment: dict, clinic: dict, item_na
     pdf.ln(4)
     pdf.set_font("Helvetica", "B", 10)
     pdf.cell(90, 8, "Description", border=1)
-    pdf.cell(0, 8, "Amount", border=1, ln=1, align="R")
+    pdf.cell(0, 8, "Amount", border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
     pdf.set_font("Helvetica", "", 10)
     pdf.cell(90, 8, item_name, border=1)
-    pdf.cell(0, 8, _fmt_amount(payment["amount"], payment["currency"]), border=1, ln=1, align="R")
+    pdf.cell(0, 8, _fmt_amount(payment["amount"], payment["currency"]), border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
     pdf.ln(4)
 
     row("Payment Method", _fmt_payment_method(payment.get("payment_method")))
