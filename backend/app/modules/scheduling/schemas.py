@@ -202,6 +202,9 @@ class AppointmentRead(BaseModel):
     # doctors.doctor_id (public ID) — /doctors/{doctor_id}/availability and
     # similar path params expect this, not doctor_id above (profiles.id).
     doctor_public_id: UUID | None = None
+    # patients.patient_id (public ID) — GET /patients/{id} and every other
+    # patient-scoped route expect this, not patient_id above (profiles.id).
+    patient_public_id: UUID | None = None
     responsible_doctor_id: UUID | None = None
     responsible_doctor_name: str | None = None
     ca_id: UUID | None

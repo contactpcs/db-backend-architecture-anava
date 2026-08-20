@@ -35,6 +35,13 @@ _APPT_SELECT = (
     # doctors.doctor_id (public ID) — /doctors/{doctor_id}/availability and
     # similar path params expect this, not a.doctor_id (profiles.id).
     "dd.doctor_id AS doctor_public_id, "
+    # patients.patient_id (public ID) — GET /patients/{id} and every other
+    # patient-scoped route expect this, not a.patient_id (profiles.id).
+    # Same doctor_public_id gap: a.patient_id IS a profiles.id
+    # (resolve.py's whole docstring is this exact mistake, found elsewhere)
+    # — frontend link sites that used a.patient_id directly as a route
+    # param 404'd against every patient-scoped endpoint.
+    "pt.patient_id AS patient_public_id, "
     "COALESCE(a.doctor_id, tp.doctor_id) AS responsible_doctor_id, "
     "COALESCE(dp.first_name || ' ' || dp.last_name, "
     "         rp.first_name || ' ' || rp.last_name) AS responsible_doctor_name "
@@ -42,6 +49,7 @@ _APPT_SELECT = (
     "JOIN profiles pp ON pp.id = a.patient_id "
     "LEFT JOIN profiles dp ON dp.id = a.doctor_id "
     "LEFT JOIN doctors dd ON dd.profile_id = a.doctor_id "
+    "LEFT JOIN patients pt ON pt.profile_id = a.patient_id "
     "LEFT JOIN treatment_plans tp ON tp.plan_id = a.plan_id "
     "LEFT JOIN profiles rp ON rp.id = tp.doctor_id "
 )
