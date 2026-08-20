@@ -458,12 +458,26 @@ class ProtocolCreate(BaseModel):
     # references treatment_plans at all.
     instance_id: UUID
     device_id: UUID
-    # Exactly one placement and one dosing row, matching
-    # chk_protocol_plan_one_placement / _one_dosing. The service maps
-    # these onto the correct per-device FK column from the device's modality,
-    # so the caller never has to know which of the twelve columns to fill.
-    placement_id: UUID
-    dosing_id: UUID
+    # Exactly one of placement_id (catalogue) or custom_montage_id (a
+    # doctor-authored core.protocol_custom_montages row, 38/54) is set,
+    # matching chk_protocol_plan_one_placement. The service maps a
+    # catalogue placement_id onto the correct per-device FK column from the
+    # device's modality, so the caller never has to know which of the six
+    # columns to fill; a custom_montage_id needs no such mapping - there is
+    # only one column for it.
+    #
+    # dosing_id is required when placement_id is used (chk_protocol_plan_
+    # one_dosing, unchanged) and must be absent when custom_montage_id is
+    # used (chk_protocol_plan_dosing_requires_catalogue_placement, 54) - a
+    # custom montage has no catalogued dosing row to legitimately point at.
+    # The prescription still gets fully captured either way, through
+    # prescribed_current_ma/prescribed_duration_min/ramp_seconds below,
+    # which have always been independent of dosing_id (39) - dosing_id is
+    # provenance ("which catalogued dose was this nominally based on"), not
+    # the prescription itself.
+    placement_id: UUID | None = None
+    dosing_id: UUID | None = None
+    custom_montage_id: UUID | None = None
     session_count: int = Field(ge=1, le=90)
     follow_up_every_n: int | None = Field(default=None, ge=1, le=90)
     start_date: date
@@ -503,6 +517,20 @@ class ProtocolCreate(BaseModel):
         # previews fine would fail at INSERT - caught here instead.
         if self.sessions_per_week not in (1, 2, 3, 5, 7):
             raise ValueError("sessions_per_week must be one of 1, 2, 3, 5, 7 (1x/2x/3x/5x/Daily)")
+        return self
+
+    @model_validator(mode="after")
+    def _exactly_one_placement_source(self):
+        # Mirrors chk_protocol_plan_one_placement (54) as a readable 422
+        # instead of a raised constraint - same reasoning ProtocolService.
+        # create()'s pre-flight checks already apply to placement/dosing
+        # device-mismatch below.
+        if bool(self.placement_id) == bool(self.custom_montage_id):
+            raise ValueError("Provide exactly one of placement_id or custom_montage_id")
+        # Mirrors chk_protocol_plan_dosing_requires_catalogue_placement (54):
+        # dosing_id iff placement_id.
+        if bool(self.placement_id) != bool(self.dosing_id):
+            raise ValueError("dosing_id is required with placement_id, and not allowed with custom_montage_id")
         return self
 
 
@@ -566,6 +594,7 @@ class ProtocolRead(BaseModel):
     placement_id: UUID | None = None
     placement_summary: str | None = None
     dosing_id: UUID | None = None
+    custom_montage_id: UUID | None = None
     appointment_count: int = 0
 
 
@@ -602,6 +631,9 @@ class ProtocolScaleRead(BaseModel):
 class ProtocolDetail(ProtocolRead):
     placement: PlacementRead | None = None
     dosing: DosingRead | None = None
+    # Hydrated when custom_montage_id is set instead of placement_id/dosing_id
+    # (54) - mutually exclusive with placement/dosing above.
+    custom_montage: CustomMontageRead | None = None
     conditions: list[ProtocolConditionRead] = Field(default_factory=list)
     diagnoses: list[ProtocolDiagnosisRead] = Field(default_factory=list)
     scales: list[ProtocolScaleRead] = Field(default_factory=list)

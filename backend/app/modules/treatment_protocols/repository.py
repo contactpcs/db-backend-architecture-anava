@@ -945,7 +945,10 @@ class CustomMontageRepository:
         self.session = session
 
     async def create(self, data: dict) -> dict:
-        sql, params = insert_returning("protocol_custom_montages", data)
+        # anode_sites/cathode_sites are TEXT[] columns (38), not JSONB —
+        # insert_returning's default would CAST a JSON-serialized string to
+        # TEXT[] and fail (DatatypeMismatchError). See sql_helpers.py.
+        sql, params = insert_returning("protocol_custom_montages", data, array_columns={"anode_sites", "cathode_sites"})
         return await fetch_one(self.session, sql, params)
 
     async def get(self, custom_montage_id: UUID) -> dict | None:

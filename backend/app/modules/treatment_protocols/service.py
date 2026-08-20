@@ -368,6 +368,7 @@ class ProtocolService:
         self.instances = ProtocolInstanceRepository(session)
         self.device_sessions = ProtocolDeviceSessionRepository(session)
         self.followups = ProtocolFollowupRepository(session)
+        self.custom_montages = CustomMontageRepository(session)
 
     # -- reads -------------------------------------------------------------
 
@@ -382,21 +383,36 @@ class ProtocolService:
         await assert_clinic_scope(ctx, self.session, row["clinic_id"])
 
         slug = _slug_for_modality(row["modality"])
-        placement_id = row.get(placement_pk(slug))
-        dosing_id = row.get(dosing_pk(slug))
+        custom_montage_id = row.get("custom_montage_id")
 
-        placement = await self.catalogue.get_placement(slug, placement_id) if placement_id else None
-        if placement:
-            placement["summary"] = _placement_summary(placement)
-        dosing = await self.catalogue.get_dosing(slug, dosing_id) if dosing_id else None
+        # A protocol has either a catalogue placement/dosing pair or a
+        # custom_montage_id (54, chk_protocol_plan_one_placement) - never
+        # both, so hydrating one side and leaving the other None is correct
+        # by construction, not a fallback.
+        if custom_montage_id:
+            placement_id = None
+            dosing_id = None
+            placement = None
+            dosing = None
+            custom_montage = await self.custom_montages.get(custom_montage_id)
+        else:
+            placement_id = row.get(placement_pk(slug))
+            dosing_id = row.get(dosing_pk(slug))
+            placement = await self.catalogue.get_placement(slug, placement_id) if placement_id else None
+            if placement:
+                placement["summary"] = _placement_summary(placement)
+            dosing = await self.catalogue.get_dosing(slug, dosing_id) if dosing_id else None
+            custom_montage = None
 
         all_rows = await self.sessions.list_for_protocol(protocol_id)
         detail = dict(row)
         detail["placement_id"] = placement_id
-        detail["placement_summary"] = _placement_summary(placement)
+        detail["placement_summary"] = _placement_summary(placement) if placement else None
         detail["dosing_id"] = dosing_id
         detail["placement"] = placement
         detail["dosing"] = dosing
+        detail["custom_montage_id"] = custom_montage_id
+        detail["custom_montage"] = custom_montage
         detail["conditions"] = await self.details.list_conditions(protocol_id)
         detail["diagnoses"] = await self.details.list_diagnoses(protocol_id)
         detail["scales"] = await self.details.list_scales(protocol_id)
@@ -444,20 +460,41 @@ class ProtocolService:
 
         slug = _slug_for_modality(device["modality"])
 
-        # Same-device consistency. The schema enforces this with a trigger
-        # because a CHECK cannot read another table; checking here first
-        # turns a raw PL/pgSQL exception into a readable 422.
-        placement = await self.catalogue.get_placement(slug, body.placement_id)
-        if not placement:
-            raise NotFoundError("Placement not found for this device family", code="PLACEMENT_NOT_FOUND")
-        if str(placement["device_id"]) != str(body.device_id):
-            raise ValidationError("Placement belongs to a different device", code="PLACEMENT_DEVICE_MISMATCH")
+        # Exactly one of placement_id or custom_montage_id, enforced already
+        # by ProtocolCreate's own validator (schemas.py) - this branch just
+        # decides which write path to take, not which is allowed.
+        custom_montage: dict | None = None
+        if body.custom_montage_id is not None:
+            custom_montage = await self.custom_montages.get(body.custom_montage_id)
+            if not custom_montage:
+                raise NotFoundError("Custom montage not found", code="MONTAGE_NOT_FOUND")
+            if not custom_montage["is_active"]:
+                raise BusinessRuleError("Custom montage has been retired and can no longer be prescribed", code="MONTAGE_INACTIVE")
+            if str(custom_montage["device_id"]) != str(body.device_id):
+                raise ValidationError("Custom montage belongs to a different device", code="MONTAGE_DEVICE_MISMATCH")
+            # A custom montage is a clinical record any staff at its clinic
+            # may prescribe with, not just its author - unlike deactivate()
+            # (CustomMontageService.deactivate), which is an ownership
+            # action and stays author-or-admin. clinic_id is nullable on
+            # protocol_custom_montages (superadmin-authored montages may have
+            # none); only refuse a montage authored at a DIFFERENT clinic.
+            if custom_montage["clinic_id"] is not None and str(custom_montage["clinic_id"]) != str(parent["clinic_id"]):
+                raise ValidationError("Custom montage belongs to a different clinic", code="MONTAGE_CLINIC_MISMATCH")
+        else:
+            # Same-device consistency. The schema enforces this with a trigger
+            # because a CHECK cannot read another table; checking here first
+            # turns a raw PL/pgSQL exception into a readable 422.
+            placement = await self.catalogue.get_placement(slug, body.placement_id)
+            if not placement:
+                raise NotFoundError("Placement not found for this device family", code="PLACEMENT_NOT_FOUND")
+            if str(placement["device_id"]) != str(body.device_id):
+                raise ValidationError("Placement belongs to a different device", code="PLACEMENT_DEVICE_MISMATCH")
 
-        dosing = await self.catalogue.get_dosing(slug, body.dosing_id)
-        if not dosing:
-            raise NotFoundError("Dosing not found for this device family", code="DOSING_NOT_FOUND")
-        if str(dosing["device_id"]) != str(body.device_id):
-            raise ValidationError("Dosing belongs to a different device", code="DOSING_DEVICE_MISMATCH")
+            dosing = await self.catalogue.get_dosing(slug, body.dosing_id)
+            if not dosing:
+                raise NotFoundError("Dosing not found for this device family", code="DOSING_NOT_FOUND")
+            if str(dosing["device_id"]) != str(body.device_id):
+                raise ValidationError("Dosing belongs to a different device", code="DOSING_DEVICE_MISMATCH")
 
         # The clinic must actually own the machine. trg_check_device_available
         # _at_clinic (37) enforces this, but a readable 422 beats a raised
@@ -488,14 +525,18 @@ class ProtocolService:
                 )
 
         # Map the caller's device-agnostic placement_id/dosing_id onto the
-        # correct pair of the twelve nullable FK columns. The exactly-one
-        # CHECKs then hold by construction.
+        # correct pair of the six nullable catalogue FK columns, or write
+        # custom_montage_id alone with both catalogue pairs left NULL. The
+        # exactly-one/biconditional CHECKs (54) then hold by construction.
         payload: dict[str, Any] = {
             "instance_id": str(body.instance_id),
             "device_id": str(body.device_id),
             "set_by": ctx.user_id,
-            placement_pk(slug): str(body.placement_id),
-            dosing_pk(slug): str(body.dosing_id),
+            **(
+                {"custom_montage_id": str(body.custom_montage_id)}
+                if custom_montage is not None
+                else {placement_pk(slug): str(body.placement_id), dosing_pk(slug): str(body.dosing_id)}
+            ),
             "session_count": body.session_count,
             "follow_up_every_n": body.follow_up_every_n,
             "status": "draft",
