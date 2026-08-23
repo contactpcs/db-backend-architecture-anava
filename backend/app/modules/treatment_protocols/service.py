@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import RequestContext
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, ValidationError
+from app.core.resolve import resolve_doctor_profile_id as _resolve_doctor_profile_id
 from app.core.resolve import resolve_patient_profile_id as _resolve_patient_profile_id
 from app.core.scoping import assert_clinic_scope
 from app.modules.treatment_protocols import schemas as s
@@ -874,11 +875,10 @@ class ProtocolService:
 
 
 class ProtocolInstanceService:
-    """core.protocol_instances (45) — the course of device treatment.
-
-    Sits between the cycle and the prescription. The Treatment Protocol tab
-    lists instances; each instance holds the protocols prescribed within it,
-    including amendments (a new protocol superseding an earlier one).
+    """core.protocol_instances (45, absorbed treatment_cycles in 58) — one
+    episode of care. The Treatment Protocol tab lists instances; each
+    instance holds the protocols prescribed within it, including amendments
+    (a new protocol superseding an earlier one).
     """
 
     def __init__(self, session: AsyncSession):
@@ -893,34 +893,30 @@ class ProtocolInstanceService:
         return row
 
     async def create(self, body: s.ProtocolInstanceCreate, ctx: RequestContext) -> dict:
-        cycle = await self.protocols.cycle_context(body.cycle_id)
-        if not cycle:
-            raise NotFoundError("Treatment cycle not found", code="CYCLE_NOT_FOUND")
-        await assert_clinic_scope(ctx, self.session, cycle["clinic_id"])
-
-        if cycle["status"] != "in_progress":
-            raise BusinessRuleError(
-                f"Treatment cycle is '{cycle['status']}' — a protocol course can only be opened on an active cycle",
-                code="CYCLE_NOT_ACTIVE",
-            )
+        patient_profile_id = await _resolve_patient_profile_id(self.session, body.patient_id)
+        doctor_profile_id = await _resolve_doctor_profile_id(self.session, body.doctor_id)
+        await assert_clinic_scope(ctx, self.session, body.clinic_id)
 
         # uq_protocol_instances_one_active enforces this too; checking first
         # turns a 23505 into a message naming the instance already open, which
         # is what the caller should reuse rather than duplicate.
-        existing = await self.repo.get_open_for_cycle(body.cycle_id)
+        existing = await self.repo.get_open_for_patient(patient_profile_id)
         if existing:
             raise ConflictError(
-                f"This cycle already has an open protocol course (instance {existing['instance_number']}). "
+                f"This patient already has an open episode of care (instance {existing['instance_number']}). "
                 "Complete or cancel it before opening another.",
                 code="INSTANCE_ALREADY_OPEN",
             )
 
-        number = await self.repo.next_instance_number(body.cycle_id)
+        number = await self.repo.next_instance_number(patient_profile_id)
         try:
             created = await self.repo.create(
                 {
-                    "cycle_id": str(body.cycle_id),
-                    "patient_id": str(cycle["patient_id"]),
+                    "patient_id": str(patient_profile_id),
+                    "doctor_id": str(doctor_profile_id),
+                    "ca_id": str(body.ca_id) if body.ca_id else None,
+                    "clinic_id": str(body.clinic_id),
+                    "instance_type": body.instance_type,
                     "created_by": ctx.user_id,
                     "instance_number": number,
                     "status": "draft",
@@ -928,7 +924,7 @@ class ProtocolInstanceService:
                 }
             )
         except IntegrityError as exc:
-            raise ConflictError("A protocol course already exists for this cycle", code="INSTANCE_ALREADY_OPEN") from exc
+            raise ConflictError("An open episode of care already exists for this patient", code="INSTANCE_ALREADY_OPEN") from exc
 
         await emit_event(
             self.session,
@@ -937,7 +933,7 @@ class ProtocolInstanceService:
             event_type="protocol_instance.created",
             payload={
                 "instance_id": str(created["instance_id"]),
-                "cycle_id": str(body.cycle_id),
+                "patient_id": str(patient_profile_id),
                 "instance_number": number,
             },
         )

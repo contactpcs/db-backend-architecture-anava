@@ -89,11 +89,11 @@ class DeviceAssignmentRepository:
         sql, params = insert_returning("device_assignments", data)
         return await fetch_one(self.session, sql, params)
 
-    async def get_for_plan(self, plan_id: UUID) -> dict | None:
+    async def get_for_instance(self, instance_id: UUID) -> dict | None:
         return await fetch_optional(
             self.session,
-            text("SELECT * FROM device_assignments WHERE plan_id = :pid ORDER BY created_at DESC LIMIT 1"),
-            {"pid": str(plan_id)},
+            text("SELECT * FROM device_assignments WHERE instance_id = :iid ORDER BY created_at DESC LIMIT 1"),
+            {"iid": str(instance_id)},
         )
 
     async def set_status(self, da_id: UUID, *, purchase_status: str, order_id=None) -> dict | None:

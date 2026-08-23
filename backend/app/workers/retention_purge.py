@@ -50,7 +50,9 @@ DATA_CATEGORIES: list[tuple[str, str, str | None, str]] = [
     ("prs_assessments", "prs_assessment_instances", "patient_id", "retain_locked"),
     ("eeg_files", "patient_eeg_files", "patient_id", "retain_locked"),
     ("medical_history_files", "patient_medical_history_files", "patient_id", "retain_locked"),
-    ("treatment_plans", "treatment_plans", "patient_id", "retain_locked"),
+    # 58 retired treatment_cycles/treatment_plans/treatment_sessions —
+    # protocol_instances (below) is the surviving episode-of-care record.
+    ("protocol_instances", "protocol_instances", "patient_id", "retain_locked"),
     ("doctor_session_notes", "doctor_session_notes", "patient_id", "retain_locked"),
     ("disease_selection", "patient_disease_selection", "patient_id", "retain_locked"),
     ("appointments", "appointments", "patient_id", "retain_locked"),
@@ -289,7 +291,6 @@ PARTITION_RETENTION = {
     "audit_logs": timedelta(days=365 * 10),
     "activity_logs": timedelta(days=365 * 10),
     "appointment_audit_logs": timedelta(days=365 * 7),
-    "treatment_sessions": timedelta(days=365 * 7),
 }
 
 

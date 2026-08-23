@@ -400,21 +400,29 @@ class ProtocolScaleAssignment(BaseModel):
 
 
 class ProtocolInstanceCreate(BaseModel):
-    """Opens a course of device treatment on an existing cycle (45).
+    """Opens an episode of care directly (58).
 
-    cycle_id, not plan_id: an instance belongs to the episode of care. A
-    treatment plan is the clinical picture (anamnesis, history, assessments)
-    and is no longer a prerequisite for prescribing a device course.
+    No treatment_cycles any more — patient/doctor/clinic are carried on the
+    instance itself, not resolved from a separate cycle row. A treatment plan
+    is the clinical picture (anamnesis, history, assessments) and is not a
+    prerequisite for prescribing a device course.
     """
 
-    cycle_id: UUID
+    patient_id: UUID
+    doctor_id: UUID
+    ca_id: UUID | None = None
+    clinic_id: UUID
+    instance_type: str = "initial"
     notes: str | None = None
 
 
 class ProtocolInstanceRead(BaseModel):
     instance_id: UUID
-    cycle_id: UUID
     patient_id: UUID
+    doctor_id: UUID
+    ca_id: UUID | None = None
+    clinic_id: UUID
+    instance_type: str
     created_by: UUID
     instance_number: int
     status: str
@@ -422,8 +430,6 @@ class ProtocolInstanceRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     # Hydrated for display
-    clinic_id: UUID | None = None
-    doctor_id: UUID | None = None
     patient_name: str | None = None
     created_by_name: str | None = None
     protocol_count: int = 0

@@ -25,16 +25,24 @@ from app.core.db import get_migration_engine
 # requests, logs, notifications, store/payments. CASCADE also reaches
 # admins/clinics/regions themselves from here, but they're truncated
 # explicitly below too for clarity.
+#
+# protocol_instances (58, absorbed treatment_cycles/treatment_plans/
+# treatment_sessions — none of which exist any more) cascades to protocol_plan
+# and its children automatically; device_sessions and protocol_device_sessions/
+# protocol_followup cascade from appointments below. protocol_custom_montages
+# does not FK into anything else on this list (only outbound FKs to
+# profiles/clinics), so it needs its own explicit entry or the final
+# DELETE FROM profiles fails on a leftover row.
 _DEPENDENT_TABLES = """
     activity_logs, appointment_requests, appointments, assessment_protocol_requests,
     ca_doctor_assignments, clinic_requests, clinic_staff_assignments, clinical_assistants,
     consent_records, device_assignments, doctor_patient_assignments, doctor_schedule_overrides,
     doctor_weekly_schedules, doctors, inventory, notifications, patient_clinic_transfers,
     patient_eeg_files, patient_medical_history_files, patients, receptionists, sessions,
-    staff_requests, stock_transfers, store_orders, treatment_cycles, anamnesis_assessments,
-    appointment_audit_logs, doctor_session_notes, patient_disease_selection,
-    patient_scale_assignments, payments, prs_assessment_instances, treatment_plans,
-    treatment_sessions, outbox_events, audit_logs
+    staff_requests, stock_transfers, store_orders, protocol_instances, protocol_custom_montages,
+    anamnesis_assessments, appointment_audit_logs, doctor_session_notes, patient_disease_selection,
+    patient_scale_assignments, payments, prs_assessment_instances,
+    outbox_events, audit_logs
 """
 
 

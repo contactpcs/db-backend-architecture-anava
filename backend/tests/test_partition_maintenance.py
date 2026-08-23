@@ -21,7 +21,7 @@ def test_yearly_roundtrip():
     lower = datetime(2027, 1, 1, tzinfo=UTC)
     for _ in range(4):
         upper, suffix = _next_range(lower, monthly=False)
-        assert _partition_upper_bound(f"treatment_sessions_{suffix}", "treatment_sessions") == upper
+        assert _partition_upper_bound(f"activity_logs_{suffix}", "activity_logs") == upper
         lower = upper
 
 

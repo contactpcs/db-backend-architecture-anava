@@ -60,7 +60,6 @@ class AssessmentInstanceCreate(BaseModel):
     disease_id: str
     assessment_stage: str = Field(pattern="^(general_registration|main_clinical|followup)$")
     session_id: UUID | None = None
-    cycle_id: UUID | None = None
     language_code: str = Field(default="en", pattern="^[a-z]{2}$")
 
 
@@ -69,7 +68,6 @@ class AssessmentInstanceRead(BaseModel):
     disease_id: str
     patient_id: UUID
     session_id: UUID | None
-    cycle_id: UUID | None
     assessment_stage: str
     status: str
     started_at: datetime

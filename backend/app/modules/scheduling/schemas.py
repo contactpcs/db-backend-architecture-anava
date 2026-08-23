@@ -113,7 +113,7 @@ class AppointmentCreate(BaseModel):
     patient_id: UUID
     doctor_id: UUID
     ca_id: UUID | None = None
-    cycle_id: UUID | None = None
+    instance_id: UUID | None = None
     appointment_date: date
     start_time: time
     end_time: time | None = None
@@ -208,8 +208,7 @@ class AppointmentRead(BaseModel):
     responsible_doctor_id: UUID | None = None
     responsible_doctor_name: str | None = None
     ca_id: UUID | None
-    cycle_id: UUID | None = None
-    plan_id: UUID | None = None
+    instance_id: UUID | None = None
     protocol_id: UUID | None = None
     # Set only for appointment_type = device_session — which of the clinic's
     # devices this session runs on and books capacity against.

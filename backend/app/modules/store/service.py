@@ -48,8 +48,8 @@ class StoreOrderService:
     async def create(self, data: dict, *, initiated_by: UUID) -> dict:
         patient_profile_id = await _resolve_patient_profile_id(self.session, data["patient_id"])
 
-        if data["order_type"] == "device" and not data.get("treatment_plan_id"):
-            raise BusinessRuleError("Device orders require a treatment_plan_id", code="TREATMENT_PLAN_REQUIRED")
+        if data["order_type"] == "device" and not data.get("instance_id"):
+            raise BusinessRuleError("Device orders require an instance_id", code="PROTOCOL_INSTANCE_REQUIRED")
 
         total = 0.0
         items_with_price = []
@@ -70,7 +70,7 @@ class StoreOrderService:
             "order_type": data["order_type"],
             "status": "pending_doctor_approval" if data["order_type"] == "device" else "pending_dispatch",
             "total_amount": total,
-            "treatment_plan_id": str(data["treatment_plan_id"]) if data.get("treatment_plan_id") else None,
+            "instance_id": str(data["instance_id"]) if data.get("instance_id") else None,
         }
         order = await self.repo.create(payload)
         for item in items_with_price:
@@ -118,9 +118,9 @@ class StoreOrderService:
         )
 
         # Keep device_assignments.purchase_status in sync with the order lifecycle.
-        if order["treatment_plan_id"] and status == "collected_by_patient":
+        if order["instance_id"] and status == "collected_by_patient":
             da_repo = DeviceAssignmentRepository(self.session)
-            da = await da_repo.get_for_plan(order["treatment_plan_id"])
+            da = await da_repo.get_for_instance(order["instance_id"])
             if da:
                 await da_repo.set_status(da["da_id"], purchase_status="collected")
         return updated  # type: ignore[return-value]
@@ -131,13 +131,13 @@ class DeviceAssignmentService:
         self.session = session
         self.repo = DeviceAssignmentRepository(session)
 
-    async def prompt_purchase(self, *, patient_id: UUID, clinic_id: UUID, plan_id: UUID, device_type: str, assigned_by: UUID) -> dict:
+    async def prompt_purchase(self, *, patient_id: UUID, clinic_id: UUID, instance_id: UUID, device_type: str, assigned_by: UUID) -> dict:
         patient_profile_id = await _resolve_patient_profile_id(self.session, patient_id)
         da = await self.repo.create(
             {
                 "patient_id": str(patient_profile_id),
                 "clinic_id": str(clinic_id),
-                "plan_id": str(plan_id),
+                "instance_id": str(instance_id),
                 "assigned_by": str(assigned_by),
                 "device_type": device_type,
             }

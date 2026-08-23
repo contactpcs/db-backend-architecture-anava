@@ -128,7 +128,7 @@ class TransferRead(BaseModel):
     to_doctor_id: UUID | None
     transfer_reason: str
     status: str
-    active_cycle_id: UUID | None
+    active_instance_id: UUID | None
     created_at: datetime
 
 

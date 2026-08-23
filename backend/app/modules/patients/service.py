@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db import RequestContext
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError
 from app.modules.patients.repository import (
@@ -370,18 +371,18 @@ class PatientService:
 
 
 class FollowUpService:
-    """Master Doc Section 6.6 — a follow-up is a new treatment_cycles record
-    (cycle_type='followup', cycle_number incremented), same S1-S4 machinery as
-    the initial block (built in clinical/, Stage 8) — reused here, not
-    reimplemented. Requires the patient's previous cycle to be completed."""
+    """Master Doc Section 6.6 — a follow-up opens a new protocol_instances
+    episode (instance_type='followup'), reusing ProtocolInstanceService
+    directly rather than duplicating its create/one-active-episode logic.
+    Requires the patient's previous episode to be closed out."""
 
     def __init__(self, session: AsyncSession):
         self.session = session
         self.repo = PatientRepository(session)
 
-    async def start(self, patient_id: UUID, *, doctor_id: UUID | None) -> dict:
-        from app.modules.clinical.repository import TreatmentCycleRepository
-        from app.modules.clinical.service import TreatmentCycleService
+    async def start(self, patient_id: UUID, *, doctor_id: UUID | None, ctx: RequestContext) -> dict:
+        from app.modules.treatment_protocols.schemas import ProtocolInstanceCreate
+        from app.modules.treatment_protocols.service import ProtocolInstanceService
 
         patient = await self.repo.get(patient_id)
         if not patient:
@@ -389,15 +390,9 @@ class FollowUpService:
         if patient["registration_status"] != "registration_complete":
             raise BusinessRuleError("Patient has not completed initial registration", code="REGISTRATION_INCOMPLETE")
 
-        cycle_repo = TreatmentCycleRepository(self.session)
-        previous_cycles = await cycle_repo.list(patient_id=patient["profile_id"])
-        if any(c["status"] == "in_progress" for c in previous_cycles):
-            raise BusinessRuleError("Patient already has an active treatment cycle", code="ACTIVE_CYCLE_EXISTS")
-
-        next_number = max((c["cycle_number"] for c in previous_cycles), default=0) + 1
         # doctor_id here is doctors.doctor_id (or None to keep the current
-        # primary doctor) — TreatmentCycleService.create resolves it the same
-        # way an initial cycle does, no special-casing needed for follow-up.
+        # primary doctor) — ProtocolInstanceService.create resolves it the
+        # same way an initial episode does, no special-casing for follow-up.
         doctor_arg = doctor_id
         if doctor_arg is None:
             doctor_row = await self._doctor_by_profile_id(patient["primary_doctor_id"])
@@ -405,23 +400,23 @@ class FollowUpService:
             if doctor_arg is None:
                 raise BusinessRuleError("No doctor_id provided and patient has no primary doctor on file", code="DOCTOR_REQUIRED")
 
-        cycle = await TreatmentCycleService(self.session).create(
-            {
-                "patient_id": patient_id,
-                "doctor_id": doctor_arg,
-                "clinic_id": patient["primary_clinic_id"],
-                "cycle_type": "followup",
-                "cycle_number": next_number,
-            }
+        instance = await ProtocolInstanceService(self.session).create(
+            ProtocolInstanceCreate(
+                patient_id=patient_id,
+                doctor_id=doctor_arg,
+                clinic_id=patient["primary_clinic_id"],
+                instance_type="followup",
+            ),
+            ctx,
         )
         await emit_event(
             self.session,
-            aggregate_type="treatment_cycle",
-            aggregate_id=cycle["cycle_id"],
-            event_type="followup_block_created",
-            payload={"cycle_id": str(cycle["cycle_id"]), "patient_id": str(patient_id)},
+            aggregate_type="protocol_instance",
+            aggregate_id=instance["instance_id"],
+            event_type="followup_episode_created",
+            payload={"instance_id": str(instance["instance_id"]), "patient_id": str(patient_id)},
         )
-        return cycle
+        return instance
 
     async def _doctor_by_profile_id(self, profile_id):
         from sqlalchemy import text as _text
@@ -450,9 +445,9 @@ class PatientTransferService:
         if not patient:
             raise NotFoundError("Patient not found", code="PATIENT_NOT_FOUND")
 
-        from app.modules.clinical.repository import TreatmentCycleRepository
+        from app.modules.treatment_protocols.repository import ProtocolInstanceRepository
 
-        active_cycle = await TreatmentCycleRepository(self.session).get_active_for_patient(patient["profile_id"])
+        active_instance = await ProtocolInstanceRepository(self.session).get_open_for_patient(patient["profile_id"])
 
         payload = {
             "patient_id": str(patient["profile_id"]),
@@ -460,7 +455,7 @@ class PatientTransferService:
             "to_clinic_id": str(data["to_clinic_id"]),
             "from_doctor_id": str(patient["primary_doctor_id"]) if patient["primary_doctor_id"] else None,
             "transfer_reason": data["transfer_reason"],
-            "active_cycle_id": str(active_cycle["cycle_id"]) if active_cycle else None,
+            "active_instance_id": str(active_instance["instance_id"]) if active_instance else None,
             "initiated_by": str(initiated_by),
             "notes": data.get("notes"),
         }
@@ -509,13 +504,13 @@ class PatientTransferService:
             {"clinic_id": transfer["to_clinic_id"], "doctor_id": doctor["profile_id"], "pid": transfer["patient_id"]},
         )
 
-        if transfer["active_cycle_id"]:
-            # Active block carries over WITHOUT restart — same cycle row,
-            # just repointed to the new clinic/doctor (Master Doc: "Block
-            # resumes from current session. NO RESTART.").
+        if transfer["active_instance_id"]:
+            # Active episode carries over WITHOUT restart — same
+            # protocol_instances row, just repointed to the new clinic/doctor
+            # (Master Doc: "Block resumes from current session. NO RESTART.").
             await self.session.execute(
-                _text("UPDATE treatment_cycles SET clinic_id = :clinic_id, doctor_id = :doctor_id WHERE cycle_id = :cycle_id"),
-                {"clinic_id": transfer["to_clinic_id"], "doctor_id": doctor["profile_id"], "cycle_id": transfer["active_cycle_id"]},
+                _text("UPDATE protocol_instances SET clinic_id = :clinic_id, doctor_id = :doctor_id WHERE instance_id = :instance_id"),
+                {"clinic_id": transfer["to_clinic_id"], "doctor_id": doctor["profile_id"], "instance_id": transfer["active_instance_id"]},
             )
 
         updated = await self.repo.set_status(pct_id, status="completed", to_doctor_id=doctor["profile_id"], consent_id=consent_id)
@@ -555,12 +550,12 @@ class PatientExitService:
         if not consent or consent["status"] != "signed" or consent["consent_type"] != "patient_clinic_exit":
             raise BusinessRuleError("Exit requires a signed patient_clinic_exit consent", code="EXIT_CONSENT_REQUIRED")
 
-        from app.modules.clinical.repository import TreatmentCycleRepository
+        from app.modules.treatment_protocols.repository import ProtocolInstanceRepository
 
-        cycle_repo = TreatmentCycleRepository(self.session)
-        active_cycle = await cycle_repo.get_active_for_patient(patient["profile_id"])
-        if active_cycle:
-            await cycle_repo.set_status(active_cycle["cycle_id"], "completed")
+        instance_repo = ProtocolInstanceRepository(self.session)
+        active_instance = await instance_repo.get_open_for_patient(patient["profile_id"])
+        if active_instance:
+            await instance_repo.set_status(active_instance["instance_id"], "completed")
 
         await emit_event(
             self.session,

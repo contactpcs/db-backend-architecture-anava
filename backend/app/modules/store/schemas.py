@@ -30,7 +30,7 @@ class StoreOrderCreate(BaseModel):
     patient_id: UUID
     clinic_id: UUID
     order_type: str = Field(pattern="^(device|accessory)$")
-    treatment_plan_id: UUID | None = None
+    instance_id: UUID | None = None
     items: list[OrderItemCreate]
 
 
@@ -47,7 +47,7 @@ class StoreOrderRead(BaseModel):
     order_type: str
     status: str
     total_amount: float | None
-    treatment_plan_id: UUID | None
+    instance_id: UUID | None
     created_at: datetime
 
 
@@ -55,7 +55,7 @@ class DeviceAssignmentRead(BaseModel):
     da_id: UUID
     patient_id: UUID
     clinic_id: UUID
-    plan_id: UUID
+    instance_id: UUID
     device_type: str
     purchase_status: str
     order_id: UUID | None

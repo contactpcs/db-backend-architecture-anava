@@ -152,9 +152,9 @@ async def start_followup_cycle(
     patient_id: UUID,
     body: s.FollowUpCycleCreate,
     db=Depends(get_db),
-    _ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
 ):
-    return await FollowUpService(db).start(patient_id, doctor_id=body.doctor_id)
+    return await FollowUpService(db).start(patient_id, doctor_id=body.doctor_id, ctx=ctx)
 
 
 @router.post("/patients/{patient_id}/transfers", response_model=s.TransferRead, status_code=201)

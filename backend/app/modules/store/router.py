@@ -72,11 +72,11 @@ async def update_store_order_status(
 async def prompt_device_purchase(
     patient_id: UUID,
     clinic_id: UUID,
-    plan_id: UUID,
+    instance_id: UUID,
     device_type: str,
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
 ):
     return await DeviceAssignmentService(db).prompt_purchase(
-        patient_id=patient_id, clinic_id=clinic_id, plan_id=plan_id, device_type=device_type, assigned_by=UUID(ctx.user_id)
+        patient_id=patient_id, clinic_id=clinic_id, instance_id=instance_id, device_type=device_type, assigned_by=UUID(ctx.user_id)
     )

@@ -7,13 +7,13 @@ a busy calendar silently fills with dead holds nobody can see.
 
 WHAT IT DOES, and why the two branches differ:
 
-    no plan_id AND no protocol_id  patient-booked (initial / follow_up). The row is
+    no protocol_id       patient-booked (initial / follow_up). The row is
                          DELETED. There is no earlier state to fall back to,
                          nothing unpaid should persist, and the patient simply
                          books again from an empty screen. Deleting also frees
                          uq_one_active_initial_per_patient immediately.
 
-    plan_id OR protocol_id set     protocol-born (device_session / protocol_followup).
+    protocol_id set      protocol-born (device_session / protocol_followup).
                          Reverts to 'planned' with its time cleared. The
                          doctor's prescribed DATE survives; only the slot is
                          released. Deleting these would destroy part of a
@@ -79,14 +79,11 @@ async def sweep_once() -> dict:
                     "UPDATE appointments SET status = 'planned', start_time = NULL, end_time = NULL, "
                     "hold_expires_at = NULL, updated_at = NOW() "
                     "WHERE status = 'selected' AND hold_expires_at < NOW() "
-                    "AND (plan_id IS NOT NULL OR protocol_id IS NOT NULL)"
+                    "AND protocol_id IS NOT NULL"
                 )
             )
             deleted = await session.execute(
-                text(
-                    "DELETE FROM appointments WHERE status = 'selected' AND hold_expires_at < NOW() "
-                    "AND plan_id IS NULL AND protocol_id IS NULL"
-                )
+                text("DELETE FROM appointments WHERE status = 'selected' AND hold_expires_at < NOW() AND protocol_id IS NULL")
             )
             result = {
                 # CursorResult has rowcount; the async Result stubs don't expose

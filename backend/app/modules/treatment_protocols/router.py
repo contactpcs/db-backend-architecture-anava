@@ -29,6 +29,7 @@ from fastapi import APIRouter, Body, Depends, Query
 
 from app.core.db import RequestContext, get_db
 from app.core.permissions import require_role
+from app.core.scoping import assert_owns_profile
 from app.modules.treatment_protocols import schemas as s
 from app.modules.treatment_protocols.service import (
     CatalogueService,
@@ -284,12 +285,12 @@ async def preview_schedule(
 
 
 # --------------------------------------------------------------------------
-# Protocol instances (45) — the course of device treatment
+# Protocol instances (45, absorbed treatment_cycles in 58) — episode of care
 # --------------------------------------------------------------------------
-# An instance sits between the treatment cycle and the prescription. It is what
-# the Treatment Protocol tab lists, and what "Start New Treatment Protocol"
-# should create — NOT a new treatment cycle, which is a different object with a
-# one-active-per-patient rule of its own.
+# An instance IS the episode of care now, not a course opened underneath a
+# separate cycle object. It is what the Treatment Protocol tab lists, and
+# what "Start New Treatment Protocol" creates directly — one active episode
+# per patient, enforced on this table alone.
 
 
 @router.post("/protocol-instances", response_model=s.ProtocolInstanceRead, status_code=201)
@@ -298,30 +299,36 @@ async def create_protocol_instance(
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_PRESCRIBERS)),
 ):
-    """Opens a course of device treatment on an existing cycle."""
+    """Opens a new episode of care for a patient."""
     return await ProtocolInstanceService(db).create(body, ctx)
 
 
 @router.get("/protocol-instances", response_model=list[s.ProtocolInstanceRead])
 async def list_protocol_instances(
     patient_id: UUID | None = Query(None),
-    cycle_id: UUID | None = Query(None),
     status: str | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_READERS)),
 ):
-    return await ProtocolInstanceService(db).list(ctx, patient_id=patient_id, cycle_id=cycle_id, status=status, skip=skip, limit=limit)
+    # A patient may only ever list their own instances — override whatever
+    # patient_id they passed rather than trust it (same rule the retired
+    # clinical/ treatment-plan endpoints enforced).
+    if ctx.role == "patient":
+        patient_id = UUID(ctx.user_id)
+    return await ProtocolInstanceService(db).list(ctx, patient_id=patient_id, status=status, skip=skip, limit=limit)
 
 
 @router.get("/protocol-instances/{instance_id}", response_model=s.ProtocolInstanceRead)
 async def get_protocol_instance(
     instance_id: UUID,
     db=Depends(get_db),
-    _ctx: RequestContext = Depends(require_role(*_READERS)),
+    ctx: RequestContext = Depends(require_role(*_READERS)),
 ):
-    return await ProtocolInstanceService(db).get_or_404(instance_id)
+    instance = await ProtocolInstanceService(db).get_or_404(instance_id)
+    assert_owns_profile(ctx, instance["patient_id"])
+    return instance
 
 
 @router.patch("/protocol-instances/{instance_id}/status", response_model=s.ProtocolInstanceRead)

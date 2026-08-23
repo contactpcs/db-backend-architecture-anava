@@ -471,27 +471,25 @@ class CatalogueRepository:
 
 
 # 47 renamed treatment_protocols to protocol_plan and made instance_id NOT
-# NULL — every row has exactly one protocol_instances parent now, so the
-# instance/cycle joins are plain JOINs, not the COALESCE-across-two-possible-
-# parents shape 45 needed while plan_id was still a live alternative. 48
-# dropped plan_id entirely: protocol_plan no longer references treatment_plans
-# at all, protocol_instances is its only parent.
+# NULL — every row has exactly one protocol_instances parent now. 48 dropped
+# plan_id entirely: protocol_plan no longer references treatment_plans at
+# all, protocol_instances is its only parent. 58 retired treatment_cycles —
+# patient/doctor/clinic live on protocol_instances directly, no more join.
 _PROTOCOL_SELECT = (
     "SELECT tp.*, "
     "dev.device_name, dev.modality, dc.company_name, "
-    "pi.patient_id, icy.doctor_id, "
+    "pi.patient_id, pi.doctor_id, "
     "pp.first_name || ' ' || pp.last_name AS patient_name, "
     "dp.first_name || ' ' || dp.last_name AS doctor_name, "
-    "icy.clinic_id, "
+    "pi.clinic_id, "
     "pi.instance_number, pi.status AS instance_status, "
     "(SELECT count(*) FROM appointments a WHERE a.protocol_id = tp.protocol_id) AS appointment_count "
     "FROM protocol_plan tp "
     "JOIN reference.neuromod_devices dev ON dev.device_id = tp.device_id "
     "LEFT JOIN reference.device_companies dc ON dc.company_id = dev.company_id "
     "JOIN protocol_instances pi ON pi.instance_id = tp.instance_id "
-    "JOIN treatment_cycles icy  ON icy.cycle_id   = pi.cycle_id "
     "LEFT JOIN profiles pp ON pp.id = pi.patient_id "
-    "LEFT JOIN profiles dp ON dp.id = icy.doctor_id "
+    "LEFT JOIN profiles dp ON dp.id = pi.doctor_id "
 )
 
 
@@ -525,7 +523,7 @@ class ProtocolRepository:
             clauses.append("pi.patient_id = :patient_id")
             params["patient_id"] = str(patient_id)
         if clinic_id:
-            clauses.append("icy.clinic_id = :clinic_id")
+            clauses.append("pi.clinic_id = :clinic_id")
             params["clinic_id"] = str(clinic_id)
         if status:
             clauses.append("tp.status = :status")
@@ -588,37 +586,21 @@ class ProtocolRepository:
         )
         return row is not None
 
-    async def cycle_context(self, cycle_id: UUID) -> dict | None:
-        """Patient, doctor, clinic and status for a treatment cycle.
-
-        The parent a protocol instance is opened against (45).
-        """
-        return await fetch_optional(
-            self.session,
-            text(
-                "SELECT cycle_id, patient_id, doctor_id, clinic_id, cycle_type, cycle_number, status "
-                "FROM treatment_cycles WHERE cycle_id = :id"
-            ),
-            {"id": str(cycle_id)},
-        )
-
     async def instance_context(self, instance_id: UUID) -> dict | None:
-        """Patient, doctor and clinic for a protocol instance (45).
+        """Patient, doctor and clinic for a protocol instance (58).
 
-        The instance is the protocol's real parent, and the clinic comes from
-        its cycle — the same resolution 45's rewritten
-        fn_check_device_available_at_clinic does, kept identical here so the
+        The instance is the protocol's only parent and carries its own
+        patient/doctor/clinic directly — no more joining out to a cycle. Kept
+        identical to fn_check_device_available_at_clinic's resolution so the
         pre-flight check and the trigger cannot disagree.
         """
         return await fetch_optional(
             self.session,
             text(
-                "SELECT pi.instance_id, pi.cycle_id, pi.patient_id, pi.created_by, "
-                "  pi.instance_number, pi.status AS instance_status, "
-                "  cy.clinic_id, cy.doctor_id "
-                "FROM protocol_instances pi "
-                "JOIN treatment_cycles cy ON cy.cycle_id = pi.cycle_id "
-                "WHERE pi.instance_id = :id"
+                "SELECT instance_id, patient_id, doctor_id, ca_id, clinic_id, "
+                "  created_by, instance_number, status AS instance_status "
+                "FROM protocol_instances "
+                "WHERE instance_id = :id"
             ),
             {"id": str(instance_id)},
         )
@@ -669,12 +651,11 @@ class ProtocolInstanceRepository:
         return await fetch_optional(
             self.session,
             text(
-                "SELECT pi.*, cy.clinic_id, cy.doctor_id, cy.cycle_type, cy.status AS cycle_status, "
+                "SELECT pi.*, "
                 "  pp.first_name || ' ' || pp.last_name AS patient_name, "
                 "  cp.first_name || ' ' || cp.last_name AS created_by_name, "
                 "  (SELECT count(*) FROM protocol_plan x WHERE x.instance_id = pi.instance_id) AS protocol_count "
                 "FROM protocol_instances pi "
-                "JOIN treatment_cycles cy ON cy.cycle_id = pi.cycle_id "
                 "LEFT JOIN profiles pp ON pp.id = pi.patient_id "
                 "LEFT JOIN profiles cp ON cp.id = pi.created_by "
                 "WHERE pi.instance_id = :id"
@@ -686,7 +667,6 @@ class ProtocolInstanceRepository:
         self,
         *,
         patient_id: UUID | None = None,
-        cycle_id: UUID | None = None,
         clinic_id: UUID | None = None,
         status: str | None = None,
         skip: int = 0,
@@ -697,11 +677,8 @@ class ProtocolInstanceRepository:
         if patient_id:
             clauses.append("pi.patient_id = :patient_id")
             params["patient_id"] = str(patient_id)
-        if cycle_id:
-            clauses.append("pi.cycle_id = :cycle_id")
-            params["cycle_id"] = str(cycle_id)
         if clinic_id:
-            clauses.append("cy.clinic_id = :clinic_id")
+            clauses.append("pi.clinic_id = :clinic_id")
             params["clinic_id"] = str(clinic_id)
         if status:
             clauses.append("pi.status = :status")
@@ -711,12 +688,11 @@ class ProtocolInstanceRepository:
             (
                 await self.session.execute(
                     text(
-                        "SELECT pi.*, cy.clinic_id, cy.doctor_id, "
+                        "SELECT pi.*, "
                         "  pp.first_name || ' ' || pp.last_name AS patient_name, "
                         "  cp.first_name || ' ' || cp.last_name AS created_by_name, "
                         "  (SELECT count(*) FROM protocol_plan x WHERE x.instance_id = pi.instance_id) AS protocol_count "
                         "FROM protocol_instances pi "
-                        "JOIN treatment_cycles cy ON cy.cycle_id = pi.cycle_id "
                         "LEFT JOIN profiles pp ON pp.id = pi.patient_id "
                         "LEFT JOIN profiles cp ON cp.id = pi.created_by "
                         f"{where} ORDER BY pi.created_at DESC OFFSET :skip LIMIT :limit"
@@ -729,12 +705,12 @@ class ProtocolInstanceRepository:
         )
         return [dict(r) for r in rows]
 
-    async def next_instance_number(self, cycle_id: UUID) -> int:
+    async def next_instance_number(self, patient_id: UUID) -> int:
         row = (
             (
                 await self.session.execute(
-                    text("SELECT COALESCE(MAX(instance_number), 0) + 1 AS n FROM protocol_instances WHERE cycle_id = :c"),
-                    {"c": str(cycle_id)},
+                    text("SELECT COALESCE(MAX(instance_number), 0) + 1 AS n FROM protocol_instances WHERE patient_id = :p"),
+                    {"p": str(patient_id)},
                 )
             )
             .mappings()
@@ -742,17 +718,18 @@ class ProtocolInstanceRepository:
         )
         return int(row["n"]) if row else 1
 
-    async def get_open_for_cycle(self, cycle_id: UUID) -> dict | None:
-        """The live instance for a cycle, if any.
+    async def get_open_for_patient(self, patient_id: UUID) -> dict | None:
+        """The live instance for a patient, if any.
 
-        uq_protocol_instances_one_active (45) allows at most one row in
-        draft or active per cycle, so this returns zero or one — the check the
-        service makes before opening another.
+        uq_protocol_instances_one_active (45, repointed to patient_id by 58)
+        allows at most one row in draft or active per patient, so this
+        returns zero or one — the check the service makes before opening
+        another episode.
         """
         return await fetch_optional(
             self.session,
-            text("SELECT * FROM protocol_instances WHERE cycle_id = :c AND status IN ('draft', 'active') LIMIT 1"),
-            {"c": str(cycle_id)},
+            text("SELECT * FROM protocol_instances WHERE patient_id = :p AND status IN ('draft', 'active') LIMIT 1"),
+            {"p": str(patient_id)},
         )
 
     async def set_status(self, instance_id: UUID, status: str) -> dict | None:

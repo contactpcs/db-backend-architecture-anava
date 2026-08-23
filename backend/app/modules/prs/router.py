@@ -72,7 +72,6 @@ async def start_assessment(
         disease_id=body.disease_id,
         assessment_stage=body.assessment_stage,
         session_id=body.session_id,
-        cycle_id=body.cycle_id,
         administered_by=UUID(ctx.user_id) if ctx.role != "patient" else None,
         initiated_by=initiated_by,
         language_code=body.language_code,

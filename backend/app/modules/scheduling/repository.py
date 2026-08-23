@@ -22,13 +22,13 @@ from app.core.sql_helpers import fetch_one, fetch_optional, insert_returning
 # Two doctor identities come back, and they answer different questions:
 #   doctor_name             whose calendar this visit books. NULL for a device
 #                           session — an honest answer, not missing data.
-#   responsible_doctor_name which doctor owns the treatment. Always populated:
-#                           the booked doctor for a consultation, the plan's
-#                           doctor for a device session, resolved through
-#                           plan_id -> treatment_plans.doctor_id.
-# Derived rather than stored: a supervising_doctor_id column would duplicate
-# treatment_plans.doctor_id and drift from it the moment a patient is moved to
-# another doctor mid-protocol.
+#   responsible_doctor_name which doctor owns the treatment. 58 dropped the
+#                           dead appointments.plan_id -> treatment_plans.doctor_id
+#                           fallback (never populated by any live code path —
+#                           ProtocolInstanceService requires doctor_id, so
+#                           a.doctor_id is always set in practice); this is
+#                           now just an alias of a.doctor_id/dp, kept as its
+#                           own field so callers don't have to know that.
 _APPT_SELECT = (
     "SELECT a.*, pp.first_name || ' ' || pp.last_name AS patient_name, "
     "dp.first_name || ' ' || dp.last_name AS doctor_name, "
@@ -42,16 +42,13 @@ _APPT_SELECT = (
     # — frontend link sites that used a.patient_id directly as a route
     # param 404'd against every patient-scoped endpoint.
     "pt.patient_id AS patient_public_id, "
-    "COALESCE(a.doctor_id, tp.doctor_id) AS responsible_doctor_id, "
-    "COALESCE(dp.first_name || ' ' || dp.last_name, "
-    "         rp.first_name || ' ' || rp.last_name) AS responsible_doctor_name "
+    "a.doctor_id AS responsible_doctor_id, "
+    "dp.first_name || ' ' || dp.last_name AS responsible_doctor_name "
     "FROM appointments a "
     "JOIN profiles pp ON pp.id = a.patient_id "
     "LEFT JOIN profiles dp ON dp.id = a.doctor_id "
     "LEFT JOIN doctors dd ON dd.profile_id = a.doctor_id "
     "LEFT JOIN patients pt ON pt.profile_id = a.patient_id "
-    "LEFT JOIN treatment_plans tp ON tp.plan_id = a.plan_id "
-    "LEFT JOIN profiles rp ON rp.id = tp.doctor_id "
 )
 
 
@@ -389,9 +386,9 @@ class AppointmentRepository:
         """The sweeper's whole job, as two statements.
 
         Expiry is asymmetric, and the asymmetry is the point (31 header):
-          no plan_id, no protocol_id  patient-booked. DELETED — nothing unpaid persists
+          no protocol_id       patient-booked. DELETED — nothing unpaid persists
                                and the patient simply books again.
-          plan_id OR protocol_id      protocol-born. Reverts to 'planned' with its time
+          protocol_id set      protocol-born. Reverts to 'planned' with its time
                                cleared. The doctor's prescribed DATE survives;
                                only the slot is released. Deleting these would
                                destroy a prescription because of a payment
@@ -406,13 +403,11 @@ class AppointmentRepository:
                 "UPDATE appointments SET status = 'planned', start_time = NULL, end_time = NULL, "
                 "hold_expires_at = NULL, updated_at = NOW() "
                 "WHERE status = 'selected' AND hold_expires_at < NOW() "
-                "AND (plan_id IS NOT NULL OR protocol_id IS NOT NULL)"
+                "AND protocol_id IS NOT NULL"
             )
         )
         deleted = await self.session.execute(
-            text(
-                "DELETE FROM appointments WHERE status = 'selected' AND hold_expires_at < NOW() AND plan_id IS NULL AND protocol_id IS NULL"
-            )
+            text("DELETE FROM appointments WHERE status = 'selected' AND hold_expires_at < NOW() AND protocol_id IS NULL")
         )
         return {
             "reverted_to_planned": reverted.rowcount or 0,  # type: ignore[attr-defined]
@@ -736,15 +731,15 @@ class ClinicDeviceRepository:
         Joins through protocol_instances, not plan_id (47) — protocol_plan.
         plan_id is optional, and the old plan_id-only join silently missed
         every instance-parented protocol, the same failure class 45 hunted
-        for RLS.
+        for RLS. protocol_instances carries clinic_id directly since 58 — no
+        more joining out to treatment_cycles.
         """
         row = (
             await self.session.execute(
                 text(
                     "SELECT 1 FROM protocol_plan tp "
                     "JOIN protocol_instances pi ON pi.instance_id = tp.instance_id "
-                    "JOIN treatment_cycles tc ON tc.cycle_id = pi.cycle_id "
-                    "WHERE tc.clinic_id = :cid AND tp.device_id = :did LIMIT 1"
+                    "WHERE pi.clinic_id = :cid AND tp.device_id = :did LIMIT 1"
                 ),
                 {"cid": str(clinic_id), "did": str(device_id)},
             )

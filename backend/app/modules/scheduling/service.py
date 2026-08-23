@@ -132,6 +132,18 @@ def _hours_until(appointment_date: dt.date, start_time: dt.time) -> float:
     return (target - dt.datetime.now()).total_seconds() / 3600.0
 
 
+def _is_past(on_date: dt.date, start_time: dt.time) -> bool:
+    """Naive local wall-clock comparison, same convention as _hours_until —
+    appointment_date/start_time carry no timezone (plain DATE/TIME columns),
+    so "now" for this comparison is the server's local clock, not UTC."""
+    return dt.datetime.combine(on_date, start_time) < dt.datetime.now()
+
+
+def _reject_if_past(on_date: dt.date, start_time: dt.time) -> None:
+    if _is_past(on_date, start_time):
+        raise BusinessRuleError("Cannot book a slot in the past", code="SLOT_IN_PAST")
+
+
 def _slot_minutes(start_time: dt.time, end_time: dt.time) -> int:
     return int((dt.datetime.combine(dt.date.today(), end_time) - dt.datetime.combine(dt.date.today(), start_time)).total_seconds() // 60)
 
@@ -388,6 +400,12 @@ class AvailabilityService:
             all_slots.extend(_build_day_slots(current, weekly_rows, override, booked_by_date.get(current, set())))
             current += dt.timedelta(days=1)
 
+        # A slot earlier today (or on a past date) is never bookable — drop it
+        # rather than list it as available/unavailable. Was showing this
+        # morning's slots at 1pm, and yesterday's, because nothing here ever
+        # compared a slot's own time against "now".
+        all_slots = [s for s in all_slots if not _is_past(s["date"], s["start_time"])]
+
         if not include_unavailable:
             all_slots = [s for s in all_slots if s["is_available"]]
         return all_slots
@@ -459,6 +477,8 @@ class AppointmentService:
                     code="APPOINTMENT_TYPE_NOT_PRICED",
                 )
 
+        _reject_if_past(data["appointment_date"], data["start_time"])
+
         is_available, duration = await AvailabilityService(self.session).check_slot(
             doctor_profile_id, data["appointment_date"], data["start_time"]
         )
@@ -475,7 +495,7 @@ class AppointmentService:
             "patient_id": str(patient_profile_id),
             "doctor_id": str(doctor_profile_id),
             "ca_id": str(data["ca_id"]) if data.get("ca_id") else None,
-            "cycle_id": str(data["cycle_id"]) if data.get("cycle_id") else None,
+            "instance_id": str(data["instance_id"]) if data.get("instance_id") else None,
             "appointment_date": data["appointment_date"],
             "start_time": data["start_time"],
             "end_time": end_time,
@@ -733,7 +753,7 @@ class AppointmentService:
                 "patient_id": old["patient_id"],
                 "doctor_id": old["doctor_id"],
                 "ca_id": old["ca_id"],
-                "cycle_id": old["cycle_id"],
+                "instance_id": old["instance_id"],
                 "appointment_date": data["appointment_date"],
                 "start_time": data["start_time"],
                 "end_time": data.get("end_time"),
@@ -868,6 +888,9 @@ class DeviceCapacityService:
         while current <= to_date:
             out.extend(_build_device_day_slots(current, weekly, overrides.get(current), booked, quantity))
             current += dt.timedelta(days=1)
+        # Same past-slot drop as AvailabilityService.compute_range — a device
+        # slot earlier today or on a past date is never claimable.
+        out = [s for s in out if not _is_past(s["date"], s["start_time"])]
         if only_available:
             out = [s for s in out if s["is_available"]]
         return out
@@ -902,6 +925,8 @@ class DeviceCapacityService:
         Must be called inside the same transaction as the write it guards.
         Returns the session duration in minutes so the caller can derive end_time.
         """
+        _reject_if_past(on_date, start_time)
+
         clinic_device_id = appt["clinic_device_id"]
         duration_minutes = await self._resolve_duration(appt)
         end_time = (dt.datetime.combine(on_date, start_time) + dt.timedelta(minutes=duration_minutes)).time()
@@ -1144,6 +1169,7 @@ class PatientBookingService:
 
         start_time = data["start_time"]
         on_date = data.get("appointment_date") or appt["appointment_date"]
+        _reject_if_past(on_date, start_time)
 
         if appt["appointment_type"] == TYPE_DEVICE_SESSION:
             # Counted check under a row lock. Held until this transaction

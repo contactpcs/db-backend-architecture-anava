@@ -291,7 +291,6 @@ class AssessmentInstanceRepository:
         disease_id: str,
         patient_id: UUID,
         session_id,
-        cycle_id,
         initiated_by: str,
         administered_by,
         assessment_stage: str,
@@ -302,9 +301,9 @@ class AssessmentInstanceRepository:
         return await fetch_one(
             self.session,
             text(
-                "INSERT INTO prs_assessment_instances (instance_id, disease_id, patient_id, session_id, cycle_id, "
+                "INSERT INTO prs_assessment_instances (instance_id, disease_id, patient_id, session_id, "
                 "initiated_by, administered_by, assessment_stage, language_code) VALUES "
-                "(:id, :disease_id, :patient_id, :session_id, :cycle_id, :initiated_by, :administered_by, :stage, :lang) "
+                "(:id, :disease_id, :patient_id, :session_id, :initiated_by, :administered_by, :stage, :lang) "
                 "RETURNING *"
             ),
             {
@@ -312,7 +311,6 @@ class AssessmentInstanceRepository:
                 "disease_id": disease_id,
                 "patient_id": str(patient_id),
                 "session_id": str(session_id) if session_id else None,
-                "cycle_id": str(cycle_id) if cycle_id else None,
                 "initiated_by": initiated_by,
                 "administered_by": str(administered_by) if administered_by else None,
                 "stage": assessment_stage,

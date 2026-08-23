@@ -47,7 +47,6 @@ class AnamnesisAssessmentRead(BaseModel):
     patient_id: UUID
     submitted_by: UUID | None
     taken_by: str
-    cycle_id: UUID | None
     version: int
     assessment_stage: str
     status: str
