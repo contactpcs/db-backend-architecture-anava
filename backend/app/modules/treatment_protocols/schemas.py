@@ -593,6 +593,9 @@ class ProtocolRead(BaseModel):
     modality: str | None = None
     company_name: str | None = None
     patient_id: UUID | None = None
+    # patients.patient_id (public ID) — GET /patients/{id} and every other
+    # patient-scoped route expect this, not patient_id above (profiles.id).
+    patient_public_id: UUID | None = None
     patient_name: str | None = None
     doctor_id: UUID | None = None
     doctor_name: str | None = None
