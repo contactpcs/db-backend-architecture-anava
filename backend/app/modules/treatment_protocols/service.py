@@ -1133,7 +1133,28 @@ class ProtocolPrsService:
         except IntegrityError as exc:
             # uq_ds_prs_appointment: one PRS per visit.
             raise ConflictError("A PRS response already exists for this session", code="PRS_ALREADY_RECORDED") from exc
+
+        await self._complete_due_scales(appt["appointment_id"], body.instance_id)
         return {**row, "response_id": row["ds_prs_id"], "kind": "device_session"}
+
+    async def _complete_due_scales(self, appointment_id: UUID, prs_instance_id: str) -> None:
+        """device_session_scales tracks per-scale delivery for this visit
+        (seeded 'pending' by list_scales_due, device_sessions module) but
+        nothing ever advanced it past that — this is the missing link,
+        called once the PRS instance recorded above is confirmed to be this
+        patient's. Matches by protocol_scales.prs_scale_id, the same
+        catalogue-identity join _SESSION_SCALE_SELECT already relies on."""
+        from app.modules.device_sessions.repository import DeviceSessionRepository, DeviceSessionScaleRepository
+        from app.modules.prs.repository import PrsScaleResultRepository
+
+        header = await DeviceSessionRepository(self.session).get_by_appointment(appointment_id)
+        if not header:
+            return
+        scale_results = await PrsScaleResultRepository(self.session).list_for_instance(prs_instance_id)
+        scale_ids = [r["scale_id"] for r in scale_results]
+        await DeviceSessionScaleRepository(self.session).complete_for_prs_instance(
+            header["device_session_record_id"], prs_instance_id, scale_ids
+        )
 
     async def record_follow_up(self, protocol_id: UUID, body: s.FollowUpPrsCreate, ctx: RequestContext) -> dict:
         protocol = await self.protocols.get(protocol_id)
