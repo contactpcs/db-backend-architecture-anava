@@ -1092,6 +1092,22 @@ class ProtocolPrsService:
             raise ValidationError("Appointment does not belong to this protocol", code="APPOINTMENT_PROTOCOL_MISMATCH")
         return appt
 
+    async def _assert_prs_instance_patient_match(self, prs_instance_id: str, appt_patient_id) -> None:
+        """instance_id here is prs_assessment_instances.instance_id (the
+        actual PRS assessment being linked) — distinct from protocol_
+        instances.instance_id despite the shared name. The only DB-side
+        guard (fn_check_prs_appointment_type) checks the appointment's TYPE,
+        not whose PRS assessment this is — without this, a caller could link
+        one patient's completed PRS assessment to a different patient's
+        device-session/follow-up appointment."""
+        from app.modules.prs.repository import AssessmentInstanceRepository
+
+        instance = await AssessmentInstanceRepository(self.session).get(prs_instance_id)
+        if not instance:
+            raise NotFoundError("PRS assessment instance not found", code="PRS_INSTANCE_NOT_FOUND")
+        if str(instance["patient_id"]) != str(appt_patient_id):
+            raise ValidationError("PRS assessment instance belongs to a different patient", code="PRS_INSTANCE_PATIENT_MISMATCH")
+
     async def record_device_session(self, protocol_id: UUID, body: s.DeviceSessionPrsCreate, ctx: RequestContext) -> dict:
         protocol = await self.protocols.get(protocol_id)
         if not protocol:
@@ -1103,6 +1119,7 @@ class ProtocolPrsService:
                 f"Appointment is a '{appt['appointment_type']}', not a device session",
                 code="WRONG_APPOINTMENT_TYPE",
             )
+        await self._assert_prs_instance_patient_match(body.instance_id, appt["patient_id"])
         try:
             row = await self.repo.create_device_session(
                 {
@@ -1129,6 +1146,7 @@ class ProtocolPrsService:
                 f"Appointment is a '{appt['appointment_type']}', not a protocol follow-up",
                 code="WRONG_APPOINTMENT_TYPE",
             )
+        await self._assert_prs_instance_patient_match(body.instance_id, appt["patient_id"])
         try:
             row = await self.repo.create_follow_up(
                 {

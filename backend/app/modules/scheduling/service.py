@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.core.db import RequestContext
 from app.core.events import emit_event
-from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, PermissionError_
+from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, PermissionError_, ValidationError
 from app.core.resolve import resolve_doctor_profile_id as _resolve_doctor_profile_id
 from app.core.resolve import resolve_patient_profile_id as _resolve_patient_profile_id
 from app.core.scoping import assert_clinic_scope, assert_owns_profile
@@ -488,6 +488,15 @@ class AppointmentService:
             data.get("end_time")
             or (dt.datetime.combine(data["appointment_date"], data["start_time"]) + dt.timedelta(minutes=duration)).time()
         )
+
+        if data.get("instance_id"):
+            from app.modules.treatment_protocols.repository import ProtocolInstanceRepository
+
+            instance = await ProtocolInstanceRepository(self.session).get(data["instance_id"])
+            if not instance:
+                raise NotFoundError("Protocol instance not found", code="INSTANCE_NOT_FOUND")
+            if str(instance["patient_id"]) != str(patient_profile_id):
+                raise ValidationError("Protocol instance belongs to a different patient", code="INSTANCE_PATIENT_MISMATCH")
 
         status, hold = _initial_status_and_hold(self.settings)
         payload = {
