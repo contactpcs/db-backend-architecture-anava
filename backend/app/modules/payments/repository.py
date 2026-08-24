@@ -84,6 +84,33 @@ class PaymentRepository:
             {"id": str(session_id)},
         )
 
+    async def get_for_order(self, order_id: UUID) -> dict | None:
+        """Most recent payment against a store order — same reuse-existing
+        pattern as get_for_appointment, so retrying 'Pay Now' doesn't spawn a
+        duplicate Razorpay order."""
+        return await fetch_optional(
+            self.session,
+            text("SELECT * FROM payments WHERE order_id = :id ORDER BY created_at DESC LIMIT 1"),
+            {"id": str(order_id)},
+        )
+
+    async def get_clinic_id(self, payment_id: UUID) -> str | None:
+        """Same two-hop join as list_by_clinic/get_owner_profile_id — a
+        payment has no clinic_id of its own, it's for either a store order or
+        an appointment, and both carry clinic_id."""
+        row = await fetch_optional(
+            self.session,
+            text(
+                "SELECT COALESCE(so.clinic_id, appt.clinic_id) AS clinic_id "
+                "FROM payments p "
+                "LEFT JOIN store_orders so ON so.order_id = p.order_id "
+                "LEFT JOIN appointments appt ON appt.appointment_id = p.appointment_id "
+                "WHERE p.payment_id = :id"
+            ),
+            {"id": str(payment_id)},
+        )
+        return row["clinic_id"] if row else None
+
     async def list_by_clinic(self, clinic_id: UUID) -> list[dict]:
         # payments has no clinic_id of its own — scoped via a two-hop join,
         # since a payment is for either an appointment or a store order,

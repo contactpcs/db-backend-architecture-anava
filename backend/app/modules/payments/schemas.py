@@ -5,10 +5,12 @@ from pydantic import BaseModel, Field
 
 
 class PaymentCreate(BaseModel):
-    session_id: UUID | None = None
-    order_id: UUID | None = None
-    amount: float
-    currency: str = "INR"
+    """order_id is the only real input — amount/currency are always resolved
+    server-side from store_orders.total_amount (never trusted from the
+    client, see PaymentService.create). session_id accepted no longer:
+    core.sessions is retired, nothing populates a real one."""
+
+    order_id: UUID
 
 
 class PaymentStatusUpdate(BaseModel):

@@ -8,13 +8,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import RequestContext
 from app.core.events import emit_event
-from app.core.exceptions import BusinessRuleError, NotFoundError
+from app.core.exceptions import BusinessRuleError, NotFoundError, PermissionError_
 from app.core.scoping import assert_clinic_scope, assert_owns_profile
 from app.integrations import razorpay as razorpay_client
 from app.modules.admin.repository import BillableItemRepository, ClinicRepository
 from app.modules.payments.repository import PaymentRepository
 
 logger = structlog.get_logger()
+
+
+async def assert_payment_clinic_scope(ctx: RequestContext, session: AsyncSession, clinic_id) -> None:
+    """assert_clinic_scope only enforces clinic_admin (exact match) and
+    regional_admin (region match) — it's a no-op for doctor/clinical_
+    assistant/receptionist by design elsewhere in the codebase. Payments is a
+    money path, so those three roles get an explicit same-clinic check here
+    too, rather than silently inheriting that no-op."""
+    if ctx.role in ("doctor", "clinical_assistant", "receptionist") and str(clinic_id) != ctx.clinic_id:
+        raise PermissionError_("You can only manage payments for your own clinic", code="CLINIC_SCOPE_MISMATCH")
+    await assert_clinic_scope(ctx, session, clinic_id)
 
 
 class PaymentService:
@@ -28,12 +39,30 @@ class PaymentService:
         self.session = session
         self.repo = PaymentRepository(session)
 
-    async def create(self, *, session_id=None, order_id=None, amount: float, currency: str = "INR") -> dict:
-        receipt = f"session-{session_id}" if session_id else f"order-{order_id}"
+    async def create(self, *, order_id: UUID, ctx: RequestContext) -> dict:
+        """Store-order payment (device/accessory purchase). Mirrors
+        create_order's appointment-payment pattern: amount is resolved
+        server-side from the order's own total (already trustworthy — the
+        server computed it from catalog price x quantity at order-creation
+        time), never taken from the client. Scope-checked the same way, and
+        idempotent against a retried 'Pay Now' click."""
+        from app.modules.store.repository import StoreOrderRepository
+
+        order = await StoreOrderRepository(self.session).get(order_id)
+        if not order:
+            raise NotFoundError("Store order not found", code="ORDER_NOT_FOUND")
+        await assert_payment_clinic_scope(ctx, self.session, order["clinic_id"])
+
+        existing = await self.repo.get_for_order(order_id)
+        if existing and existing["status"] in ("pending", "paid"):
+            return existing
+
+        amount, currency = float(order["total_amount"]), "INR"
+        receipt = f"order-{order_id}"
         rzp_order = razorpay_client.create_order(amount=amount, currency=currency, receipt=receipt)
         idempotency_key = f"{rzp_order['id']}"
         payment = await self.repo.create(
-            session_id=session_id,
+            session_id=None,
             order_id=order_id,
             amount=amount,
             currency=currency,
@@ -137,7 +166,7 @@ class PaymentService:
         # from that, never the other way round. mark_paid() is idempotent
         # (selected -> paid only), so calling it again on an already-paid
         # appointment is a no-op, not an error.
-        if payment.get("appointment_id") and status == "paid":
+        if payment.get("appointment_id") and status in ("paid", "waived"):
             from app.modules.scheduling.service import PatientBookingService
 
             await PatientBookingService(self.session).mark_paid(
@@ -176,7 +205,7 @@ class PaymentService:
         if ctx.role == "patient":
             assert_owns_profile(ctx, appt["patient_id"])
         else:
-            await assert_clinic_scope(ctx, self.session, appt["clinic_id"])
+            await assert_payment_clinic_scope(ctx, self.session, appt["clinic_id"])
         return appt
 
     async def _resolve_amount(self, appt: dict) -> dict:
