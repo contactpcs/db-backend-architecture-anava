@@ -481,6 +481,13 @@ _PROTOCOL_SELECT = (
     "pi.patient_id, pi.doctor_id, "
     "pp.first_name || ' ' || pp.last_name AS patient_name, "
     "dp.first_name || ' ' || dp.last_name AS doctor_name, "
+    # patients.patient_id (public ID) — GET /patients/{id} and every other
+    # patient-scoped route expect this, not pi.patient_id above
+    # (protocol_instances.patient_id is profiles.id). Same doctor_public_id/
+    # appointments.patient_public_id gap: frontend link sites that used
+    # protocol.patient_id directly as a route param 404'd against every
+    # patient-scoped endpoint.
+    "pat.patient_id AS patient_public_id, "
     "pi.clinic_id, "
     "pi.instance_number, pi.status AS instance_status, "
     "(SELECT count(*) FROM appointments a WHERE a.protocol_id = tp.protocol_id) AS appointment_count "
@@ -490,6 +497,7 @@ _PROTOCOL_SELECT = (
     "JOIN protocol_instances pi ON pi.instance_id = tp.instance_id "
     "LEFT JOIN profiles pp ON pp.id = pi.patient_id "
     "LEFT JOIN profiles dp ON dp.id = pi.doctor_id "
+    "LEFT JOIN patients pat ON pat.profile_id = pi.patient_id "
 )
 
 
