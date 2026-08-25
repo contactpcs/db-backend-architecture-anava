@@ -98,6 +98,13 @@ class AnamnesisAssessmentRepository:
             {"id": anamnesis_id},
         )
 
+    async def get_by_version(self, patient_id: UUID, version: int) -> dict | None:
+        return await fetch_optional(
+            self.session,
+            text("SELECT * FROM anamnesis_assessments WHERE patient_id = :pid AND version = :v"),
+            {"pid": str(patient_id), "v": version},
+        )
+
     async def get_latest_for_patient(self, patient_id: UUID, assessment_stage: str | None = None) -> dict | None:
         if assessment_stage:
             return await fetch_optional(

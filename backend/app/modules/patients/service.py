@@ -597,12 +597,20 @@ class PatientVisitService:
 
         registration = await PatientService(self.session).get(patient_id) if is_initial else None
 
-        # Anamnesis is genuinely per-visit, never inherited: the initial
-        # visit's is version 1, and a follow-up only has one if the doctor
-        # actually took it there — otherwise this stays None ("no anamnesis
-        # taken"), not a copy of an earlier visit's.
+        # Anamnesis is genuinely per-visit, never inherited across visits: a
+        # follow-up only has one if the doctor actually took it there —
+        # otherwise this stays None ("no anamnesis taken"), not a copy of an
+        # earlier visit's. The one exception is the initial visit itself:
+        # self-registration creates version 1 before any appointment_id
+        # exists to link it to (that flow has no visit context at all), so
+        # without this fallback the initial visit would wrongly show "no
+        # anamnesis taken" for a patient who has one. Not "inheritance" in
+        # the PRS/protocol sense — version 1 IS the initial visit's record,
+        # just not linked by column for historical reasons.
         anamnesis_repo = AnamnesisAssessmentRepository(self.session)
         anamnesis = await anamnesis_repo.get_by_appointment(appointment_id)
+        if not anamnesis and is_initial:
+            anamnesis = await anamnesis_repo.get_by_version(profile_id, 1)
 
         # PRS and protocol DO carry forward: a visit with nothing recorded
         # specifically for it inherits whatever was current as of its date,
