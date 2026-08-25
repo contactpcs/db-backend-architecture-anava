@@ -27,7 +27,11 @@ async def start_anamnesis(
 ):
     await assert_patient_self(ctx, db, patient_id)
     return await AnamnesisService(db).start(
-        patient_id, submitted_by=UUID(ctx.user_id), taken_by=body.taken_by, assessment_stage=body.assessment_stage
+        patient_id,
+        submitted_by=UUID(ctx.user_id),
+        taken_by=body.taken_by,
+        assessment_stage=body.assessment_stage,
+        appointment_id=body.appointment_id,
     )
 
 

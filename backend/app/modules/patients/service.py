@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import RequestContext
 from app.core.events import emit_event
-from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError
+from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, ValidationError
+from app.core.resolve import resolve_patient_profile_id as _resolve_profile_id
 from app.modules.patients.repository import (
     DiseaseSelectionRepository,
     DoctorPatientAssignmentRepository,
@@ -565,3 +566,84 @@ class PatientExitService:
             payload={"patient_id": str(patient_id), "consent_id": str(consent_id)},
         )
         return {"patient_id": str(patient_id), "status": "exited", "consent_id": str(consent_id)}
+
+
+class PatientVisitService:
+    """Composes the doctor portal's per-visit bundle (registration/anamnesis/
+    PRS/protocol) out of each owning module's own reads — no new storage,
+    no new abstraction, just the joins a single visit toggle needs. Cross-
+    module imports stay local to the method, matching this file's existing
+    convention (PatientExitService.exit() above)."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_visit_summary(self, patient_id: UUID, appointment_id: UUID) -> dict:
+        from app.modules.anamnesis.repository import AnamnesisAssessmentRepository
+        from app.modules.prs.repository import AssessmentInstanceRepository
+        from app.modules.scheduling.repository import AppointmentRepository
+        from app.modules.treatment_protocols.repository import ProtocolInstanceRepository, ProtocolRepository
+
+        profile_id = await _resolve_profile_id(self.session, patient_id)
+
+        appt = await AppointmentRepository(self.session).get(appointment_id)
+        if not appt:
+            raise NotFoundError("Appointment not found", code="APPOINTMENT_NOT_FOUND")
+        if str(appt["patient_id"]) != str(profile_id):
+            raise ValidationError("Appointment belongs to a different patient", code="APPOINTMENT_PATIENT_MISMATCH")
+
+        is_initial = appt["appointment_type"] == "initial"
+        cutoff = appt["appointment_date"]
+
+        registration = await PatientService(self.session).get(patient_id) if is_initial else None
+
+        # A visit with nothing recorded specifically for it inherits whatever
+        # was current as of its date, rather than showing empty — a doctor
+        # opening Follow-up 2 should see Follow-up 1's anamnesis/PRS/protocol
+        # by default, changing only what they actually change. "inherited"
+        # on each record marks whether it's this visit's own or carried
+        # forward, so the frontend can label it accordingly.
+        anamnesis_repo = AnamnesisAssessmentRepository(self.session)
+        anamnesis = await anamnesis_repo.get_by_appointment(appointment_id)
+        if anamnesis:
+            anamnesis = {**anamnesis, "inherited": False}
+        else:
+            inherited_anamnesis = await anamnesis_repo.get_latest_as_of(profile_id, cutoff)
+            anamnesis = {**inherited_anamnesis, "inherited": True} if inherited_anamnesis else None
+
+        prs_repo = AssessmentInstanceRepository(self.session)
+        prs_rows = await prs_repo.list_by_appointment(appointment_id)
+        if prs_rows:
+            prs_instances = [{**r, "inherited": False} for r in prs_rows]
+        else:
+            prs_instances = [{**r, "inherited": True} for r in await prs_repo.list_latest_as_of(profile_id, cutoff)]
+
+        protocol_repo = ProtocolRepository(self.session)
+        protocol_rows = await protocol_repo.list(authored_in_appointment_id=appointment_id, limit=50)
+        inherited_protocol = not protocol_rows
+        if inherited_protocol:
+            instance = await ProtocolInstanceRepository(self.session).get_open_for_patient(profile_id)
+            if instance:
+                latest = await protocol_repo.get_latest_as_of(instance["instance_id"], cutoff)
+                protocol_rows = [latest] if latest else []
+        protocols = []
+        for row in protocol_rows:
+            lineage: list[dict] = []
+            supersedes_id = row.get("supersedes_protocol_id")
+            while supersedes_id:
+                parent = await protocol_repo.get(supersedes_id)
+                if not parent:
+                    break
+                lineage.append(parent)
+                supersedes_id = parent.get("supersedes_protocol_id")
+            protocols.append({**row, "lineage": lineage, "inherited": inherited_protocol})
+
+        return {
+            "appointment_id": appt["appointment_id"],
+            "appointment_type": appt["appointment_type"],
+            "appointment_date": appt["appointment_date"],
+            "registration": registration,
+            "anamnesis": anamnesis,
+            "prs_instances": prs_instances,
+            "protocols": protocols,
+        }

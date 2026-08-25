@@ -12,6 +12,7 @@ from app.modules.patients.service import (
     PatientExitService,
     PatientService,
     PatientTransferService,
+    PatientVisitService,
 )
 
 router = APIRouter()
@@ -73,6 +74,17 @@ async def list_patients(
 async def get_patient(patient_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
     await assert_patient_self(ctx, db, patient_id)
     return await PatientService(db).get(patient_id)
+
+
+@router.get("/patients/{patient_id}/visits/{appointment_id}/summary", response_model=s.VisitSummaryRead)
+async def get_visit_summary(
+    patient_id: UUID,
+    appointment_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    await assert_patient_self(ctx, db, patient_id)
+    return await PatientVisitService(db).get_visit_summary(patient_id, appointment_id)
 
 
 @router.patch("/patients/{patient_id}", response_model=s.PatientRead)

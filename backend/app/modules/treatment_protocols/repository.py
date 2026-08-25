@@ -512,6 +512,17 @@ class ProtocolRepository:
     async def get(self, protocol_id: UUID) -> dict | None:
         return await fetch_optional(self.session, text(_PROTOCOL_SELECT + "WHERE tp.protocol_id = :id"), {"id": str(protocol_id)})
 
+    async def get_latest_as_of(self, instance_id: UUID, cutoff_date) -> dict | None:
+        """The protocol version that was current as of a given visit date —
+        inherited by a later follow-up that hasn't amended or replaced it.
+        Whatever version was live then (root or an amendment), not
+        necessarily the one authored at this instance's first visit."""
+        return await fetch_optional(
+            self.session,
+            text(f"{_PROTOCOL_SELECT}WHERE tp.instance_id = :iid AND tp.created_at::date <= :cutoff ORDER BY tp.created_at DESC LIMIT 1"),
+            {"iid": str(instance_id), "cutoff": cutoff_date},
+        )
+
     async def list(
         self,
         *,
@@ -519,6 +530,7 @@ class ProtocolRepository:
         patient_id: UUID | None = None,
         clinic_id: UUID | None = None,
         status: str | None = None,
+        authored_in_appointment_id: UUID | None = None,
         skip: int = 0,
         limit: int = 50,
     ) -> builtins.list[dict]:
@@ -536,6 +548,9 @@ class ProtocolRepository:
         if status:
             clauses.append("tp.status = :status")
             params["status"] = status
+        if authored_in_appointment_id:
+            clauses.append("tp.authored_in_appointment_id = :authored_in_appointment_id")
+            params["authored_in_appointment_id"] = str(authored_in_appointment_id)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = (
             (await self.session.execute(text(f"{_PROTOCOL_SELECT}{where} ORDER BY tp.created_at DESC OFFSET :skip LIMIT :limit"), params))
@@ -561,6 +576,26 @@ class ProtocolRepository:
             text(f"UPDATE protocol_plan SET status = :status, updated_at = NOW() {stamp} WHERE protocol_id = :id RETURNING *"),
             {"status": status, "id": str(protocol_id)},
         )
+
+    async def next_major_version(self, instance_id: UUID) -> int:
+        """Next lineage number within this instance — one past however many
+        protocols have been authored here with no supersedes_protocol_id
+        (each such row starts a new lineage; amendments inherit their
+        target's major instead of consuming one)."""
+        row = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT COALESCE(MAX(version_major), 0) + 1 AS n FROM protocol_plan "
+                        "WHERE instance_id = :i AND supersedes_protocol_id IS NULL"
+                    ),
+                    {"i": str(instance_id)},
+                )
+            )
+            .mappings()
+            .first()
+        )
+        return int(row["n"]) if row else 1
 
     async def has_generated_appointments(self, protocol_id: UUID) -> bool:
         row = (

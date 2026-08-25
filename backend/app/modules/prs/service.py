@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationError
 from app.core.resolve import resolve_patient_profile_id as _resolve_profile_id
 from app.modules.prs.repository import (
     AssessmentInstanceRepository,
@@ -16,6 +16,7 @@ from app.modules.prs.repository import (
     PrsResponseRepository,
     PrsScaleResultRepository,
 )
+from app.modules.scheduling.repository import AppointmentRepository
 
 
 def _is_skipped(q: dict, questions: list[dict], given_by_qid: dict[str, str]) -> bool:
@@ -250,6 +251,7 @@ class PrsAssessmentService:
         administered_by=None,
         initiated_by: str = "patient",
         language_code: str = "en",
+        appointment_id=None,
     ) -> dict:
         """Composed in one round trip: resumes an in-progress instance for
         this patient/disease/stage instead of creating a duplicate, then
@@ -260,6 +262,12 @@ class PrsAssessmentService:
         instance row and returned scales=[] — nothing downstream could
         render an actual question without a second, never-built endpoint."""
         profile_id = await _resolve_profile_id(self.session, patient_id)
+        if appointment_id is not None:
+            appt = await AppointmentRepository(self.session).get(appointment_id)
+            if not appt:
+                raise NotFoundError("Appointment not found", code="APPOINTMENT_NOT_FOUND")
+            if str(appt["patient_id"]) != str(profile_id):
+                raise ValidationError("Appointment belongs to a different patient", code="APPOINTMENT_PATIENT_MISMATCH")
 
         existing = await self.instances.find_in_progress(patient_id=profile_id, disease_id=disease_id, assessment_stage=assessment_stage)
         is_resumed = existing is not None
@@ -274,6 +282,7 @@ class PrsAssessmentService:
                 administered_by=administered_by,
                 assessment_stage=assessment_stage,
                 language_code=language_code,
+                appointment_id=appointment_id,
             )
             await emit_event(
                 self.session,

@@ -532,6 +532,31 @@ class ProtocolService:
                     code="APPOINTMENT_PATIENT_MISMATCH",
                 )
 
+        # Major.minor versioning: an amendment inherits its target's major and
+        # adds one to its minor; anything else starts a new lineage at the
+        # instance's next major. The target must be the current, un-amended
+        # head of its own lineage — amending twice or amending something
+        # already cancelled/completed would silently fork the history.
+        if body.supersedes_protocol_id is not None:
+            target = await self.repo.get(body.supersedes_protocol_id)
+            if not target:
+                raise NotFoundError("Protocol to amend not found", code="SUPERSEDES_NOT_FOUND")
+            if str(target["instance_id"]) != str(body.instance_id):
+                raise ValidationError(
+                    "Cannot amend a protocol from a different instance",
+                    code="SUPERSEDES_INSTANCE_MISMATCH",
+                )
+            if target["status"] not in ("draft", "active"):
+                raise ConflictError(
+                    "Only the current draft/active version of a protocol can be amended",
+                    code="SUPERSEDES_NOT_CURRENT",
+                )
+            version_major = target["version_major"]
+            version_minor = target["version_minor"] + 1
+        else:
+            version_major = await self.repo.next_major_version(body.instance_id)
+            version_minor = 0
+
         # Map the caller's device-agnostic placement_id/dosing_id onto the
         # correct pair of the six nullable catalogue FK columns, or write
         # custom_montage_id alone with both catalogue pairs left NULL. The
@@ -558,6 +583,9 @@ class ProtocolService:
             "prescribed_duration_min": body.prescribed_duration_min,
             "ramp_seconds": body.ramp_seconds,
             "sessions_per_week": body.sessions_per_week,
+            "supersedes_protocol_id": (str(body.supersedes_protocol_id) if body.supersedes_protocol_id else None),
+            "version_major": version_major,
+            "version_minor": version_minor,
         }
 
         try:
@@ -566,6 +594,19 @@ class ProtocolService:
             raise ConflictError("Protocol violates a database constraint", code="PROTOCOL_CONSTRAINT") from exc
 
         protocol_id = created["protocol_id"]
+
+        # Same transaction as the new row: the amended protocol stops being
+        # editable/current the instant its replacement exists, never a moment
+        # where both read as the live version. Also cancels its still-planned
+        # appointments/device sessions — cancel_planned is the same call
+        # ProtocolService.cancel() makes; an amendment supersedes the old
+        # course exactly like a cancellation would, it just does so as one
+        # atomic step instead of the caller orchestrating create+activate+
+        # cancel across three separate requests (and 'superseded' is not in
+        # _CANCELLABLE_STATUSES, so a manual cancel() after this would 409).
+        if body.supersedes_protocol_id is not None:
+            await self.sessions.cancel_planned(body.supersedes_protocol_id, reason="Superseded by protocol amendment")
+            await self.repo.set_status(body.supersedes_protocol_id, "superseded")
 
         # Steps 2, 3 and 6. Same transaction as the protocol row, so a
         # prescription cannot exist without the diagnosis that justifies it.
