@@ -597,20 +597,18 @@ class PatientVisitService:
 
         registration = await PatientService(self.session).get(patient_id) if is_initial else None
 
-        # A visit with nothing recorded specifically for it inherits whatever
-        # was current as of its date, rather than showing empty — a doctor
-        # opening Follow-up 2 should see Follow-up 1's anamnesis/PRS/protocol
-        # by default, changing only what they actually change. "inherited"
-        # on each record marks whether it's this visit's own or carried
-        # forward, so the frontend can label it accordingly.
+        # Anamnesis is genuinely per-visit, never inherited: the initial
+        # visit's is version 1, and a follow-up only has one if the doctor
+        # actually took it there — otherwise this stays None ("no anamnesis
+        # taken"), not a copy of an earlier visit's.
         anamnesis_repo = AnamnesisAssessmentRepository(self.session)
         anamnesis = await anamnesis_repo.get_by_appointment(appointment_id)
-        if anamnesis:
-            anamnesis = {**anamnesis, "inherited": False}
-        else:
-            inherited_anamnesis = await anamnesis_repo.get_latest_as_of(profile_id, cutoff)
-            anamnesis = {**inherited_anamnesis, "inherited": True} if inherited_anamnesis else None
 
+        # PRS and protocol DO carry forward: a visit with nothing recorded
+        # specifically for it inherits whatever was current as of its date,
+        # changing only what the doctor actually changes there. "inherited"
+        # on each record marks whether it's this visit's own or carried
+        # forward, so the frontend can label it accordingly.
         prs_repo = AssessmentInstanceRepository(self.session)
         prs_rows = await prs_repo.list_by_appointment(appointment_id)
         if prs_rows:

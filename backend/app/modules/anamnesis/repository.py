@@ -121,20 +121,6 @@ class AnamnesisAssessmentRepository:
             {"aid": str(appointment_id)},
         )
 
-    async def get_latest_as_of(self, patient_id: UUID, cutoff_date) -> dict | None:
-        """The anamnesis that was current as of a given visit date — the
-        record a later follow-up inherits when nothing was captured at that
-        visit specifically. Naturally resolves to version 1 (intake) for a
-        visit at or before any amendment, with no special-casing needed."""
-        return await fetch_optional(
-            self.session,
-            text(
-                "SELECT * FROM anamnesis_assessments WHERE patient_id = :pid "
-                "AND created_at::date <= :cutoff ORDER BY version DESC LIMIT 1"
-            ),
-            {"pid": str(patient_id), "cutoff": cutoff_date},
-        )
-
     async def mark_complete(self, anamnesis_id: str) -> dict | None:
         return await fetch_optional(
             self.session,
