@@ -75,6 +75,7 @@ async def start_assessment(
         administered_by=UUID(ctx.user_id) if ctx.role != "patient" else None,
         initiated_by=initiated_by,
         language_code=body.language_code,
+        appointment_id=body.appointment_id,
     )
 
 

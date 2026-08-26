@@ -532,6 +532,31 @@ class ProtocolService:
                     code="APPOINTMENT_PATIENT_MISMATCH",
                 )
 
+        # Major.minor versioning: an amendment inherits its target's major and
+        # adds one to its minor; anything else starts a new lineage at the
+        # instance's next major. The target must be the current, un-amended
+        # head of its own lineage — amending twice or amending something
+        # already cancelled/completed would silently fork the history.
+        if body.supersedes_protocol_id is not None:
+            target = await self.repo.get(body.supersedes_protocol_id)
+            if not target:
+                raise NotFoundError("Protocol to amend not found", code="SUPERSEDES_NOT_FOUND")
+            if str(target["instance_id"]) != str(body.instance_id):
+                raise ValidationError(
+                    "Cannot amend a protocol from a different instance",
+                    code="SUPERSEDES_INSTANCE_MISMATCH",
+                )
+            if target["status"] not in ("draft", "active"):
+                raise ConflictError(
+                    "Only the current draft/active version of a protocol can be amended",
+                    code="SUPERSEDES_NOT_CURRENT",
+                )
+            version_major = target["version_major"]
+            version_minor = target["version_minor"] + 1
+        else:
+            version_major = await self.repo.next_major_version(body.instance_id)
+            version_minor = 0
+
         # Map the caller's device-agnostic placement_id/dosing_id onto the
         # correct pair of the six nullable catalogue FK columns, or write
         # custom_montage_id alone with both catalogue pairs left NULL. The
@@ -558,6 +583,9 @@ class ProtocolService:
             "prescribed_duration_min": body.prescribed_duration_min,
             "ramp_seconds": body.ramp_seconds,
             "sessions_per_week": body.sessions_per_week,
+            "supersedes_protocol_id": (str(body.supersedes_protocol_id) if body.supersedes_protocol_id else None),
+            "version_major": version_major,
+            "version_minor": version_minor,
         }
 
         try:
@@ -566,6 +594,19 @@ class ProtocolService:
             raise ConflictError("Protocol violates a database constraint", code="PROTOCOL_CONSTRAINT") from exc
 
         protocol_id = created["protocol_id"]
+
+        # Same transaction as the new row: the amended protocol stops being
+        # editable/current the instant its replacement exists, never a moment
+        # where both read as the live version. Also cancels its still-planned
+        # appointments/device sessions — cancel_planned is the same call
+        # ProtocolService.cancel() makes; an amendment supersedes the old
+        # course exactly like a cancellation would, it just does so as one
+        # atomic step instead of the caller orchestrating create+activate+
+        # cancel across three separate requests (and 'superseded' is not in
+        # _CANCELLABLE_STATUSES, so a manual cancel() after this would 409).
+        if body.supersedes_protocol_id is not None:
+            await self.sessions.cancel_planned(body.supersedes_protocol_id, reason="Superseded by protocol amendment")
+            await self.repo.set_status(body.supersedes_protocol_id, "superseded")
 
         # Steps 2, 3 and 6. Same transaction as the protocol row, so a
         # prescription cannot exist without the diagnosis that justifies it.
@@ -1133,7 +1174,28 @@ class ProtocolPrsService:
         except IntegrityError as exc:
             # uq_ds_prs_appointment: one PRS per visit.
             raise ConflictError("A PRS response already exists for this session", code="PRS_ALREADY_RECORDED") from exc
+
+        await self._complete_due_scales(appt["appointment_id"], body.instance_id)
         return {**row, "response_id": row["ds_prs_id"], "kind": "device_session"}
+
+    async def _complete_due_scales(self, appointment_id: UUID, prs_instance_id: str) -> None:
+        """device_session_scales tracks per-scale delivery for this visit
+        (seeded 'pending' by list_scales_due, device_sessions module) but
+        nothing ever advanced it past that — this is the missing link,
+        called once the PRS instance recorded above is confirmed to be this
+        patient's. Matches by protocol_scales.prs_scale_id, the same
+        catalogue-identity join _SESSION_SCALE_SELECT already relies on."""
+        from app.modules.device_sessions.repository import DeviceSessionRepository, DeviceSessionScaleRepository
+        from app.modules.prs.repository import PrsScaleResultRepository
+
+        header = await DeviceSessionRepository(self.session).get_by_appointment(appointment_id)
+        if not header:
+            return
+        scale_results = await PrsScaleResultRepository(self.session).list_for_instance(prs_instance_id)
+        scale_ids = [r["scale_id"] for r in scale_results]
+        await DeviceSessionScaleRepository(self.session).complete_for_prs_instance(
+            header["device_session_record_id"], prs_instance_id, scale_ids
+        )
 
     async def record_follow_up(self, protocol_id: UUID, body: s.FollowUpPrsCreate, ctx: RequestContext) -> dict:
         protocol = await self.protocols.get(protocol_id)

@@ -295,6 +295,7 @@ class AssessmentInstanceRepository:
         administered_by,
         assessment_stage: str,
         language_code: str = "en",
+        appointment_id=None,
     ) -> dict:
         # '-' not '/' — used as a URL path parameter, same fix as anamnesis_id.
         instance_id = f"{str(patient_id)[:8]}-{uuid.uuid4().hex[:8]}"
@@ -302,8 +303,8 @@ class AssessmentInstanceRepository:
             self.session,
             text(
                 "INSERT INTO prs_assessment_instances (instance_id, disease_id, patient_id, session_id, "
-                "initiated_by, administered_by, assessment_stage, language_code) VALUES "
-                "(:id, :disease_id, :patient_id, :session_id, :initiated_by, :administered_by, :stage, :lang) "
+                "initiated_by, administered_by, assessment_stage, language_code, appointment_id) VALUES "
+                "(:id, :disease_id, :patient_id, :session_id, :initiated_by, :administered_by, :stage, :lang, :appointment_id) "
                 "RETURNING *"
             ),
             {
@@ -315,6 +316,7 @@ class AssessmentInstanceRepository:
                 "administered_by": str(administered_by) if administered_by else None,
                 "stage": assessment_stage,
                 "lang": language_code,
+                "appointment_id": str(appointment_id) if appointment_id else None,
             },
         )
 
@@ -360,6 +362,40 @@ class AssessmentInstanceRepository:
                 await self.session.execute(
                     text(f"SELECT * FROM prs_assessment_instances WHERE {' AND '.join(clauses)} ORDER BY started_at DESC"),
                     params,
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def list_latest_as_of(self, patient_id: UUID, cutoff_date) -> list[dict]:
+        """One row per disease — the instance that was current as of a given
+        visit date, inherited by a later follow-up that hasn't recorded its
+        own PRS yet. DISTINCT ON keeps each disease's most recent instance
+        independently, since a patient can carry more than one."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT DISTINCT ON (disease_id) * FROM prs_assessment_instances "
+                        "WHERE patient_id = :pid AND started_at::date <= :cutoff "
+                        "ORDER BY disease_id, started_at DESC"
+                    ),
+                    {"pid": str(patient_id), "cutoff": cutoff_date},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def list_by_appointment(self, appointment_id: UUID) -> list[dict]:
+        rows = (
+            (
+                await self.session.execute(
+                    text("SELECT * FROM prs_assessment_instances WHERE appointment_id = :aid ORDER BY started_at DESC"),
+                    {"aid": str(appointment_id)},
                 )
             )
             .mappings()

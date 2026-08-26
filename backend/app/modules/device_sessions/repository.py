@@ -240,6 +240,39 @@ class DeviceSessionScaleRepository:
         )
         return [dict(r) for r in rows]
 
+    async def complete_for_prs_instance(
+        self, device_session_record_id: UUID, prs_instance_id: str, scale_ids: builtins.list[str]
+    ) -> builtins.list[dict]:
+        """Wires a completed PRS assessment (prs_scale_results, one row per
+        scale actually scored) back onto the due-scale rows it answers —
+        matched via protocol_scales.prs_scale_id, the same join
+        _SESSION_SCALE_SELECT already uses to resolve a scale's real
+        catalogue identity. Called once from treatment_protocols'
+        record_device_session, right after that PRS instance is confirmed to
+        belong to this session's patient. Previously nothing ever advanced
+        prs_instance_id/status past their seeded 'pending' default."""
+        if not scale_ids:
+            return []
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "UPDATE device_session_scales ss SET status = 'completed', "
+                        "prs_instance_id = :instance_id, updated_at = NOW() "
+                        "FROM protocol_scales ps "
+                        "WHERE ss.protocol_scale_id = ps.protocol_scale_id "
+                        "AND ss.device_session_record_id = :sid "
+                        "AND ps.prs_scale_id = ANY(:scale_ids) "
+                        "RETURNING ss.*"
+                    ),
+                    {"instance_id": prs_instance_id, "sid": str(device_session_record_id), "scale_ids": scale_ids},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
     async def list_protocol_scales(self, protocol_id: UUID) -> builtins.list[dict]:
         """core.protocol_scales for a protocol — the source list device_session_scales
         seeds from. Minimal read against the same table

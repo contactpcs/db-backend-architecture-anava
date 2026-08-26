@@ -59,7 +59,16 @@ class AnamnesisAssessmentRepository:
         )
         return row["v"]
 
-    async def create(self, *, patient_id: UUID, submitted_by: UUID, taken_by: str, version: int, assessment_stage: str) -> dict:
+    async def create(
+        self,
+        *,
+        patient_id: UUID,
+        submitted_by: UUID,
+        taken_by: str,
+        version: int,
+        assessment_stage: str,
+        appointment_id: UUID | None = None,
+    ) -> dict:
         # '-' not '/' — this ID is used as a URL path parameter
         # (GET/PATCH /anamnesis/{anamnesis_id}); '/' is a path separator and
         # breaks routing (a real bug hit and fixed during Stage 5 testing).
@@ -67,8 +76,9 @@ class AnamnesisAssessmentRepository:
         return await fetch_one(
             self.session,
             text(
-                "INSERT INTO anamnesis_assessments (anamnesis_id, patient_id, submitted_by, taken_by, version, assessment_stage) "
-                "VALUES (:id, :patient_id, :submitted_by, :taken_by, :version, :assessment_stage) RETURNING *"
+                "INSERT INTO anamnesis_assessments "
+                "(anamnesis_id, patient_id, submitted_by, taken_by, version, assessment_stage, appointment_id) "
+                "VALUES (:id, :patient_id, :submitted_by, :taken_by, :version, :assessment_stage, :appointment_id) RETURNING *"
             ),
             {
                 "id": anamnesis_id,
@@ -77,6 +87,7 @@ class AnamnesisAssessmentRepository:
                 "taken_by": taken_by,
                 "version": version,
                 "assessment_stage": assessment_stage,
+                "appointment_id": str(appointment_id) if appointment_id else None,
             },
         )
 
@@ -85,6 +96,13 @@ class AnamnesisAssessmentRepository:
             self.session,
             text("SELECT * FROM anamnesis_assessments WHERE anamnesis_id = :id"),
             {"id": anamnesis_id},
+        )
+
+    async def get_by_version(self, patient_id: UUID, version: int) -> dict | None:
+        return await fetch_optional(
+            self.session,
+            text("SELECT * FROM anamnesis_assessments WHERE patient_id = :pid AND version = :v"),
+            {"pid": str(patient_id), "v": version},
         )
 
     async def get_latest_for_patient(self, patient_id: UUID, assessment_stage: str | None = None) -> dict | None:
@@ -101,6 +119,13 @@ class AnamnesisAssessmentRepository:
             self.session,
             text("SELECT * FROM anamnesis_assessments WHERE patient_id = :pid ORDER BY version DESC LIMIT 1"),
             {"pid": str(patient_id)},
+        )
+
+    async def get_by_appointment(self, appointment_id: UUID) -> dict | None:
+        return await fetch_optional(
+            self.session,
+            text("SELECT * FROM anamnesis_assessments WHERE appointment_id = :aid ORDER BY version DESC LIMIT 1"),
+            {"aid": str(appointment_id)},
         )
 
     async def mark_complete(self, anamnesis_id: str) -> dict | None:

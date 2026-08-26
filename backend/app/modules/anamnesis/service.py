@@ -5,13 +5,14 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationError
 from app.core.resolve import resolve_patient_profile_id as _resolve_profile_id
 from app.modules.anamnesis.repository import (
     AnamnesisAssessmentRepository,
     AnamnesisQuestionRepository,
     AnamnesisResponseRepository,
 )
+from app.modules.scheduling.repository import AppointmentRepository
 
 
 class AnamnesisCatalogService:
@@ -28,8 +29,22 @@ class AnamnesisService:
         self.assessments = AnamnesisAssessmentRepository(session)
         self.responses = AnamnesisResponseRepository(session)
 
-    async def start(self, patient_id: UUID, *, submitted_by: UUID, taken_by: str, assessment_stage: str = "general_registration") -> dict:
+    async def start(
+        self,
+        patient_id: UUID,
+        *,
+        submitted_by: UUID,
+        taken_by: str,
+        assessment_stage: str = "general_registration",
+        appointment_id: UUID | None = None,
+    ) -> dict:
         profile_id = await _resolve_profile_id(self.session, patient_id)
+        if appointment_id is not None:
+            appt = await AppointmentRepository(self.session).get(appointment_id)
+            if not appt:
+                raise NotFoundError("Appointment not found", code="APPOINTMENT_NOT_FOUND")
+            if str(appt["patient_id"]) != str(profile_id):
+                raise ValidationError("Appointment belongs to a different patient", code="APPOINTMENT_PATIENT_MISMATCH")
         next_version = await self.assessments.latest_version(profile_id) + 1
         assessment = await self.assessments.create(
             patient_id=profile_id,
@@ -37,6 +52,7 @@ class AnamnesisService:
             taken_by=taken_by,
             version=next_version,
             assessment_stage=assessment_stage,
+            appointment_id=appointment_id,
         )
         await emit_event(
             self.session,

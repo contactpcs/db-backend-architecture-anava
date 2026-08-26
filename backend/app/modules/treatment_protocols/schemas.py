@@ -497,6 +497,11 @@ class ProtocolCreate(BaseModel):
     # still found through appointments.protocol_id, never by walking back
     # through this column.
     authored_in_appointment_id: UUID | None = None
+    # An amendment of an existing protocol rather than a new lineage: the
+    # created row inherits supersedes_protocol_id's version_major and gets
+    # version_minor + 1; the target flips to status='superseded'. Omitted
+    # (the common case) starts a new lineage at the instance's next major.
+    supersedes_protocol_id: UUID | None = None
     # Step 5, the prescribed dose. Optional at create so a half-finished draft
     # can be saved, but fn_check_protocol_prescription_complete (39) refuses to
     # let a protocol reach 'active' without current, duration and cadence -
@@ -584,6 +589,8 @@ class ProtocolRead(BaseModel):
     ramp_seconds: int | None = None
     sessions_per_week: int | None = None
     supersedes_protocol_id: UUID | None = None
+    version_major: int = 1
+    version_minor: int = 0
     activated_at: datetime | None = None
     completed_at: datetime | None = None
     created_at: datetime

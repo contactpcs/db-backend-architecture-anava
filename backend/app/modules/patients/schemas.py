@@ -135,3 +135,20 @@ class TransferRead(BaseModel):
 class ExitInitiate(BaseModel):
     consent_id: UUID
     reason: str | None = None
+
+
+class VisitSummaryRead(BaseModel):
+    """Everything tied to one visit, for the doctor portal's per-visit
+    toggle: registration (initial visit only), anamnesis, PRS instances, and
+    protocol prescriptions authored at this visit. Nested items stay raw
+    dicts (each module's own repository/service already shapes them) rather
+    than duplicating typed schemas cross-module — this endpoint composes,
+    it doesn't reinvent."""
+
+    appointment_id: UUID
+    appointment_type: str
+    appointment_date: date
+    registration: dict | None = None
+    anamnesis: dict | None = None
+    prs_instances: list[dict] = Field(default_factory=list)
+    protocols: list[dict] = Field(default_factory=list)

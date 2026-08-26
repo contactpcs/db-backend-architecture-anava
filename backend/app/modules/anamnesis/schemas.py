@@ -29,6 +29,9 @@ class AnamnesisQuestionRead(BaseModel):
 class AnamnesisStart(BaseModel):
     taken_by: str = "patient"
     assessment_stage: str = "general_registration"
+    # The visit this anamnesis was captured/edited during, for the doctor
+    # portal's per-visit bundle. Validated same-patient in the service.
+    appointment_id: UUID | None = None
 
 
 class ResponseItem(BaseModel):
@@ -49,6 +52,7 @@ class AnamnesisAssessmentRead(BaseModel):
     taken_by: str
     version: int
     assessment_stage: str
+    appointment_id: UUID | None = None
     status: str
     completed_at: datetime | None
     created_at: datetime
