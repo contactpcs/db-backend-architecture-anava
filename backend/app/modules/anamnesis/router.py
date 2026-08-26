@@ -14,8 +14,12 @@ _ALL_STAFF = ("super_admin", "regional_admin", "clinic_admin", "doctor", "clinic
 
 
 @router.get("/anamnesis-catalog", response_model=list[s.AnamnesisQuestionRead])
-async def list_anamnesis_catalog(db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
-    return await AnamnesisCatalogService(db).list_questions()
+async def list_anamnesis_catalog(
+    type: str | None = Query(default=None, pattern="^(registration|main)$"),
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    return await AnamnesisCatalogService(db).list_questions(type)
 
 
 @router.post("/patients/{patient_id}/anamnesis", response_model=s.AnamnesisAssessmentRead, status_code=201)
@@ -38,7 +42,7 @@ async def start_anamnesis(
 @router.get("/patients/{patient_id}/anamnesis", response_model=s.AnamnesisAssessmentRead)
 async def get_current_anamnesis(
     patient_id: UUID,
-    assessment_stage: str | None = Query(default=None),
+    assessment_stage: str | None = Query(default=None, pattern="^(registration|main)$"),
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):

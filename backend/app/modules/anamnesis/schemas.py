@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AnamnesisOptionRead(BaseModel):
@@ -13,6 +13,7 @@ class AnamnesisOptionRead(BaseModel):
 
 class AnamnesisQuestionRead(BaseModel):
     question_id: str
+    type: str
     section_number: int
     section_title: str
     question_code: str
@@ -28,7 +29,7 @@ class AnamnesisQuestionRead(BaseModel):
 
 class AnamnesisStart(BaseModel):
     taken_by: str = "patient"
-    assessment_stage: str = "general_registration"
+    assessment_stage: str = Field(default="registration", pattern="^(registration|main)$")
     # The visit this anamnesis was captured/edited during, for the doctor
     # portal's per-visit bundle. Validated same-patient in the service.
     appointment_id: UUID | None = None

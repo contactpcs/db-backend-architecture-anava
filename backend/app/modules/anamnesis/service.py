@@ -19,8 +19,8 @@ class AnamnesisCatalogService:
     def __init__(self, session: AsyncSession):
         self.repo = AnamnesisQuestionRepository(session)
 
-    async def list_questions(self) -> list[dict]:
-        return await self.repo.list_with_options()
+    async def list_questions(self, type: str | None = None) -> list[dict]:
+        return await self.repo.list_with_options(type)
 
 
 class AnamnesisService:
@@ -35,7 +35,7 @@ class AnamnesisService:
         *,
         submitted_by: UUID,
         taken_by: str,
-        assessment_stage: str = "general_registration",
+        assessment_stage: str = "registration",
         appointment_id: UUID | None = None,
     ) -> dict:
         profile_id = await _resolve_profile_id(self.session, patient_id)

@@ -13,24 +13,22 @@ class AnamnesisQuestionRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def list(self) -> builtins.list[dict]:
-        rows = (
-            (
-                await self.session.execute(
-                    text("SELECT * FROM anamnesis_questions WHERE status = TRUE ORDER BY section_number, display_order")
-                )
-            )
-            .mappings()
-            .all()
-        )
+    async def list(self, type: str | None = None) -> builtins.list[dict]:
+        query = "SELECT * FROM anamnesis_questions WHERE status = TRUE"
+        params: dict = {}
+        if type is not None:
+            query += " AND type = :type"
+            params["type"] = type
+        query += " ORDER BY section_number, display_order"
+        rows = (await self.session.execute(text(query), params)).mappings().all()
         return [dict(r) for r in rows]
 
-    async def list_with_options(self) -> builtins.list[dict]:
+    async def list_with_options(self, type: str | None = None) -> builtins.list[dict]:
         """Same as list() but with each question's radio/select/checkbox
         options nested — the frontend catalog screen needs these to render
         anything beyond free-text questions, and the plain list() response
         never carried them (a real gap found wiring up the frontend)."""
-        questions = await self.list()
+        questions = await self.list(type)
         options_rows = (
             (await self.session.execute(text("SELECT * FROM anamnesis_options ORDER BY question_id, display_order"))).mappings().all()
         )
