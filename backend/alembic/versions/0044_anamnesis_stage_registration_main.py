@@ -136,21 +136,8 @@ def downgrade() -> None:
     'main' -> 'main_clinical' (the more common of the two collapsed values;
     'followup' distinction is unrecoverable once collapsed — data loss on
     that specific split is inherent to this downgrade, not a bug)."""
-    op.execute(
-        'ALTER TABLE core."anamnesis_assessments" '
-        'DROP CONSTRAINT IF EXISTS "chk_anamnesis_assessments_stage"'
-    )
-    op.execute(
-        'ALTER TABLE core."anamnesis_assessments" '
-        'ALTER COLUMN "assessment_stage" SET DEFAULT \'general_registration\'::text'
-    )
-    op.execute(
-        'UPDATE core."anamnesis_assessments" '
-        'SET "assessment_stage" = \'general_registration\' '
-        'WHERE "assessment_stage" = \'registration\''
-    )
-    op.execute(
-        'UPDATE core."anamnesis_assessments" '
-        'SET "assessment_stage" = \'main_clinical\' '
-        'WHERE "assessment_stage" = \'main\''
-    )
+    op.execute('ALTER TABLE core."anamnesis_assessments" DROP CONSTRAINT IF EXISTS "chk_anamnesis_assessments_stage"')
+    op.execute('ALTER TABLE core."anamnesis_assessments" ALTER COLUMN "assessment_stage" SET DEFAULT \'general_registration\'::text')
+    tbl = 'core."anamnesis_assessments"'
+    op.execute(f"UPDATE {tbl} SET \"assessment_stage\" = 'general_registration' WHERE \"assessment_stage\" = 'registration'")
+    op.execute(f"UPDATE {tbl} SET \"assessment_stage\" = 'main_clinical' WHERE \"assessment_stage\" = 'main'")

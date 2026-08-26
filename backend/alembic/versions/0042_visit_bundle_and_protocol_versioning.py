@@ -135,11 +135,11 @@ def downgrade() -> None:
     their FKs/CHECKs/indexes) — nothing here has ever been read by app code
     before this revision, so dropping is safe."""
     op.execute('ALTER TABLE core."anamnesis_assessments" DROP CONSTRAINT IF EXISTS "fk_anamnesis_assessments_appointment_id"')
-    op.execute('DROP INDEX IF EXISTS core.idx_anamnesis_assessments_appointment')
+    op.execute("DROP INDEX IF EXISTS core.idx_anamnesis_assessments_appointment")
     op.execute('ALTER TABLE core."anamnesis_assessments" DROP COLUMN IF EXISTS "appointment_id"')
 
     op.execute('ALTER TABLE core."prs_assessment_instances" DROP CONSTRAINT IF EXISTS "fk_prs_assessment_instances_appointment_id"')
-    op.execute('DROP INDEX IF EXISTS core.idx_prs_assessment_instances_appointment')
+    op.execute("DROP INDEX IF EXISTS core.idx_prs_assessment_instances_appointment")
     op.execute('ALTER TABLE core."prs_assessment_instances" DROP COLUMN IF EXISTS "appointment_id"')
 
     op.execute('ALTER TABLE core."protocol_plan" DROP CONSTRAINT IF EXISTS "chk_protocol_plan_version_major"')

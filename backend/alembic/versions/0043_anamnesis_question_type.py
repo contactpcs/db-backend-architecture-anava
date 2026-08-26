@@ -133,5 +133,5 @@ def downgrade() -> None:
     """Reversible: additive-only (new column + CHECK + index), nothing here
     has been read by app code before this revision."""
     op.execute('ALTER TABLE reference."anamnesis_questions" DROP CONSTRAINT IF EXISTS "chk_anamnesis_questions_type"')
-    op.execute('DROP INDEX IF EXISTS reference.idx_anamnesis_questions_type')
+    op.execute("DROP INDEX IF EXISTS reference.idx_anamnesis_questions_type")
     op.execute('ALTER TABLE reference."anamnesis_questions" DROP COLUMN IF EXISTS "type"')
