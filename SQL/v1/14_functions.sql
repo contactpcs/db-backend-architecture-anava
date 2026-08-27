@@ -98,12 +98,14 @@ BEGIN
     FROM prs_assessment_instances
     WHERE instance_id = NEW.instance_id;
 
-    -- Count only scales that apply to THIS instance's assessment_stage.
+    -- Count scales actually assigned to this patient for this instance's stage
+    -- (not the disease's full catalog map filtered by applicable_for, which
+    -- can include scales never assigned via patient_scale_assignments).
     SELECT COUNT(*) INTO v_total_scales
-    FROM prs_disease_scale_map m
-    JOIN prs_scales sc ON sc.scale_id = m.scale_id
-    WHERE m.disease_id = v_instance.disease_id
-      AND sc.applicable_for IN (v_instance.assessment_stage, 'all');
+    FROM patient_scale_assignments
+    WHERE patient_id = v_instance.patient_id
+      AND assessment_stage = v_instance.assessment_stage
+      AND is_active = TRUE;
 
     -- Aggregate all scale results for this instance
     FOR r IN

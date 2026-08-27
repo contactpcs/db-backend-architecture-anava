@@ -1204,10 +1204,16 @@ BEGIN
     FROM prs_assessment_instances
     WHERE instance_id = NEW.instance_id;
 
-    -- Count total scales for this disease
+    -- Count scales actually assigned to this patient for this instance's stage
+    -- (not all scales mapped to the disease in the catalog: general_registration
+    -- assigns only a subset, e.g. EQ-5D-5L, so counting the full catalog map
+    -- left v_completed permanently short of v_total_scales and the instance
+    -- never flipped to 'completed').
     SELECT COUNT(*) INTO v_total_scales
-    FROM prs_disease_scale_map
-    WHERE disease_id = v_instance.disease_id;
+    FROM patient_scale_assignments
+    WHERE patient_id = v_instance.patient_id
+      AND assessment_stage = v_instance.assessment_stage
+      AND is_active = TRUE;
 
     -- Aggregate all scale results for this instance
     FOR r IN
