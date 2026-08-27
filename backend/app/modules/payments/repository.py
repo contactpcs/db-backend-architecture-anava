@@ -98,7 +98,12 @@ class PaymentRepository:
 
     async def list_for_payment(self, payment_id: UUID) -> list[dict]:
         rows = (
-            (await self.session.execute(text("SELECT * FROM payment_logs WHERE payment_id = :id ORDER BY created_at ASC"), {"id": str(payment_id)}))
+            (
+                await self.session.execute(
+                    text("SELECT * FROM payment_logs WHERE payment_id = :id ORDER BY created_at ASC"),
+                    {"id": str(payment_id)},
+                )
+            )
             .mappings()
             .all()
         )

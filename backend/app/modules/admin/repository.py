@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from uuid import UUID
 
 from sqlalchemy import text
@@ -217,13 +218,18 @@ class CancellationPolicyRepository:
 
     async def get(self, tier_id: UUID) -> dict | None:
         row = (
-            (await self.session.execute(text("SELECT * FROM reference.cancellation_policy_tiers WHERE tier_id = :id"), {"id": str(tier_id)}))
+            (
+                await self.session.execute(
+                    text("SELECT * FROM reference.cancellation_policy_tiers WHERE tier_id = :id"),
+                    {"id": str(tier_id)},
+                )
+            )
             .mappings()
             .first()
         )
         return dict(row) if row else None
 
-    async def list(self, *, session_type: str | None = None, clinic_id: UUID | None = None) -> list[dict]:
+    async def list(self, *, session_type: str | None = None, clinic_id: UUID | None = None) -> builtins.list[dict]:
         where = []
         params: dict = {}
         if session_type:
@@ -245,7 +251,7 @@ class CancellationPolicyRepository:
         )
         return [dict(r) for r in rows]
 
-    async def resolve_tiers(self, *, session_type: str, clinic_id: UUID | None) -> list[dict]:
+    async def resolve_tiers(self, *, session_type: str, clinic_id: UUID | None) -> builtins.list[dict]:
         """The set that actually applies to one cancellation: this clinic's
         own tiers if it has any for this session_type, else the platform
         default set. Ordered highest min_hours_before first so the caller

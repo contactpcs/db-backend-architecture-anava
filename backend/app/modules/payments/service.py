@@ -270,17 +270,23 @@ class PaymentService:
         if group_by not in _REVENUE_GROUP_BY:
             raise BusinessRuleError(f"group_by must be one of {sorted(_REVENUE_GROUP_BY)}", code="INVALID_GROUP_BY")
         clinic_id, region_id = _history_scope(ctx)
-        return await self.repo.revenue_summary(clinic_id=clinic_id, region_id=region_id, group_by=group_by, date_from=date_from, date_to=date_to)
+        return await self.repo.revenue_summary(
+            clinic_id=clinic_id, region_id=region_id, group_by=group_by, date_from=date_from, date_to=date_to
+        )
 
     async def revenue_summary_by_purpose(self, ctx: RequestContext, *, group_by: str, date_from=None, date_to=None) -> builtins.list[dict]:
         if group_by not in _REVENUE_GROUP_BY:
             raise BusinessRuleError(f"group_by must be one of {sorted(_REVENUE_GROUP_BY)}", code="INVALID_GROUP_BY")
         clinic_id, region_id = _history_scope(ctx)
-        return await self.repo.revenue_summary_by_purpose(clinic_id=clinic_id, region_id=region_id, group_by=group_by, date_from=date_from, date_to=date_to)
+        return await self.repo.revenue_summary_by_purpose(
+            clinic_id=clinic_id, region_id=region_id, group_by=group_by, date_from=date_from, date_to=date_to
+        )
 
     async def patient_revenue_totals(self, ctx: RequestContext, *, date_from=None, date_to=None, limit: int = 20) -> builtins.list[dict]:
         clinic_id, region_id = _history_scope(ctx)
-        return await self.repo.patient_revenue_totals(clinic_id=clinic_id, region_id=region_id, date_from=date_from, date_to=date_to, limit=limit)
+        return await self.repo.patient_revenue_totals(
+            clinic_id=clinic_id, region_id=region_id, date_from=date_from, date_to=date_to, limit=limit
+        )
 
     async def list_logs_for_payment(self, payment_id: UUID, ctx: RequestContext) -> builtins.list[dict]:
         """Full event history for one payment — same ownership/scope check
@@ -344,6 +350,7 @@ class PaymentService:
             waived_reason=waived_reason,
             razorpay_payment_id=_razorpay_payment_id,
         )
+        assert updated is not None
         await self.repo.log_event(
             payment_id,
             status=status,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -144,10 +145,10 @@ class ClinicHoursService:
         self.session = session
         self.repo = ClinicHoursRepository(session)
 
-    async def list(self, clinic_id: UUID) -> list[dict]:
+    async def list(self, clinic_id: UUID) -> builtins.list[dict]:
         return await self.repo.list_for_clinic(clinic_id)
 
-    async def replace(self, clinic_id: UUID, items: list[dict], *, updated_by: UUID) -> list[dict]:
+    async def replace(self, clinic_id: UUID, items: builtins.list[dict], *, updated_by: UUID) -> builtins.list[dict]:
         seen_days = set()
         for item in items:
             if item["day_of_week"] in seen_days:
