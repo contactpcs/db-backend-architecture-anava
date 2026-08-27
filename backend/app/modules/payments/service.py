@@ -262,8 +262,14 @@ class PaymentService:
     ) -> builtins.list[dict]:
         clinic_id, region_id = _history_scope(ctx)
         return await self.repo.list_history(
-            clinic_id=clinic_id, region_id=region_id, status=status, search=search, date_from=date_from, date_to=date_to,
-            limit=limit, offset=offset,
+            clinic_id=clinic_id,
+            region_id=region_id,
+            status=status,
+            search=search,
+            date_from=date_from,
+            date_to=date_to,
+            limit=limit,
+            offset=offset,
         )
 
     async def revenue_summary(self, ctx: RequestContext, *, group_by: str, date_from=None, date_to=None) -> builtins.list[dict]:
@@ -546,18 +552,32 @@ class PaymentService:
         # to find.
         if payment["razorpay_order_id"] != razorpay_order_id:
             await self.repo.log_event(
-                payment_id, status=payment["status"], amount=float(payment["amount"]), currency=payment["currency"],
-                source="client_verify", razorpay_order_id=razorpay_order_id, razorpay_payment_id=razorpay_payment_id,
-                failure_reason="Order id does not match this payment", changed_by=UUID(ctx.user_id), changed_by_role=ctx.role,
+                payment_id,
+                status=payment["status"],
+                amount=float(payment["amount"]),
+                currency=payment["currency"],
+                source="client_verify",
+                razorpay_order_id=razorpay_order_id,
+                razorpay_payment_id=razorpay_payment_id,
+                failure_reason="Order id does not match this payment",
+                changed_by=UUID(ctx.user_id),
+                changed_by_role=ctx.role,
             )
             raise BusinessRuleError("Order id does not match this payment", code="ORDER_MISMATCH")
         if not razorpay_client.verify_payment_signature(
             razorpay_order_id=razorpay_order_id, razorpay_payment_id=razorpay_payment_id, razorpay_signature=razorpay_signature
         ):
             await self.repo.log_event(
-                payment_id, status=payment["status"], amount=float(payment["amount"]), currency=payment["currency"],
-                source="client_verify", razorpay_order_id=razorpay_order_id, razorpay_payment_id=razorpay_payment_id,
-                failure_reason="Invalid payment signature", changed_by=UUID(ctx.user_id), changed_by_role=ctx.role,
+                payment_id,
+                status=payment["status"],
+                amount=float(payment["amount"]),
+                currency=payment["currency"],
+                source="client_verify",
+                razorpay_order_id=razorpay_order_id,
+                razorpay_payment_id=razorpay_payment_id,
+                failure_reason="Invalid payment signature",
+                changed_by=UUID(ctx.user_id),
+                changed_by_role=ctx.role,
             )
             raise BusinessRuleError("Invalid payment signature", code="INVALID_PAYMENT_SIGNATURE")
 
