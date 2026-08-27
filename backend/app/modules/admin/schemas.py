@@ -78,6 +78,48 @@ class BillableItemRead(BaseModel):
     updated_at: datetime
 
 
+class PlatformFeeUpdate(BaseModel):
+    fee_percent: float = Field(ge=0, le=100)
+
+
+class PlatformFeeRead(BaseModel):
+    session_type: str
+    fee_percent: float
+    updated_by: UUID | None
+    updated_at: datetime
+
+
+class CancellationPolicyTierCreate(BaseModel):
+    """clinic_id: None = platform default tier, applies to every clinic with
+    no tiers of its own for this session_type. Set = an override tier set
+    for that one clinic (see CancellationPolicyRepository.resolve_tiers —
+    any clinic-specific row makes the whole default set stop applying to
+    that clinic, so a clinic override must be a complete tier set, not a
+    single patched threshold)."""
+
+    clinic_id: UUID | None = None
+    session_type: str = Field(pattern="^(appointment|device_session)$")
+    min_hours_before: float = Field(ge=0)
+    refund_percent: float = Field(ge=0, le=100)
+
+
+class CancellationPolicyTierUpdate(BaseModel):
+    min_hours_before: float | None = Field(default=None, ge=0)
+    refund_percent: float | None = Field(default=None, ge=0, le=100)
+
+
+class CancellationPolicyTierRead(BaseModel):
+    tier_id: UUID
+    clinic_id: UUID | None
+    session_type: str
+    min_hours_before: float
+    refund_percent: float
+    created_by: UUID | None
+    updated_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
 class ClinicCreate(BaseModel):
     """clinic_admin_id is deliberately absent — clinic creation is a 2-step
     flow (create, then POST /clinics/{id}/assign-admin). is_main_branch is

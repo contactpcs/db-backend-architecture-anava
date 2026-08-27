@@ -11,10 +11,32 @@ from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, NotFoundError, PermissionError_
 from app.core.scoping import assert_clinic_scope, assert_owns_profile
 from app.integrations import razorpay as razorpay_client
-from app.modules.admin.repository import BillableItemRepository, ClinicRepository
+from app.modules.admin.repository import BillableItemRepository, CancellationPolicyRepository, ClinicRepository, PlatformFeeRepository
 from app.modules.payments.repository import PaymentRepository
 
 logger = structlog.get_logger()
+
+
+def _session_type_for(appointment_type: str) -> str:
+    """reference.platform_fee_config and reference.cancellation_policy_tiers
+    are scoped by session_type ('appointment' | 'device_session'), not the
+    finer-grained appointment_type — 'initial'/'follow_up'/'protocol_followup'
+    are all doctor consultations and share one fee/tier config."""
+    return "device_session" if appointment_type == "device_session" else "appointment"
+
+
+def resolve_cancellation_refund_percent(tiers: list[dict], hours_until: float) -> float:
+    """tiers must already be sorted highest min_hours_before first (see
+    CancellationPolicyRepository.resolve_tiers). Picks the most generous
+    tier whose notice-period threshold the actual notice period clears —
+    e.g. tiers [(12h, 100%), (6h, 50%), (2h, 20%)] with hours_until=8 gives
+    50% (clears the 6h tier, not the 12h one). Below every tier's threshold
+    (or no tiers configured at all): 0% — free cancellation must be
+    explicitly configured, never assumed."""
+    for tier in tiers:
+        if hours_until >= float(tier["min_hours_before"]):
+            return float(tier["refund_percent"])
+    return 0.0
 
 
 async def assert_payment_clinic_scope(ctx: RequestContext, session: AsyncSession, clinic_id) -> None:
@@ -191,6 +213,33 @@ class PaymentService:
 
         return updated  # type: ignore[return-value]
 
+    async def record_cancellation_refund(self, appt: dict) -> None:
+        """Called from scheduling's update_status right after an appointment
+        is transitioned to 'cancelled'. No-op unless there's actually a paid
+        payment to compute a refund for (waived/failed/pending payments have
+        nothing to refund) — a booking cancelled before payment is common
+        and not an error here. Stores the computed percent/amount only;
+        moving real money is still a manual step (see 64_fee_breakdown_and_
+        cancellation_policy.sql's header note)."""
+        payment = await self.repo.get_for_appointment(appt["appointment_id"])
+        if not payment or payment["status"] != "paid":
+            return
+
+        # A 'planned' row (protocol-born, never scheduled a time) can't be
+        # paid in the first place, so start_time is always set here — but
+        # guard anyway rather than let a None reach _hours_until.
+        if appt["start_time"] is None:
+            return
+
+        from app.modules.scheduling.service import _hours_until
+
+        hours_until = _hours_until(appt["appointment_date"], appt["start_time"])
+        session_type = _session_type_for(appt["appointment_type"])
+        tiers = await CancellationPolicyRepository(self.session).resolve_tiers(session_type=session_type, clinic_id=appt["clinic_id"])
+        refund_percent = resolve_cancellation_refund_percent(tiers, hours_until)
+        refund_amount = round(float(payment["amount"]) * refund_percent / 100, 2)
+        await self.repo.set_cancellation_refund(payment["payment_id"], refund_percent=refund_percent, refund_amount=refund_amount)
+
     # ── mock payment (dummy checkout, real appointment lifecycle) ────────────
     #
     # Real order creation against a real (or, absent keys, stubbed —
@@ -231,7 +280,21 @@ class PaymentService:
             )
         if not priced:
             raise BusinessRuleError(f"No price configured for appointment_type '{appt['appointment_type']}'", code="PRICE_NOT_CONFIGURED")
-        return {"amount": float(priced["price"]), "currency": priced["currency"], "item_name": priced["name"]}
+
+        base_fee_amount = float(priced["price"])
+        session_type = _session_type_for(appt["appointment_type"])
+        fee_config = await PlatformFeeRepository(self.session).get(session_type)
+        platform_fee_percent = float(fee_config["fee_percent"]) if fee_config else 0.0
+        platform_fee_amount = round(base_fee_amount * platform_fee_percent / 100, 2)
+
+        return {
+            "amount": base_fee_amount + platform_fee_amount,
+            "currency": priced["currency"],
+            "item_name": priced["name"],
+            "base_fee_amount": base_fee_amount,
+            "platform_fee_percent": platform_fee_percent,
+            "platform_fee_amount": platform_fee_amount,
+        }
 
     async def get_payment_amount(self, appointment_id: UUID, ctx: RequestContext) -> dict:
         """Step 2 — amount for display, before any order/payment row exists."""
@@ -264,6 +327,9 @@ class PaymentService:
             currency=currency,
             idempotency_key=rzp_order["id"],
             razorpay_order_id=rzp_order["id"],
+            base_fee_amount=priced["base_fee_amount"],
+            platform_fee_percent=priced["platform_fee_percent"],
+            platform_fee_amount=priced["platform_fee_amount"],
         )
         await emit_event(
             self.session,

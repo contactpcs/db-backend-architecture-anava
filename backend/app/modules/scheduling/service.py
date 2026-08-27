@@ -69,7 +69,6 @@ SLOT_OCCUPYING_STATUSES = {STATUS_SELECTED, STATUS_PAID, "checked_in", "in_progr
 # What may still be cancelled or rescheduled.
 ACTIVE_STATUSES = {STATUS_PLANNED, STATUS_SELECTED, STATUS_PAID, "checked_in", "in_progress"}
 
-CANCEL_MIN_HOURS = 2
 RESCHEDULE_MIN_HOURS = 24
 DEFAULT_SLOT_MINUTES = 30
 
@@ -643,10 +642,11 @@ class AppointmentService:
                     "A prescribed session cannot be cancelled by the patient — book it when you are ready",
                     code="PROTOCOL_SESSION_NOT_PATIENT_CANCELLABLE",
                 )
-            # A 'planned' row has no time, so the notice window cannot apply and
-            # there is no slot being given up late.
-            if appt["start_time"] is not None and _hours_until(appt["appointment_date"], appt["start_time"]) < CANCEL_MIN_HOURS:
-                raise BusinessRuleError(f"Cancellations require at least {CANCEL_MIN_HOURS} hours' notice", code="CANCEL_WINDOW_PASSED")
+            # No more hard refusal inside the notice window (superseded
+            # CANCEL_MIN_HOURS block, removed 2026-08-27) — a patient can
+            # always cancel; how much of their payment they get back is now
+            # a tiered percentage (reference.cancellation_policy_tiers),
+            # computed in update_status below, not a yes/no gate here.
             return
 
         if status in _ATTENDANCE_STATUSES:
@@ -727,6 +727,15 @@ class AppointmentService:
             event_type="appointment_cancelled" if status == "cancelled" else "appointment_status_changed",
             payload={"appointment_id": str(appointment_id), "status": status, "changed_by_role": changed_by_role},
         )
+
+        if status == "cancelled":
+            # Local import — avoids a module-load-time circular import
+            # (payments/service.py already imports this module lazily the
+            # same way, for mark_paid).
+            from app.modules.payments.service import PaymentService
+
+            await PaymentService(self.session).record_cancellation_refund(appt)
+
         return await self.get(appointment_id)
 
     async def update_fields(self, appointment_id: UUID, data: dict, *, ctx: RequestContext) -> dict:

@@ -146,6 +146,162 @@ class BillableItemRepository:
         return dict(row) if row else None
 
 
+class PlatformFeeRepository:
+    """reference.platform_fee_config — one row per session_type, seeded by
+    64_fee_breakdown_and_cancellation_policy.sql. Global (no clinic_id):
+    Mohan confirmed the platform/convenience fee is the same percentage for
+    every clinic, unlike billable_items' per-clinic price override."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get(self, session_type: str) -> dict | None:
+        row = (
+            (
+                await self.session.execute(
+                    text("SELECT * FROM reference.platform_fee_config WHERE session_type = :session_type"),
+                    {"session_type": session_type},
+                )
+            )
+            .mappings()
+            .first()
+        )
+        return dict(row) if row else None
+
+    async def list(self) -> list[dict]:
+        rows = (await self.session.execute(text("SELECT * FROM reference.platform_fee_config ORDER BY session_type"))).mappings().all()
+        return [dict(r) for r in rows]
+
+    async def update(self, session_type: str, *, fee_percent: float, updated_by: UUID) -> dict | None:
+        row = (
+            (
+                await self.session.execute(
+                    text(
+                        "UPDATE reference.platform_fee_config SET fee_percent = :fee_percent, updated_by = :updated_by "
+                        "WHERE session_type = :session_type RETURNING *"
+                    ),
+                    {"fee_percent": fee_percent, "updated_by": str(updated_by), "session_type": session_type},
+                )
+            )
+            .mappings()
+            .first()
+        )
+        return dict(row) if row else None
+
+
+class CancellationPolicyRepository:
+    """reference.cancellation_policy_tiers — same override pattern as
+    BillableItemRepository.resolve_price: a clinic-specific tier set wins
+    over the platform default (clinic_id IS NULL) whenever the clinic has
+    ANY tiers of its own for that session_type, never a per-tier mix of the
+    two scopes."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create(self, fields: dict, *, created_by: UUID) -> dict:
+        cols = {**fields, "created_by": str(created_by), "updated_by": str(created_by)}
+        col_names = ", ".join(cols)
+        placeholders = ", ".join(f":{k}" for k in cols)
+        row = (
+            (
+                await self.session.execute(
+                    text(f"INSERT INTO reference.cancellation_policy_tiers ({col_names}) VALUES ({placeholders}) RETURNING *"),
+                    cols,
+                )
+            )
+            .mappings()
+            .one()
+        )
+        return dict(row)
+
+    async def get(self, tier_id: UUID) -> dict | None:
+        row = (
+            (await self.session.execute(text("SELECT * FROM reference.cancellation_policy_tiers WHERE tier_id = :id"), {"id": str(tier_id)}))
+            .mappings()
+            .first()
+        )
+        return dict(row) if row else None
+
+    async def list(self, *, session_type: str | None = None, clinic_id: UUID | None = None) -> list[dict]:
+        where = []
+        params: dict = {}
+        if session_type:
+            where.append("session_type = :session_type")
+            params["session_type"] = session_type
+        if clinic_id:
+            where.append("(clinic_id = :clinic_id OR clinic_id IS NULL)")
+            params["clinic_id"] = str(clinic_id)
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        rows = (
+            (
+                await self.session.execute(
+                    text(f"SELECT * FROM reference.cancellation_policy_tiers {clause} ORDER BY session_type, min_hours_before DESC"),
+                    params,
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def resolve_tiers(self, *, session_type: str, clinic_id: UUID | None) -> list[dict]:
+        """The set that actually applies to one cancellation: this clinic's
+        own tiers if it has any for this session_type, else the platform
+        default set. Ordered highest min_hours_before first so the caller
+        can take the first row whose threshold the actual notice period
+        clears."""
+        clinic_rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT * FROM reference.cancellation_policy_tiers "
+                        "WHERE session_type = :session_type AND clinic_id = :clinic_id "
+                        "ORDER BY min_hours_before DESC"
+                    ),
+                    {"session_type": session_type, "clinic_id": str(clinic_id) if clinic_id else None},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        if clinic_rows:
+            return [dict(r) for r in clinic_rows]
+        default_rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT * FROM reference.cancellation_policy_tiers "
+                        "WHERE session_type = :session_type AND clinic_id IS NULL "
+                        "ORDER BY min_hours_before DESC"
+                    ),
+                    {"session_type": session_type},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in default_rows]
+
+    async def update(self, tier_id: UUID, fields: dict, *, updated_by: UUID) -> dict | None:
+        cols = {**fields, "updated_by": str(updated_by)}
+        set_clause = ", ".join(f"{k} = :{k}" for k in cols)
+        params = {**cols, "id": str(tier_id)}
+        row = (
+            (
+                await self.session.execute(
+                    text(f"UPDATE reference.cancellation_policy_tiers SET {set_clause} WHERE tier_id = :id RETURNING *"), params
+                )
+            )
+            .mappings()
+            .first()
+        )
+        return dict(row) if row else None
+
+    async def delete(self, tier_id: UUID) -> None:
+        await self.session.execute(text("DELETE FROM reference.cancellation_policy_tiers WHERE tier_id = :id"), {"id": str(tier_id)})
+
+
 class ClinicRepository:
     def __init__(self, session: AsyncSession):
         self.session = session

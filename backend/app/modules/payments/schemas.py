@@ -32,6 +32,11 @@ class PaymentRead(BaseModel):
     waived_by: UUID | None
     paid_at: datetime | None
     created_at: datetime
+    base_fee_amount: float | None = None
+    platform_fee_percent: float | None = None
+    platform_fee_amount: float | None = None
+    cancellation_refund_percent: float | None = None
+    cancellation_refund_amount: float | None = None
 
 
 class PaymentOrderRead(PaymentRead):
@@ -55,6 +60,9 @@ class PaymentAmountRead(BaseModel):
     amount: float
     currency: str
     item_name: str
+    base_fee_amount: float
+    platform_fee_percent: float
+    platform_fee_amount: float
 
 
 class PaymentVerify(BaseModel):

@@ -11,8 +11,10 @@ from app.core.fsm import assert_transition
 from app.modules.admin.repository import (
     AdminsRepository,
     BillableItemRepository,
+    CancellationPolicyRepository,
     ClinicRepository,
     ClinicRequestRepository,
+    PlatformFeeRepository,
     RegionRepository,
     StaffAssignmentRepository,
 )
@@ -76,6 +78,64 @@ class BillableItemService:
                 code="BILLABLE_ITEM_CONFLICT",
             ) from exc
         return updated  # type: ignore[return-value]
+
+
+class PlatformFeeService:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repo = PlatformFeeRepository(session)
+
+    async def list(self) -> list[dict]:
+        return await self.repo.list()
+
+    async def update(self, session_type: str, *, fee_percent: float, updated_by: UUID) -> dict:
+        updated = await self.repo.update(session_type, fee_percent=fee_percent, updated_by=updated_by)
+        if not updated:
+            raise NotFoundError(f"No platform fee config for session_type={session_type!r}", code="PLATFORM_FEE_CONFIG_NOT_FOUND")
+        return updated
+
+
+class CancellationPolicyService:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repo = CancellationPolicyRepository(session)
+
+    async def create(self, fields: dict, *, created_by: UUID) -> dict:
+        clean = {k: (str(v) if isinstance(v, UUID) else v) for k, v in fields.items()}
+        try:
+            return await self.repo.create(clean, created_by=created_by)
+        except IntegrityError as exc:
+            raise ConflictError(
+                "A tier already exists at this min_hours_before for this clinic/session_type",
+                code="CANCELLATION_TIER_CONFLICT",
+            ) from exc
+
+    async def get(self, tier_id: UUID) -> dict:
+        tier = await self.repo.get(tier_id)
+        if not tier:
+            raise NotFoundError("Cancellation policy tier not found", code="CANCELLATION_TIER_NOT_FOUND")
+        return tier
+
+    async def list(self, *, session_type: str | None = None, clinic_id: UUID | None = None) -> list[dict]:
+        return await self.repo.list(session_type=session_type, clinic_id=clinic_id)
+
+    async def update(self, tier_id: UUID, fields: dict, *, updated_by: UUID) -> dict:
+        await self.get(tier_id)  # 404 if missing
+        clean = {k: v for k, v in fields.items() if v is not None}
+        if not clean:
+            return await self.get(tier_id)
+        try:
+            updated = await self.repo.update(tier_id, clean, updated_by=updated_by)
+        except IntegrityError as exc:
+            raise ConflictError(
+                "Another tier already exists at this min_hours_before for this clinic/session_type",
+                code="CANCELLATION_TIER_CONFLICT",
+            ) from exc
+        return updated  # type: ignore[return-value]
+
+    async def delete(self, tier_id: UUID) -> None:
+        await self.get(tier_id)  # 404 if missing
+        await self.repo.delete(tier_id)
 
 
 class RegionService:

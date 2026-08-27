@@ -22,12 +22,17 @@ class PaymentRepository:
         idempotency_key: str,
         razorpay_order_id: str | None = None,
         appointment_id=None,
+        base_fee_amount: float | None = None,
+        platform_fee_percent: float | None = None,
+        platform_fee_amount: float | None = None,
     ) -> dict:
         return await fetch_one(
             self.session,
             text(
-                "INSERT INTO payments (session_id, order_id, appointment_id, amount, currency, idempotency_key, razorpay_order_id) "
-                "VALUES (:session_id, :order_id, :appointment_id, :amount, :currency, :idem, :rzp_order) RETURNING *"
+                "INSERT INTO payments (session_id, order_id, appointment_id, amount, currency, idempotency_key, razorpay_order_id, "
+                "base_fee_amount, platform_fee_percent, platform_fee_amount) "
+                "VALUES (:session_id, :order_id, :appointment_id, :amount, :currency, :idem, :rzp_order, "
+                ":base_fee_amount, :platform_fee_percent, :platform_fee_amount) RETURNING *"
             ),
             {
                 "session_id": str(session_id) if session_id else None,
@@ -37,7 +42,20 @@ class PaymentRepository:
                 "currency": currency,
                 "idem": idempotency_key,
                 "rzp_order": razorpay_order_id,
+                "base_fee_amount": base_fee_amount,
+                "platform_fee_percent": platform_fee_percent,
+                "platform_fee_amount": platform_fee_amount,
             },
+        )
+
+    async def set_cancellation_refund(self, payment_id: UUID, *, refund_percent: float, refund_amount: float) -> dict | None:
+        return await fetch_optional(
+            self.session,
+            text(
+                "UPDATE payments SET cancellation_refund_percent = :pct, cancellation_refund_amount = :amt "
+                "WHERE payment_id = :id RETURNING *"
+            ),
+            {"pct": refund_percent, "amt": refund_amount, "id": str(payment_id)},
         )
 
     async def get_by_razorpay_order_id(self, razorpay_order_id: str) -> dict | None:

@@ -11,8 +11,10 @@ from app.modules.admin.repository import ClinicRepository
 from app.modules.admin.service import (
     AdminAccountsService,
     BillableItemService,
+    CancellationPolicyService,
     ClinicRequestService,
     ClinicService,
+    PlatformFeeService,
     RegionService,
     StaffAssignmentService,
 )
@@ -60,6 +62,64 @@ async def update_billable_item(
     ctx: RequestContext = Depends(require_role("super_admin")),
 ):
     return await BillableItemService(db).update(item_id, body.model_dump(), updated_by=UUID(ctx.user_id))
+
+
+# ------------------------------------------------------------ platform fee --
+@router.get("/platform-fee-config", response_model=list[s.PlatformFeeRead])
+async def list_platform_fee_config(
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role("super_admin", *_CLINIC_STAFF)),
+):
+    return await PlatformFeeService(db).list()
+
+
+@router.patch("/platform-fee-config/{session_type}", response_model=s.PlatformFeeRead)
+async def update_platform_fee_config(
+    session_type: str,
+    body: s.PlatformFeeUpdate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin")),
+):
+    return await PlatformFeeService(db).update(session_type, fee_percent=body.fee_percent, updated_by=UUID(ctx.user_id))
+
+
+# ---------------------------------------------------- cancellation policy --
+@router.post("/cancellation-policy-tiers", response_model=s.CancellationPolicyTierRead, status_code=201)
+async def create_cancellation_policy_tier(
+    body: s.CancellationPolicyTierCreate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin")),
+):
+    return await CancellationPolicyService(db).create(body.model_dump(), created_by=UUID(ctx.user_id))
+
+
+@router.get("/cancellation-policy-tiers", response_model=list[s.CancellationPolicyTierRead])
+async def list_cancellation_policy_tiers(
+    session_type: str | None = None,
+    clinic_id: UUID | None = None,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role("super_admin", *_CLINIC_STAFF)),
+):
+    return await CancellationPolicyService(db).list(session_type=session_type, clinic_id=clinic_id)
+
+
+@router.patch("/cancellation-policy-tiers/{tier_id}", response_model=s.CancellationPolicyTierRead)
+async def update_cancellation_policy_tier(
+    tier_id: UUID,
+    body: s.CancellationPolicyTierUpdate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin")),
+):
+    return await CancellationPolicyService(db).update(tier_id, body.model_dump(), updated_by=UUID(ctx.user_id))
+
+
+@router.delete("/cancellation-policy-tiers/{tier_id}", status_code=204)
+async def delete_cancellation_policy_tier(
+    tier_id: UUID,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role("super_admin")),
+):
+    await CancellationPolicyService(db).delete(tier_id)
 
 
 # ---------------------------------------------------------------- regions --
