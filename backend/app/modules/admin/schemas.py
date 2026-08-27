@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
@@ -219,6 +219,10 @@ class ClinicUpdate(BaseModel):
     address: str | None = None
     phone: str | None = None
     email: str | None = None
+    # Day-to-day open/closed toggle — independent of `status` below (that's
+    # the onboarding lifecycle; this is "open for business today"). See
+    # 65_clinic_hours_and_operational_status.sql.
+    is_operational: bool | None = None
 
 
 class ClinicStatusUpdate(BaseModel):
@@ -231,6 +235,7 @@ class ClinicRead(BaseModel):
     clinic_name: str
     clinic_type: str
     status: str
+    is_operational: bool
     region_id: UUID
     clinic_admin_id: UUID | None
     is_main_branch: bool
@@ -240,6 +245,28 @@ class ClinicRead(BaseModel):
     phone: str | None
     email: str | None
     created_at: datetime
+
+
+class ClinicWeeklyHoursItem(BaseModel):
+    day_of_week: int = Field(ge=0, le=6)
+    start_time: time
+    end_time: time
+
+
+class ClinicWeeklyHoursReplace(BaseModel):
+    items: list[ClinicWeeklyHoursItem]
+
+
+class ClinicWeeklyHoursRead(BaseModel):
+    hours_id: UUID
+    clinic_id: UUID
+    day_of_week: int
+    start_time: time
+    end_time: time
+    created_by: UUID | None
+    updated_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
 
 
 class ClinicRequestCreate(BaseModel):

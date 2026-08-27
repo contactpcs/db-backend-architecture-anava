@@ -143,6 +143,47 @@ def _reject_if_past(on_date: dt.date, start_time: dt.time) -> None:
         raise BusinessRuleError("Cannot book a slot in the past", code="SLOT_IN_PAST")
 
 
+async def _assert_clinic_operational(session: AsyncSession, clinic_id) -> None:
+    """65_clinic_hours_and_operational_status.sql's is_operational toggle —
+    a clinic_admin flips this off (maintenance, holiday, closure) and every
+    new doctor-schedule write and new appointment create/claim/reschedule at
+    that clinic is blocked from this point on. Local import — admin.repository
+    isn't imported at module load time elsewhere in this file either (see
+    AppointmentService.create's BillableItemRepository import), avoids a
+    load-order dependency between the two modules."""
+    from app.modules.admin.repository import ClinicRepository
+
+    clinic = await ClinicRepository(session).get(clinic_id)
+    if clinic and not clinic["is_operational"]:
+        raise BusinessRuleError("This clinic is currently closed — scheduling and booking are paused", code="CLINIC_INACTIVE")
+
+
+async def _assert_within_clinic_hours(session: AsyncSession, clinic_id, items: list[dict]) -> None:
+    """items: dicts with day_of_week/start_time/end_time (doctor weekly-
+    schedule rows about to be written). A clinic with zero clinic_weekly_
+    hours rows has never configured a policy — deliberately ungated (see
+    65_clinic_hours_and_operational_status.sql's header note), otherwise
+    shipping this migration would retroactively invalidate every existing
+    doctor schedule the moment it applies. Once a clinic has ANY hours rows,
+    every day gets checked: a day with no matching row is implicitly closed."""
+    from app.modules.admin.repository import ClinicHoursRepository
+
+    clinic_hours = await ClinicHoursRepository(session).list_for_clinic(clinic_id)
+    if not clinic_hours:
+        return
+    by_day = {row["day_of_week"]: row for row in clinic_hours}
+    for item in items:
+        day = item["day_of_week"]
+        hours = by_day.get(day)
+        if not hours:
+            raise BusinessRuleError(f"The clinic is closed on day {day} — no schedule can be set for it", code="OUTSIDE_CLINIC_HOURS")
+        if item["start_time"] < hours["start_time"] or item["end_time"] > hours["end_time"]:
+            raise BusinessRuleError(
+                f"That falls outside the clinic's hours for this day ({hours['start_time']}–{hours['end_time']})",
+                code="OUTSIDE_CLINIC_HOURS",
+            )
+
+
 def _slot_minutes(start_time: dt.time, end_time: dt.time) -> int:
     return int((dt.datetime.combine(dt.date.today(), end_time) - dt.datetime.combine(dt.date.today(), start_time)).total_seconds() // 60)
 
@@ -312,6 +353,8 @@ class WeeklyScheduleService:
 
     async def create(self, doctor_id: UUID, data: dict, *, created_by: UUID) -> dict:
         doctor_profile_id = await _resolve_doctor_profile_id(self.session, doctor_id)
+        await _assert_clinic_operational(self.session, data["clinic_id"])
+        await _assert_within_clinic_hours(self.session, data["clinic_id"], [data])
         payload = {**data, "doctor_id": str(doctor_profile_id), "clinic_id": str(data["clinic_id"]), "created_by": str(created_by)}
         try:
             return await self.repo.create(payload)
@@ -323,6 +366,8 @@ class WeeklyScheduleService:
         return await self.repo.list_for_doctor(doctor_profile_id)
 
     async def replace_own(self, *, doctor_profile_id: UUID, clinic_id: UUID, items: list[dict]) -> list[dict]:
+        await _assert_clinic_operational(self.session, clinic_id)
+        await _assert_within_clinic_hours(self.session, clinic_id, items)
         return await self.repo.replace_for_doctor(doctor_profile_id, clinic_id, items, created_by=doctor_profile_id)
 
 
@@ -462,6 +507,8 @@ class AppointmentService:
 
         if ctx is not None:
             await assert_clinic_scope(ctx, self.session, data["clinic_id"])
+
+        await _assert_clinic_operational(self.session, data["clinic_id"])
 
         appointment_type = data.get("appointment_type", TYPE_INITIAL)
         if appointment_type not in _LEGACY_APPOINTMENT_TYPES:
@@ -1188,6 +1235,7 @@ class PatientBookingService:
         start_time = data["start_time"]
         on_date = data.get("appointment_date") or appt["appointment_date"]
         _reject_if_past(on_date, start_time)
+        await _assert_clinic_operational(self.session, appt["clinic_id"])
 
         if appt["appointment_type"] == TYPE_DEVICE_SESSION:
             # Counted check under a row lock. Held until this transaction

@@ -12,6 +12,7 @@ from app.modules.admin.service import (
     AdminAccountsService,
     BillableItemService,
     CancellationPolicyService,
+    ClinicHoursService,
     ClinicRequestService,
     ClinicService,
     PlatformFeeService,
@@ -279,6 +280,30 @@ async def change_clinic_status(
     _ctx: RequestContext = Depends(require_role("super_admin", "regional_admin")),
 ):
     return await ClinicService(db).change_status(clinic_id, body.status)
+
+
+@router.get("/clinics/{clinic_id}/hours", response_model=list[s.ClinicWeeklyHoursRead])
+async def list_clinic_hours(
+    clinic_id: UUID,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(
+        require_role("super_admin", "regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist", "patient")
+    ),
+):
+    """Public-ish read (every staff role plus patient) — a patient booking
+    needs to see clinic hours the same way they see billable_items pricing."""
+    return await ClinicHoursService(db).list(clinic_id)
+
+
+@router.put("/clinics/{clinic_id}/hours", response_model=list[s.ClinicWeeklyHoursRead])
+async def replace_clinic_hours(
+    clinic_id: UUID,
+    body: s.ClinicWeeklyHoursReplace,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin")),
+):
+    await assert_clinic_scope(ctx, db, clinic_id)
+    return await ClinicHoursService(db).replace(clinic_id, [i.model_dump() for i in body.items], updated_by=UUID(ctx.user_id))
 
 
 @router.delete("/clinics/{clinic_id}", status_code=204)

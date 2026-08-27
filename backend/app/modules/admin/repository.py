@@ -302,6 +302,40 @@ class CancellationPolicyRepository:
         await self.session.execute(text("DELETE FROM reference.cancellation_policy_tiers WHERE tier_id = :id"), {"id": str(tier_id)})
 
 
+class ClinicHoursRepository:
+    """core.clinic_weekly_hours — one row per (clinic, day_of_week). A clinic
+    with zero rows has never configured hours yet (see 65_clinic_hours_and_
+    operational_status.sql's header note); scheduling/service.py's
+    _assert_within_clinic_hours treats that as ungated, not "closed every day"."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def list_for_clinic(self, clinic_id: UUID) -> list[dict]:
+        rows = (
+            (
+                await self.session.execute(
+                    text("SELECT * FROM clinic_weekly_hours WHERE clinic_id = :id ORDER BY day_of_week"), {"id": str(clinic_id)}
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def replace_for_clinic(self, clinic_id: UUID, items: list[dict], *, updated_by: UUID) -> list[dict]:
+        """Delete-then-insert atomic replace — same pattern as
+        WeeklyScheduleRepository.replace_for_doctor (scheduling/repository.py):
+        a clinic_admin redrawing the whole week submits the full set at once."""
+        await self.session.execute(text("DELETE FROM clinic_weekly_hours WHERE clinic_id = :id"), {"id": str(clinic_id)})
+        created = []
+        for item in items:
+            payload = {**item, "clinic_id": str(clinic_id), "created_by": str(updated_by), "updated_by": str(updated_by)}
+            sql, params = insert_returning("clinic_weekly_hours", payload)
+            created.append(await fetch_one(self.session, sql, params))
+        return created
+
+
 class ClinicRepository:
     def __init__(self, session: AsyncSession):
         self.session = session

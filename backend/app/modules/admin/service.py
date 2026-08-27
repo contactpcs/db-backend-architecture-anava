@@ -12,6 +12,7 @@ from app.modules.admin.repository import (
     AdminsRepository,
     BillableItemRepository,
     CancellationPolicyRepository,
+    ClinicHoursRepository,
     ClinicRepository,
     ClinicRequestRepository,
     PlatformFeeRepository,
@@ -136,6 +137,26 @@ class CancellationPolicyService:
     async def delete(self, tier_id: UUID) -> None:
         await self.get(tier_id)  # 404 if missing
         await self.repo.delete(tier_id)
+
+
+class ClinicHoursService:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repo = ClinicHoursRepository(session)
+
+    async def list(self, clinic_id: UUID) -> list[dict]:
+        return await self.repo.list_for_clinic(clinic_id)
+
+    async def replace(self, clinic_id: UUID, items: list[dict], *, updated_by: UUID) -> list[dict]:
+        seen_days = set()
+        for item in items:
+            if item["day_of_week"] in seen_days:
+                raise BusinessRuleError(f"day_of_week {item['day_of_week']} appears more than once", code="DUPLICATE_DAY_OF_WEEK")
+            seen_days.add(item["day_of_week"])
+        try:
+            return await self.repo.replace_for_clinic(clinic_id, items, updated_by=updated_by)
+        except IntegrityError as exc:
+            raise ConflictError("Invalid hours — check end time is after start time for every day", code="CLINIC_HOURS_INVALID") from exc
 
 
 class RegionService:

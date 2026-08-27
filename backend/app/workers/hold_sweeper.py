@@ -82,6 +82,43 @@ async def sweep_once() -> dict:
                     "AND protocol_id IS NOT NULL"
                 )
             )
+            # fk_payments_appointment_id is ON DELETE RESTRICT (30 §5) — and
+            # every abandoned checkout has exactly one payments row pointing
+            # at it (create_order writes it before Checkout even opens), so
+            # the DELETE below would violate that FK on almost every real
+            # pass, roll back the whole transaction, and silently re-fail
+            # forever (found live: a hold sat expired for 25+ minutes,
+            # untouched, because of this). Only 'pending'/'failed' payments
+            # can ever be attached to a still-'selected' appointment — a
+            # 'paid' one would have already moved the appointment out of
+            # 'selected' via mark_paid() — so deleting them here is safe:
+            # nothing that ever completed is at risk.
+            #
+            # Logged first (67_payment_logs_survive_deletion.sql made
+            # payment_logs.payment_id ON DELETE SET NULL specifically so this
+            # survives the payments DELETE below) — an abandoned checkout is
+            # exactly the case worth a durable "why did this never complete"
+            # record, not just silent deletion.
+            await session.execute(
+                text(
+                    "INSERT INTO payment_logs (payment_id, status, amount, currency, payment_method, "
+                    "razorpay_order_id, razorpay_payment_id, source, failure_reason, changed_by_role) "
+                    "SELECT payment_id, status, amount, currency, payment_method, razorpay_order_id, razorpay_payment_id, "
+                    "'system', 'Booking hold expired before payment completed', 'system' "
+                    "FROM payments WHERE appointment_id IN ("
+                    "SELECT appointment_id FROM appointments "
+                    "WHERE status = 'selected' AND hold_expires_at < NOW() AND protocol_id IS NULL"
+                    ")"
+                )
+            )
+            await session.execute(
+                text(
+                    "DELETE FROM payments WHERE appointment_id IN ("
+                    "SELECT appointment_id FROM appointments "
+                    "WHERE status = 'selected' AND hold_expires_at < NOW() AND protocol_id IS NULL"
+                    ")"
+                )
+            )
             deleted = await session.execute(
                 text("DELETE FROM appointments WHERE status = 'selected' AND hold_expires_at < NOW() AND protocol_id IS NULL")
             )

@@ -1,5 +1,6 @@
 import io
 import json
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
@@ -18,6 +19,14 @@ _ALL_STAFF = ("super_admin", "regional_admin", "clinic_admin", "doctor", "clinic
 # Roles pinned to their own clinic_id — cannot cross-view/act on another
 # clinic's payments. super_admin/regional_admin are cross-clinic by design.
 _CLINIC_PINNED_STAFF = ("clinic_admin", "doctor", "clinical_assistant", "receptionist")
+# The payments-history/revenue-summary/patient-totals screens — the four
+# roles that get a "Payments" financial view (Mohan, 27 Aug 2026): every
+# admin tier plus receptionist. Not doctor/clinical_assistant — they were
+# never asked for clinic financials, and PaymentService._history_scope has
+# no case for them (falls through to (None, None), which would silently
+# hand a doctor every clinic's revenue — the role list here is what actually
+# prevents that, not the scope resolver).
+_PAYMENTS_HISTORY_ROLES = ("super_admin", "regional_admin", "clinic_admin", "receptionist")
 
 
 @router.post("/payments", response_model=s.PaymentRead, status_code=201)
@@ -32,6 +41,90 @@ async def list_payments(clinic_id: UUID | None = None, db=Depends(get_db), ctx: 
     if clinic_id is None:
         raise BusinessRuleError("clinic_id is required", code="CLINIC_ID_REQUIRED")
     return await PaymentService(db).list(clinic_id)
+
+
+@router.get("/payments/history", response_model=list[s.PaymentHistoryDetailRead])
+async def list_payments_history(
+    status: str | None = None,
+    search: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_PAYMENTS_HISTORY_ROLES)),
+):
+    """Scoped by role in the service (PaymentService._history_scope) — super
+    admin sees every clinic, regional admin their region, clinic admin/
+    receptionist their own clinic. No clinic_id query param: the scope is
+    derived from who's asking, not something the caller can widen."""
+    return await PaymentService(db).list_history(
+        ctx, status=status, search=search, date_from=date_from, date_to=date_to, limit=min(limit, 500), offset=offset
+    )
+
+
+@router.get("/payments/revenue-summary", response_model=list[s.RevenueSummaryPoint])
+async def get_revenue_summary(
+    group_by: str = "day",
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_PAYMENTS_HISTORY_ROLES)),
+):
+    return await PaymentService(db).revenue_summary(ctx, group_by=group_by, date_from=date_from, date_to=date_to)
+
+
+@router.get("/payments/revenue-summary-by-purpose", response_model=list[s.RevenueByPurposePoint])
+async def get_revenue_summary_by_purpose(
+    group_by: str = "day",
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_PAYMENTS_HISTORY_ROLES)),
+):
+    """One row per (period, purpose) — appointment_type (initial/follow_up/
+    protocol_followup/device_session) or store order_type — so the frontend
+    can draw one line per category instead of a single blended total."""
+    return await PaymentService(db).revenue_summary_by_purpose(ctx, group_by=group_by, date_from=date_from, date_to=date_to)
+
+
+@router.get("/payments/patient-totals", response_model=list[s.PatientRevenueTotal])
+async def get_patient_revenue_totals(
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    limit: int = 20,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_PAYMENTS_HISTORY_ROLES)),
+):
+    return await PaymentService(db).patient_revenue_totals(ctx, date_from=date_from, date_to=date_to, limit=min(limit, 100))
+
+
+@router.get("/payments/logs", response_model=list[s.PaymentLogDetailRead])
+async def list_payment_logs(
+    status: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_PAYMENTS_HISTORY_ROLES)),
+):
+    """Cross-payment event log, e.g. 'show me every failed payment this
+    week' — status is filtered against payment_logs.status (the event's
+    status, not just the payment's current one), so a payment that failed
+    and later succeeded still shows up here for the failed attempt."""
+    return await PaymentService(db).list_logs_by_status(
+        ctx, status=status, date_from=date_from, date_to=date_to, limit=min(limit, 500), offset=offset
+    )
+
+
+@router.get("/payments/{payment_id}/logs", response_model=list[s.PaymentLogRead])
+async def get_payment_logs(
+    payment_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    return await PaymentService(db).list_logs_for_payment(payment_id, ctx)
 
 
 @router.get("/payments/{payment_id}", response_model=s.PaymentRead)

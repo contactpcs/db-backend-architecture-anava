@@ -85,13 +85,43 @@ def build_receipt_pdf(*, payment: dict, appointment: dict, clinic: dict, item_na
     pdf.cell(90, 8, "Description", border=1)
     pdf.cell(0, 8, "Amount", border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
     pdf.set_font("Helvetica", "", 10)
-    pdf.cell(90, 8, item_name, border=1)
-    pdf.cell(0, 8, _fmt_amount(payment["amount"], payment["currency"]), border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
+
+    currency = payment["currency"]
+    base_fee_amount = payment.get("base_fee_amount")
+    platform_fee_amount = payment.get("platform_fee_amount")
+    platform_fee_percent = payment.get("platform_fee_percent")
+
+    # base_fee_amount is only ever NULL for a payment created before the fee-
+    # breakdown columns existed (64_fee_breakdown_and_cancellation_policy.sql)
+    # — fall back to the single line the receipt always used to show.
+    if base_fee_amount is not None:
+        pdf.cell(90, 8, item_name, border=1)
+        pdf.cell(0, 8, _fmt_amount(base_fee_amount, currency), border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
+        if platform_fee_amount and Decimal(str(platform_fee_amount)) > 0:
+            label = "Platform & Convenience Fee"
+            if platform_fee_percent is not None:
+                label += f" ({Decimal(str(platform_fee_percent)):.2f}%)"
+            pdf.cell(90, 8, label, border=1)
+            pdf.cell(0, 8, _fmt_amount(platform_fee_amount, currency), border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(90, 8, "Total", border=1)
+        pdf.cell(0, 8, _fmt_amount(payment["amount"], currency), border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
+    else:
+        pdf.cell(90, 8, item_name, border=1)
+        pdf.cell(0, 8, _fmt_amount(payment["amount"], currency), border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
     pdf.ln(4)
 
     row("Payment Method", _fmt_payment_method(payment.get("payment_method")))
     row("Razorpay Payment ID", payment.get("razorpay_payment_id"))
     row("Status", str(payment.get("status") or "").title())
+
+    cancellation_refund_amount = payment.get("cancellation_refund_amount")
+    if cancellation_refund_amount is not None:
+        refund_percent = payment.get("cancellation_refund_percent")
+        row(
+            "Cancellation Refund Due",
+            f"{_fmt_amount(cancellation_refund_amount, currency)}" + (f" ({Decimal(str(refund_percent)):.0f}%)" if refund_percent is not None else ""),
+        )
 
     pdf.ln(8)
     pdf.set_font("Helvetica", "I", 8)
