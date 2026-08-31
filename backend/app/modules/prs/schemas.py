@@ -57,7 +57,11 @@ class PatientScaleAssignmentRead(BaseModel):
 
 class AssessmentInstanceCreate(BaseModel):
     patient_id: UUID
-    disease_id: str
+    # None only valid for assessment_stage='general_registration' — its scale
+    # composition is hardcoded to EQ-5D-5L regardless of disease (disease
+    # selection removed from registration, 70_remove_disease_selection.sql).
+    # main_clinical/followup still always need a real disease_id.
+    disease_id: str | None = None
     assessment_stage: str = Field(pattern="^(general_registration|main_clinical|followup)$")
     session_id: UUID | None = None
     # The visit this instance was assigned at, for the doctor portal's

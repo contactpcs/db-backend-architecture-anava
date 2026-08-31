@@ -243,33 +243,6 @@ class PatientRepository:
         )
 
 
-class DiseaseSelectionRepository:
-    def __init__(self, session: AsyncSession):
-        self.session = session
-
-    async def create(self, *, patient_profile_id: UUID, disease_id, disease_unknown: bool, is_primary: bool) -> dict:
-        return await fetch_one(
-            self.session,
-            text(
-                "INSERT INTO patient_disease_selection (patient_id, disease_id, disease_unknown, is_primary) "
-                "VALUES (:patient_id, :disease_id, :disease_unknown, :is_primary) RETURNING *"
-            ),
-            {"patient_id": str(patient_profile_id), "disease_id": disease_id, "disease_unknown": disease_unknown, "is_primary": is_primary},
-        )
-
-    async def list_for_patient(self, patient_profile_id: UUID) -> list[dict]:
-        rows = (
-            (
-                await self.session.execute(
-                    text("SELECT * FROM patient_disease_selection WHERE patient_id = :pid"), {"pid": str(patient_profile_id)}
-                )
-            )
-            .mappings()
-            .all()
-        )
-        return [dict(r) for r in rows]
-
-
 class DoctorPatientAssignmentRepository:
     """Owned by `clinical` module once it exists (Stage 8) — created here early
     because doctor auto-allocation (Master Doc Flow M) is triggered at the

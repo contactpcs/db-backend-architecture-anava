@@ -68,35 +68,31 @@ class ProtocolRequestService:
             # become patient_scale_assignments — this is what Session 1's PRS
             # administration reads to know which scales to present.
             scale_ids = (req.get("protocol_details") or {}).get("main_prs_scale_ids") or []
-            if scale_ids:
+            disease_id = (req.get("protocol_details") or {}).get("disease_id")
+            # disease_id used to be resolved from the patient's registration-
+            # time primary disease selection (patient_disease_selection) —
+            # removed 27 Aug 2026 (70_remove_disease_selection.sql). The CA
+            # now supplies it directly at submission time (protocol_details),
+            # same free-form JSONB main_prs_scale_ids already lives in.
+            if scale_ids and disease_id:
                 # req["patient_id"] is already profiles.id here (assessment_protocol_requests
                 # stores it that way) — PatientScaleAssignmentService.create expects
                 # patients.patient_id, so go through the patients table the other way.
-                from app.modules.patients.repository import (
-                    DiseaseSelectionRepository,
-                    PatientRepository,
-                )
+                from app.modules.patients.repository import PatientRepository
                 from app.modules.prs.service import PatientScaleAssignmentService
 
                 patient = await PatientRepository(self.session).get_by_profile_id(req["patient_id"])
                 if patient:
-                    # assessment_protocol_requests carries no disease_id of its own —
-                    # patient_scale_assignments.disease_id (SQL/48) needs one, so this
-                    # resolves the patient's primary disease selection the same way
-                    # Session 1's Main PRS is actually about their registered condition.
-                    selections = await DiseaseSelectionRepository(self.session).list_for_patient(req["patient_id"])
-                    primary = next((sel for sel in selections if sel["is_primary"]), None) or (selections[0] if selections else None)
-                    if primary and primary["disease_id"]:
-                        assignment_service = PatientScaleAssignmentService(self.session)
-                        for scale_id in scale_ids:
-                            await assignment_service.create(
-                                patient_id=patient["patient_id"],
-                                scale_id=scale_id,
-                                disease_id=primary["disease_id"],
-                                assessment_stage="main_clinical",
-                                assigned_by=req["doctor_id"],
-                                assignment_reason="ca_selected",
-                            )
+                    assignment_service = PatientScaleAssignmentService(self.session)
+                    for scale_id in scale_ids:
+                        await assignment_service.create(
+                            patient_id=patient["patient_id"],
+                            scale_id=scale_id,
+                            disease_id=disease_id,
+                            assessment_stage="main_clinical",
+                            assigned_by=req["doctor_id"],
+                            assignment_reason="ca_selected",
+                        )
 
         await emit_event(
             self.session,
