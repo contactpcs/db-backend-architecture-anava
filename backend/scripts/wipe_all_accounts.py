@@ -40,7 +40,7 @@ _DEPENDENT_TABLES = """
     doctor_weekly_schedules, doctors, inventory, notifications, patient_clinic_transfers,
     patient_eeg_files, patient_medical_history_files, patients, receptionists, sessions,
     staff_requests, stock_transfers, store_orders, protocol_instances, protocol_custom_montages,
-    anamnesis_assessments, appointment_audit_logs, doctor_session_notes, patient_disease_selection,
+    anamnesis_assessments, appointment_audit_logs, doctor_session_notes,
     patient_scale_assignments, payments, prs_assessment_instances,
     outbox_events, audit_logs
 """

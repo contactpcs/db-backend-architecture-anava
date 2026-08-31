@@ -40,12 +40,6 @@ class PatientUpdate(BaseModel):
     is_active: bool | None = None
 
 
-class DiseaseSelectionCreate(BaseModel):
-    disease_id: str | None = None
-    disease_unknown: bool = False
-    is_primary: bool = True
-
-
 class PatientRead(BaseModel):
     patient_id: UUID
     profile_id: UUID
@@ -94,14 +88,6 @@ class PatientApprovalDecision(BaseModel):
 
 class DoctorAllocation(BaseModel):
     doctor_id: UUID
-
-
-class DiseaseSelectionRead(BaseModel):
-    pds_id: UUID
-    patient_id: UUID
-    disease_id: str | None
-    disease_unknown: bool
-    is_primary: bool
 
 
 class FollowUpCycleCreate(BaseModel):

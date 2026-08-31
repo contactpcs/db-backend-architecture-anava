@@ -136,29 +136,6 @@ async def allocate_doctor(
     return await PatientService(db).allocate_doctor(patient_id, body.doctor_id, allocated_by=UUID(ctx.user_id))
 
 
-@router.get("/patients/{patient_id}/disease-selection", response_model=list[s.DiseaseSelectionRead])
-async def list_disease_selection(patient_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
-    await assert_patient_self(ctx, db, patient_id)
-    return await PatientService(db).list_diseases(patient_id)
-
-
-@router.post("/patients/{patient_id}/disease-selection", response_model=s.DiseaseSelectionRead, status_code=201)
-async def select_disease(
-    patient_id: UUID,
-    body: s.DiseaseSelectionCreate,
-    db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
-):
-    await assert_patient_self(ctx, db, patient_id)
-    return await PatientService(db).select_disease(
-        patient_id,
-        disease_id=body.disease_id,
-        disease_unknown=body.disease_unknown,
-        is_primary=body.is_primary,
-        assigned_by=UUID(ctx.user_id),
-    )
-
-
 @router.post("/patients/{patient_id}/followup-cycles", status_code=201)
 async def start_followup_cycle(
     patient_id: UUID,

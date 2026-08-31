@@ -337,16 +337,23 @@ class AssessmentInstanceRepository:
             self.session, text("SELECT * FROM prs_assessment_instances WHERE instance_id = :id"), {"id": instance_id}
         )
 
-    async def find_in_progress(self, *, patient_id: UUID, disease_id: str, assessment_stage: str) -> dict | None:
+    async def find_in_progress(self, *, patient_id: UUID, disease_id: str | None, assessment_stage: str) -> dict | None:
         """Resume support — starting an assessment for the same patient/
         disease/stage twice (e.g. doctor reopens the page) should continue
         the existing instance, not silently create a duplicate. Most recent
         first — there should only ever be one in_progress at a time, but
-        this stays correct even if that invariant is ever violated."""
+        this stays correct even if that invariant is ever violated.
+
+        IS NOT DISTINCT FROM, not = — general_registration instances carry
+        disease_id NULL (disease selection removed from registration,
+        70_remove_disease_selection.sql), and plain `= :disease_id` with a
+        NULL bind parameter is never true in SQL even when both sides are
+        NULL, which would silently defeat resume and spawn a duplicate
+        instance on every "Start Assessment" click."""
         return await fetch_optional(
             self.session,
             text(
-                "SELECT * FROM prs_assessment_instances WHERE patient_id = :pid AND disease_id = :disease_id "
+                "SELECT * FROM prs_assessment_instances WHERE patient_id = :pid AND disease_id IS NOT DISTINCT FROM :disease_id "
                 "AND assessment_stage = :stage AND status = 'in_progress' ORDER BY started_at DESC LIMIT 1"
             ),
             {"pid": str(patient_id), "disease_id": disease_id, "stage": assessment_stage},

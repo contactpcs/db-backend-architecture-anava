@@ -13,7 +13,6 @@ from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, ValidationError
 from app.core.resolve import resolve_patient_profile_id as _resolve_profile_id
 from app.modules.patients.repository import (
-    DiseaseSelectionRepository,
     DoctorPatientAssignmentRepository,
     PatientRepository,
     PatientTransferRepository,
@@ -37,9 +36,10 @@ def _guardian_fields_provided(data: dict) -> bool:
 
 
 # Registration status machine (Master Doc Section 6.2 / SQL/04_patient_tables.sql CHECK constraint)
+# Disease selection removed from registration (70_remove_disease_selection.sql,
+# 27 Aug 2026) — patients no longer self-diagnose before seeing a doctor.
 _REGISTRATION_STEPS = [
     "demographics_complete",
-    "disease_selected",
     "consent_signed",
     "anamnesis_complete",
     "general_prs_complete",
@@ -51,7 +51,6 @@ class PatientService:
     def __init__(self, session: AsyncSession):
         self.session = session
         self.repo = PatientRepository(session)
-        self.disease_repo = DiseaseSelectionRepository(session)
         self.assignments = DoctorPatientAssignmentRepository(session)
 
     async def register(
@@ -236,48 +235,6 @@ class PatientService:
             payload={"patient_id": str(patient_id)},
         )
 
-    async def select_disease(
-        self, patient_id: UUID, *, disease_id, disease_unknown: bool, is_primary: bool, assigned_by: UUID | None = None
-    ) -> dict:
-        patient = await self.get(patient_id)
-        if not disease_id and not disease_unknown:
-            raise BusinessRuleError("Either disease_id or disease_unknown must be set", code="DISEASE_SELECTION_REQUIRED")
-        selection = await self.disease_repo.create(
-            patient_profile_id=patient["profile_id"],
-            disease_id=disease_id,
-            disease_unknown=disease_unknown,
-            is_primary=is_primary,
-        )
-        # Master Doc Section 9.3 — scales auto-assign off disease_selection at
-        # registration. PatientScaleAssignmentService.auto_assign_for_disease
-        # already existed but was never actually wired to this call (found
-        # while building patient self-registration — without this, NO patient,
-        # self- or staff-registered, could ever reach general_prs_complete).
-        if disease_id and assigned_by:
-            from app.modules.prs.service import PatientScaleAssignmentService
-
-            await PatientScaleAssignmentService(self.session).auto_assign_for_disease(
-                patient_id,
-                disease_id,
-                "general_registration",
-                assigned_by,
-            )
-        await emit_event(
-            self.session,
-            aggregate_type="patient",
-            aggregate_id=patient_id,
-            event_type="disease_selected",
-            payload={"patient_id": str(patient_id), "disease_id": disease_id},
-        )
-        await self.advance_registration_status(patient_id)
-        return selection
-
-    async def list_diseases(self, patient_id: UUID) -> builtins.list[dict]:
-        """Used by the admin/staff patient-detail view to show which
-        condition(s) a patient selected."""
-        patient = await self.get(patient_id)
-        return await self.disease_repo.list_for_patient(patient["profile_id"])
-
     async def advance_registration_status(self, patient_id: UUID) -> dict:
         """Re-derives registration_status from scratch by checking every
         dependency (Master Doc table 8, step 6: 'System validates all steps
@@ -287,7 +244,6 @@ class PatientService:
         patient = await self.get(patient_id)
         profile_id = patient["profile_id"]
 
-        has_disease = bool(await self.disease_repo.list_for_patient(profile_id))
         has_signed_onboarding_consent = await self._exists(
             "SELECT 1 FROM consent_records WHERE patient_id = :pid AND consent_type = 'patient_onboarding' AND status = 'signed'",
             {"pid": str(profile_id)},
@@ -307,14 +263,12 @@ class PatientService:
         # separate gate between the two, so this status value is skipped over
         # rather than persisted as its own row state. Not a bug; there's simply
         # nothing that would ever read a patient sitting in that state.
-        if has_completed_general_prs and has_completed_anamnesis and has_signed_onboarding_consent and has_disease:
+        if has_completed_general_prs and has_completed_anamnesis and has_signed_onboarding_consent:
             return await self._complete_registration(patient_id, patient)
-        if has_completed_anamnesis and has_signed_onboarding_consent and has_disease:
+        if has_completed_anamnesis and has_signed_onboarding_consent:
             new_status = "anamnesis_complete"
-        elif has_signed_onboarding_consent and has_disease:
+        elif has_signed_onboarding_consent:
             new_status = "consent_signed"
-        elif has_disease:
-            new_status = "disease_selected"
         else:
             new_status = "demographics_complete"
 

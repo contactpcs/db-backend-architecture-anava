@@ -208,7 +208,17 @@ class PrsAssessmentService:
         )
         scale_ids = [a["scale_id"] for a in assignments]
         if not scale_ids:
-            catalog_scales = await self.catalog.scales_for_disease(instance["disease_id"], [instance["assessment_stage"], "all"])
+            # general_registration has no disease to look up (disease
+            # selection removed from registration — 70_remove_disease_
+            # selection.sql) and never needed one for scale composition
+            # anyway: same hardcoded-EQ-5D-5L rule as auto_assign_for_disease
+            # above, mirrored here so this fallback works with instance
+            # ["disease_id"] = None.
+            if instance["assessment_stage"] == "general_registration":
+                eq5d = await self.catalog.scale_by_code("EQ-5D-5L")
+                catalog_scales = [eq5d] if eq5d else []
+            else:
+                catalog_scales = await self.catalog.scales_for_disease(instance["disease_id"], [instance["assessment_stage"], "all"])
             scale_ids = [s["scale_id"] for s in catalog_scales]
 
         scale_meta = {s["scale_id"]: s for s in await self.catalog.scales_by_ids(scale_ids)}
@@ -245,7 +255,7 @@ class PrsAssessmentService:
         self,
         *,
         patient_id: UUID,
-        disease_id: str,
+        disease_id: str | None = None,
         assessment_stage: str,
         session_id,
         administered_by=None,
@@ -261,6 +271,10 @@ class PrsAssessmentService:
         scale's completion state. Previously this only ever created a bare
         instance row and returned scales=[] — nothing downstream could
         render an actual question without a second, never-built endpoint."""
+        if disease_id is None and assessment_stage != "general_registration":
+            raise ValidationError(
+                f"disease_id is required for assessment_stage={assessment_stage!r}", code="DISEASE_ID_REQUIRED"
+            )
         profile_id = await _resolve_profile_id(self.session, patient_id)
         if appointment_id is not None:
             appt = await AppointmentRepository(self.session).get(appointment_id)

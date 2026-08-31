@@ -54,7 +54,6 @@ DATA_CATEGORIES: list[tuple[str, str, str | None, str]] = [
     # protocol_instances (below) is the surviving episode-of-care record.
     ("protocol_instances", "protocol_instances", "patient_id", "retain_locked"),
     ("doctor_session_notes", "doctor_session_notes", "patient_id", "retain_locked"),
-    ("disease_selection", "patient_disease_selection", "patient_id", "retain_locked"),
     ("appointments", "appointments", "patient_id", "retain_locked"),
     # Protocol module (SQL/v1/32, renamed by 47). All annotated Bucket 2 in
     # their table comments; without these entries an erasure request would
