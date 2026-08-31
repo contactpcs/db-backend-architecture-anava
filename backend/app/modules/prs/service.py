@@ -206,7 +206,17 @@ class PrsAssessmentService:
         assignments = await assignment_repo.list(
             patient_id=profile_id, assessment_stage=instance["assessment_stage"], disease_id=instance["disease_id"]
         )
-        scale_ids = [a["scale_id"] for a in assignments]
+        # patient_scale_assignments has no uniqueness constraint on
+        # (patient, scale, disease, stage) — re-assigning the same scale
+        # (e.g. a CA re-sending it, or two separate callers targeting the
+        # same scale) creates another row rather than upserting one. A
+        # plain list comprehension over every row duplicated the scale in
+        # the composed list, which the frontend then rendered twice with
+        # the same scale_id (React key collisions) and let the patient
+        # partially answer one copy while the other stayed unanswered,
+        # blocking the assessment from ever reading as complete. dict.
+        # fromkeys preserves first-seen order while deduping.
+        scale_ids = list(dict.fromkeys(a["scale_id"] for a in assignments))
         if not scale_ids:
             catalog_scales = await self.catalog.scales_for_disease(instance["disease_id"], [instance["assessment_stage"], "all"])
             scale_ids = [s["scale_id"] for s in catalog_scales]
