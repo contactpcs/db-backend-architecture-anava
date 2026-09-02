@@ -20,6 +20,7 @@ update_status at all.
 from __future__ import annotations
 
 import builtins
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -154,6 +155,14 @@ class DeviceSessionService:
                 "created_by": ctx.user_id,
                 **fields,
             }
+            # Auto-fetch: if the protocol has a pinned physical unit
+            # (protocol_plan.device_unit_id, 73) and the CA hasn't already
+            # typed a serial in this same checklist write, prefill it —
+            # still just a free-text column, so the CA can still overwrite it.
+            if "device_serial_number" not in payload:
+                serial = await self.repo.get_pinned_device_unit_serial(appt["protocol_id"])
+                if serial:
+                    payload["device_serial_number"] = serial
             try:
                 header = await self.repo.create(payload)
             except IntegrityError as exc:
@@ -266,7 +275,7 @@ class DeviceSessionService:
         )
         return updated or header
 
-    async def complete(self, appointment_id: UUID, ctx: RequestContext) -> dict:
+    async def complete(self, appointment_id: UUID, override_reason: str | None, ctx: RequestContext) -> dict:
         await self._resolve_scoped_appointment(appointment_id, ctx)
         header = await self._header_or_404(appointment_id)
         # Same light-touch pre-flight as ProtocolService.complete(): the
@@ -275,8 +284,28 @@ class DeviceSessionService:
         # workflow already walks the user through screen by screen.
         assert_transition(header["session_status"], "completed", _TRANSITIONS, entity="device session", code="INVALID_SESSION_TRANSITION")
 
+        # Early-completion gate: a CA may complete once >= 75% of the
+        # prescribed duration has elapsed (patient stable), but that judgment
+        # call must be recorded. actual_duration_min/started_at are unset for
+        # a session with no checklist filed yet — treat as "can't verify
+        # elapsed time" and require the override rather than silently allow.
+        planned_minutes = header.get("actual_duration_min")
+        started_at = header.get("started_at")
+        elapsed_ratio = None
+        if planned_minutes and started_at:
+            elapsed_minutes = (datetime.now(timezone.utc) - started_at).total_seconds() / 60
+            elapsed_ratio = elapsed_minutes / planned_minutes
+        if elapsed_ratio is None or elapsed_ratio < 0.75:
+            if not override_reason:
+                raise BusinessRuleError(
+                    "Session is under 75% of its prescribed duration — an override reason is required to complete early",
+                    code="EARLY_COMPLETION_REQUIRES_OVERRIDE",
+                )
+
         updated = await self.repo.update_with_now_columns(
-            header["device_session_record_id"], {"session_status": "completed"}, now_columns=["completed_at"]
+            header["device_session_record_id"],
+            {"session_status": "completed", "early_completion_override_reason": override_reason},
+            now_columns=["completed_at"],
         )
 
         await self.appointments.update_status(appointment_id, status="completed")
@@ -428,6 +457,30 @@ class DeviceSessionService:
             header["device_session_record_id"],
             protocol_scale_id,
             {"delivery_mode": delivery_mode, "status": existing["status"]},
+        )
+
+    async def mark_scale_completed(self, appointment_id: UUID, protocol_scale_id: UUID, prs_instance_id: str, ctx: RequestContext) -> dict:
+        """Flips exactly ONE due-scale row to 'completed', independent of the
+        once-per-session device_session_prs_responses link (treatment_protocols'
+        record_device_session / _complete_due_scales, which sweeps every
+        scale_result on the instance in one shot and can only run once per
+        appointment). Without this, a patient who finishes scale 1 of N in a
+        multi-scale session sees it sit at 'pending' until every other scale
+        due that visit is also submitted — the real PRS answer is saved and
+        scored the moment it's submitted, this just lets the session view
+        reflect that immediately instead of waiting for the last scale."""
+        await self._resolve_scoped_appointment_for_patient_write(appointment_id, ctx)
+        header = await self._header_or_404(appointment_id)
+        existing = await self.scales.get(header["device_session_record_id"], protocol_scale_id)
+        if not existing:
+            raise NotFoundError("No scale row for this protocol_scale_id on this session", code="SESSION_SCALE_NOT_FOUND")
+        # update_existing, not upsert — a patient's RLS role can UPDATE this
+        # row but not INSERT, and upsert()'s ON CONFLICT still requires the
+        # INSERT policy to pass. The row is already confirmed to exist above.
+        return await self.scales.update_existing(
+            header["device_session_record_id"],
+            protocol_scale_id,
+            {"status": "completed", "prs_instance_id": prs_instance_id},
         )
 
     # -- feedback -------------------------------------------------------------

@@ -514,6 +514,14 @@ class ProtocolService:
                 code="DEVICE_NOT_AT_CLINIC",
             )
 
+        if body.device_unit_id is not None and not await self.repo.device_unit_belongs_to_clinic_device(
+            parent["clinic_id"], body.device_id, body.device_unit_id
+        ):
+            raise BusinessRuleError(
+                "That unit is not an active unit of this device at this clinic.",
+                code="DEVICE_UNIT_NOT_AT_CLINIC",
+            )
+
         # Validate the child-table references BEFORE the protocol row is
         # written. A bad diagnosis_id caught here is a 404; caught after the
         # INSERT it is a rolled-back transaction with a foreign-key message
@@ -564,6 +572,7 @@ class ProtocolService:
         payload: dict[str, Any] = {
             "instance_id": str(body.instance_id),
             "device_id": str(body.device_id),
+            "device_unit_id": str(body.device_unit_id) if body.device_unit_id else None,
             "set_by": ctx.user_id,
             **(
                 {"custom_montage_id": str(body.custom_montage_id)}

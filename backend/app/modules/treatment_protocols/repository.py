@@ -478,6 +478,7 @@ class CatalogueRepository:
 _PROTOCOL_SELECT = (
     "SELECT tp.*, "
     "dev.device_name, dev.modality, dc.company_name, "
+    "du.serial_number AS device_unit_serial_number, "
     "pi.patient_id, pi.doctor_id, "
     "pp.first_name || ' ' || pp.last_name AS patient_name, "
     "dp.first_name || ' ' || dp.last_name AS doctor_name, "
@@ -494,6 +495,7 @@ _PROTOCOL_SELECT = (
     "FROM protocol_plan tp "
     "JOIN reference.neuromod_devices dev ON dev.device_id = tp.device_id "
     "LEFT JOIN reference.device_companies dc ON dc.company_id = dev.company_id "
+    "LEFT JOIN device_units du ON du.device_unit_id = tp.device_unit_id "
     "JOIN protocol_instances pi ON pi.instance_id = tp.instance_id "
     "LEFT JOIN profiles pp ON pp.id = pi.patient_id "
     "LEFT JOIN profiles dp ON dp.id = pi.doctor_id "
@@ -622,6 +624,30 @@ class ProtocolRepository:
                 await self.session.execute(
                     text("SELECT 1 FROM clinic_devices WHERE clinic_id = :cid AND device_id = :did AND is_active AND quantity > 0 LIMIT 1"),
                     {"cid": str(clinic_id), "did": str(device_id)},
+                )
+            )
+            .mappings()
+            .first()
+        )
+        return row is not None
+
+    async def device_unit_belongs_to_clinic_device(self, clinic_id: UUID, device_id: UUID, device_unit_id: UUID) -> bool:
+        """Does device_unit_id (73) sit under THIS clinic's row for device_id?
+
+        Guards against a doctor pinning a unit that belongs to a different
+        clinic's inventory (or a different device type entirely) via a
+        stale tab or a direct API call.
+        """
+        row = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT 1 FROM device_units du "
+                        "JOIN clinic_devices cd ON cd.clinic_device_id = du.clinic_device_id "
+                        "WHERE du.device_unit_id = :uid AND cd.clinic_id = :cid AND cd.device_id = :did "
+                        "AND du.status = 'active' LIMIT 1"
+                    ),
+                    {"uid": str(device_unit_id), "cid": str(clinic_id), "did": str(device_id)},
                 )
             )
             .mappings()

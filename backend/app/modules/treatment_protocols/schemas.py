@@ -464,6 +464,11 @@ class ProtocolCreate(BaseModel):
     # references treatment_plans at all.
     instance_id: UUID
     device_id: UUID
+    # Optional pinned physical unit (core.device_units, 73) narrowing device_id
+    # to one specific serialized machine. None = any unit of this device type
+    # (existing behaviour). When set, device_sessions prefills the CA's serial
+    # field from it instead of a free-text entry.
+    device_unit_id: UUID | None = None
     # Exactly one of placement_id (catalogue) or custom_montage_id (a
     # doctor-authored core.protocol_custom_montages row, 38/54) is set,
     # matching chk_protocol_plan_one_placement. The service maps a
@@ -576,6 +581,8 @@ class ProtocolRead(BaseModel):
     instance_number: int | None = None
     instance_status: str | None = None
     device_id: UUID
+    device_unit_id: UUID | None = None
+    device_unit_serial_number: str | None = None
     set_by: UUID
     session_count: int
     follow_up_every_n: int | None = None

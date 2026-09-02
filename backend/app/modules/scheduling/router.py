@@ -13,6 +13,7 @@ from app.modules.scheduling.service import (
     ClinicDeviceScheduleService,
     ClinicDeviceService,
     DeviceCapacityService,
+    DeviceUnitService,
     PatientBookingService,
     ScheduleOverrideService,
     WeeklyScheduleService,
@@ -512,3 +513,61 @@ async def remove_clinic_device(
     prescribed the device — deactivate it instead, so history keeps making sense.
     """
     await ClinicDeviceService(db).remove(clinic_id, clinic_device_id, ctx)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Device units — serial-numbered physical units under a clinic_devices row.
+#
+# Optional layer (73_device_units.sql): a clinic can keep using
+# clinic_devices.quantity alone with no rows here. Lets an admin optionally
+# pin a specific unit on a protocol so device_sessions can auto-fetch its
+# serial at session start instead of a CA typing one.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/clinics/{clinic_id}/devices/{clinic_device_id}/units", response_model=list[s.DeviceUnitRead])
+async def list_device_units(
+    clinic_id: UUID,
+    clinic_device_id: UUID,
+    active_only: bool = True,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
+):
+    return await DeviceUnitService(db).list_for_clinic_device(clinic_id, clinic_device_id, ctx, active_only=active_only)
+
+
+@router.post("/clinics/{clinic_id}/devices/{clinic_device_id}/units", response_model=s.DeviceUnitRead, status_code=201)
+async def add_device_unit(
+    clinic_id: UUID,
+    clinic_device_id: UUID,
+    body: s.DeviceUnitCreate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_DEVICE_SCHEDULE_ADMINS)),
+):
+    return await DeviceUnitService(db).add(clinic_id, clinic_device_id, body.model_dump(), ctx)
+
+
+@router.patch("/clinics/{clinic_id}/devices/{clinic_device_id}/units/{device_unit_id}", response_model=s.DeviceUnitRead)
+async def update_device_unit(
+    clinic_id: UUID,
+    clinic_device_id: UUID,
+    device_unit_id: UUID,
+    body: s.DeviceUnitUpdate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_DEVICE_SCHEDULE_ADMINS)),
+):
+    """Set status='retired' to take a unit out of service, or correct its serial number."""
+    return await DeviceUnitService(db).update(clinic_id, clinic_device_id, device_unit_id, body.model_dump(exclude_unset=True), ctx)
+
+
+@router.delete("/clinics/{clinic_id}/devices/{clinic_device_id}/units/{device_unit_id}", status_code=204)
+async def remove_device_unit(
+    clinic_id: UUID,
+    clinic_device_id: UUID,
+    device_unit_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_DEVICE_SCHEDULE_ADMINS)),
+):
+    """Removes a unit entered in error. Refuses with DEVICE_UNIT_IN_USE if a
+    protocol has pinned this unit — retire it instead."""
+    await DeviceUnitService(db).remove(clinic_id, clinic_device_id, device_unit_id, ctx)

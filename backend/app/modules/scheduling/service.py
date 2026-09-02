@@ -20,6 +20,7 @@ from app.modules.scheduling.repository import (
     AppointmentRepository,
     ClinicDeviceRepository,
     ClinicDeviceScheduleRepository,
+    DeviceUnitRepository,
     ScheduleOverrideRepository,
     WeeklyScheduleRepository,
 )
@@ -1540,4 +1541,74 @@ class ClinicDeviceService:
             raise ConflictError(
                 "This device has schedules or appointments on record — deactivate it instead of deleting",
                 code="CLINIC_DEVICE_IN_USE",
+            ) from exc
+
+
+class DeviceUnitService:
+    """Serial-numbered physical units under a clinic_devices row (73_device_units.sql).
+
+    Optional layer on top of ClinicDeviceService's type+quantity tracking —
+    a clinic can keep using quantity alone with no rows here. Lets an admin
+    optionally pin one on a protocol so device_sessions can auto-fetch its
+    serial instead of a CA typing one.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repo = DeviceUnitRepository(session)
+        self.clinic_devices = ClinicDeviceRepository(session)
+
+    async def _clinic_device_or_404(self, clinic_id: UUID, clinic_device_id: UUID, ctx: RequestContext) -> dict:
+        await assert_clinic_scope(ctx, self.session, clinic_id)
+        row = await self.clinic_devices.get(clinic_device_id)
+        if not row or str(row["clinic_id"]) != str(clinic_id):
+            raise NotFoundError("Device not listed at this clinic", code="CLINIC_DEVICE_NOT_FOUND")
+        return row
+
+    async def list_for_clinic_device(
+        self, clinic_id: UUID, clinic_device_id: UUID, ctx: RequestContext, *, active_only: bool = True
+    ) -> builtins.list[dict]:
+        await self._clinic_device_or_404(clinic_id, clinic_device_id, ctx)
+        return await self.repo.list_for_clinic_device(clinic_device_id, active_only=active_only)
+
+    async def add(self, clinic_id: UUID, clinic_device_id: UUID, data: dict, ctx: RequestContext) -> dict:
+        await self._clinic_device_or_404(clinic_id, clinic_device_id, ctx)
+        try:
+            return await self.repo.create(
+                {
+                    "clinic_device_id": str(clinic_device_id),
+                    "serial_number": data["serial_number"],
+                    "notes": data.get("notes"),
+                    "created_by": ctx.user_id,
+                }
+            )
+        except IntegrityError as exc:
+            raise ConflictError(
+                "This serial number is already listed for this device", code="DEVICE_UNIT_EXISTS"
+            ) from exc
+
+    async def update(self, clinic_id: UUID, clinic_device_id: UUID, device_unit_id: UUID, data: dict, ctx: RequestContext) -> dict:
+        await self._clinic_device_or_404(clinic_id, clinic_device_id, ctx)
+        row = await self.repo.get(device_unit_id)
+        if not row or str(row["clinic_device_id"]) != str(clinic_device_id):
+            raise NotFoundError("Unit not listed under this device", code="DEVICE_UNIT_NOT_FOUND")
+        fields = {k: v for k, v in data.items() if v is not None}
+        try:
+            return await self.repo.update(device_unit_id, fields) or row
+        except IntegrityError as exc:
+            raise ConflictError(
+                "This serial number is already listed for this device", code="DEVICE_UNIT_EXISTS"
+            ) from exc
+
+    async def remove(self, clinic_id: UUID, clinic_device_id: UUID, device_unit_id: UUID, ctx: RequestContext) -> None:
+        await self._clinic_device_or_404(clinic_id, clinic_device_id, ctx)
+        row = await self.repo.get(device_unit_id)
+        if not row or str(row["clinic_device_id"]) != str(clinic_device_id):
+            raise NotFoundError("Unit not listed under this device", code="DEVICE_UNIT_NOT_FOUND")
+        try:
+            await self.repo.delete(device_unit_id)
+        except IntegrityError as exc:
+            raise ConflictError(
+                "This unit has been pinned on a protocol — retire it instead of deleting",
+                code="DEVICE_UNIT_IN_USE",
             ) from exc

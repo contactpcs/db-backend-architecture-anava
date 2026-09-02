@@ -153,7 +153,10 @@ class PatientService:
 
     async def update(self, patient_id: UUID, fields: dict) -> dict:
         await self.get(patient_id)  # 404 if missing
-        profile_keys = {"first_name", "last_name", "email", "phone", "gender", "dob", "address", "is_active"}
+        profile_keys = {
+            "first_name", "last_name", "email", "phone", "gender", "dob", "address",
+            "city", "state", "country", "pincode", "is_active",
+        }
         patient_keys = {"emergency_contact_name", "emergency_contact_phone"}
         clean = {k: v for k, v in fields.items() if v is not None}
         profile_fields = {k: v for k, v in clean.items() if k in profile_keys}

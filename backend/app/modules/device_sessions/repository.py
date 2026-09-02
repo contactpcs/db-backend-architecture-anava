@@ -51,6 +51,26 @@ class DeviceSessionRepository:
         sql, params = update_returning("device_sessions", "device_session_record_id", str(device_session_record_id), fields)
         return await fetch_optional(self.session, sql, params)
 
+    async def get_pinned_device_unit_serial(self, protocol_id: UUID) -> str | None:
+        """Serial of the physical unit pinned on this protocol (protocol_plan.
+        device_unit_id, 73), if any — used to auto-fetch device_serial_number
+        on the first checklist write instead of the CA typing it."""
+        row = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT du.serial_number FROM protocol_plan tp "
+                        "JOIN device_units du ON du.device_unit_id = tp.device_unit_id "
+                        "WHERE tp.protocol_id = :pid"
+                    ),
+                    {"pid": str(protocol_id)},
+                )
+            )
+            .mappings()
+            .first()
+        )
+        return row["serial_number"] if row else None
+
     async def update_with_now_columns(
         self, device_session_record_id: UUID, fields: dict, *, now_columns: builtins.list[str]
     ) -> dict | None:
@@ -216,6 +236,32 @@ class DeviceSessionScaleRepository:
             f"INSERT INTO device_session_scales ({', '.join(cols)}) VALUES ({placeholders}) "
             "ON CONFLICT (device_session_record_id, protocol_scale_id) "
             f"DO UPDATE SET {set_clause}, updated_at = NOW() "
+            "RETURNING *"
+        )
+        return await fetch_one(self.session, sql, data)
+
+    async def update_existing(self, device_session_record_id: UUID, protocol_scale_id: UUID, fields: dict) -> dict:
+        """Plain UPDATE, no INSERT fallback — for callers (e.g. a patient
+        completing their own scale) whose RLS role is allowed to UPDATE this
+        table but not INSERT into it (rls_device_session_scales_insert is
+        CA/admin/system only, see 56_device_session_records.sql). upsert()'s
+        INSERT ... ON CONFLICT DO UPDATE still requires the INSERT policy to
+        pass even when every call lands on the conflict branch — Postgres
+        checks INSERT privilege before it knows whether a conflict occurs —
+        so it 500s for those roles even though the row already exists and
+        only ever needs updating. Caller must confirm the row exists first
+        (e.g. via get()); this raises if it doesn't."""
+        data = {
+            "device_session_record_id": str(device_session_record_id),
+            "protocol_scale_id": str(protocol_scale_id),
+            **fields,
+        }
+        set_cols = [c for c in fields.keys()]
+        set_clause = ", ".join(f"{c} = :{c}" for c in set_cols)
+        sql = text(
+            f"UPDATE device_session_scales SET {set_clause}, updated_at = NOW() "
+            "WHERE device_session_record_id = :device_session_record_id "
+            "AND protocol_scale_id = :protocol_scale_id "
             "RETURNING *"
         )
         return await fetch_one(self.session, sql, data)

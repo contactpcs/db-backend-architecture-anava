@@ -745,3 +745,51 @@ class ClinicDeviceRepository:
             )
         ).first()
         return row is not None
+
+
+class DeviceUnitRepository:
+    """Serial-numbered physical units under a clinic_devices row (73_device_units.sql)."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def list_for_clinic_device(self, clinic_device_id: UUID, *, active_only: bool = True) -> builtins.list[dict]:
+        clause = "clinic_device_id = :cdid"
+        if active_only:
+            clause += " AND status = 'active'"
+        rows = (
+            (
+                await self.session.execute(
+                    text(f"SELECT * FROM device_units WHERE {clause} ORDER BY serial_number"),
+                    {"cdid": str(clinic_device_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def get(self, device_unit_id: UUID) -> dict | None:
+        return await fetch_optional(
+            self.session,
+            text("SELECT * FROM device_units WHERE device_unit_id = :id"),
+            {"id": str(device_unit_id)},
+        )
+
+    async def create(self, data: dict) -> dict:
+        sql, params = insert_returning("device_units", data)
+        return await fetch_one(self.session, sql, params)
+
+    async def update(self, device_unit_id: UUID, fields: dict) -> dict | None:
+        if not fields:
+            return await self.get(device_unit_id)
+        set_clause = ", ".join(f"{k} = :{k}" for k in fields)
+        return await fetch_optional(
+            self.session,
+            text(f"UPDATE device_units SET {set_clause}, updated_at = NOW() WHERE device_unit_id = :id RETURNING *"),
+            {**fields, "id": str(device_unit_id)},
+        )
+
+    async def delete(self, device_unit_id: UUID) -> bool:
+        result = await self.session.execute(text("DELETE FROM device_units WHERE device_unit_id = :id"), {"id": str(device_unit_id)})
+        return result.rowcount > 0  # type: ignore[attr-defined]

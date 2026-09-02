@@ -35,9 +35,34 @@ class PatientUpdate(BaseModel):
     gender: str | None = Field(default=None, pattern="^(male|female|other)$")
     dob: date | None = None
     address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    pincode: str | None = None
     emergency_contact_name: str | None = None
     emergency_contact_phone: str | None = None
     is_active: bool | None = None
+
+
+class PatientSelfUpdate(BaseModel):
+    """Patient self-service edit (PATCH /patients/{id}/self). Everything a
+    patient may change about their own record — mrn, approval_status,
+    is_active, primary_doctor_id and other staff-owned fields are
+    deliberately absent, matching the admin PatientUpdate minus is_active."""
+
+    first_name: str | None = None
+    last_name: str | None = None
+    email: EmailStr | None = None
+    phone: str | None = None
+    gender: str | None = Field(default=None, pattern="^(male|female|other)$")
+    dob: date | None = None
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    pincode: str | None = None
+    emergency_contact_name: str | None = None
+    emergency_contact_phone: str | None = None
 
 
 class PatientRead(BaseModel):

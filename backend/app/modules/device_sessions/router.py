@@ -112,11 +112,13 @@ async def stop_session(
 @router.post("/device-sessions/{appointment_id}/complete", response_model=s.DeviceSessionRead)
 async def complete_session(
     appointment_id: UUID,
+    body: s.CompleteSessionRequest = s.CompleteSessionRequest(),
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_CA_WRITERS)),
 ):
-    """in_progress -> completed. Marks the appointment completed."""
-    return await DeviceSessionService(db).complete(appointment_id, ctx)
+    """in_progress -> completed. Marks the appointment completed. Requires
+    early_completion_override_reason if under 75% of prescribed duration."""
+    return await DeviceSessionService(db).complete(appointment_id, body.early_completion_override_reason, ctx)
 
 
 # --------------------------------------------------------------------------
@@ -256,6 +258,20 @@ async def set_scale_delivery(
 ):
     """The CA-administered-vs-patient-app toggle."""
     return await DeviceSessionService(db).set_scale_delivery(appointment_id, protocol_scale_id, body.delivery_mode, ctx)
+
+
+@router.post("/device-sessions/{appointment_id}/scales/{protocol_scale_id}/complete", response_model=s.SessionScaleRead)
+async def complete_scale(
+    appointment_id: UUID,
+    protocol_scale_id: UUID,
+    body: s.ScaleCompleteRequest,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_PATIENT_WRITERS)),
+):
+    """Marks this one due-scale row completed right when its PRS answers are
+    submitted, independent of the once-per-session PRS link (see
+    mark_scale_completed's docstring)."""
+    return await DeviceSessionService(db).mark_scale_completed(appointment_id, protocol_scale_id, body.prs_instance_id, ctx)
 
 
 # --------------------------------------------------------------------------

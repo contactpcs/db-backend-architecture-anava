@@ -94,6 +94,14 @@ class PauseStopRequest(BaseModel):
     pause_stop_reason_detail: str | None = None
 
 
+class CompleteSessionRequest(BaseModel):
+    """Required only when completing before the 75% elapsed-duration
+    threshold (see device_sessions/service.py complete()); omit entirely
+    for a normal full-duration completion."""
+
+    early_completion_override_reason: str | None = None
+
+
 class NextSessionConfirmation(BaseModel):
     """Shape stored as device_sessions.next_session_confirmation JSONB."""
 
@@ -139,6 +147,7 @@ class DeviceSessionRead(BaseModel):
     completed_at: datetime | None = None
     pause_stop_reason: str | None = None
     pause_stop_reason_detail: str | None = None
+    early_completion_override_reason: str | None = None
     next_session_confirmation: dict | None = None
 
     created_by: UUID
@@ -250,6 +259,10 @@ class ActivityRead(BaseModel):
 
 class ScaleDeliveryUpdate(BaseModel):
     delivery_mode: DeliveryMode
+
+
+class ScaleCompleteRequest(BaseModel):
+    prs_instance_id: str
 
 
 class SessionScaleRead(BaseModel):

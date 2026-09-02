@@ -99,6 +99,20 @@ async def update_patient(
     return await PatientService(db).update(patient_id, body.model_dump())
 
 
+@router.patch("/patients/{patient_id}/self", response_model=s.PatientRead)
+async def update_patient_self(
+    patient_id: UUID,
+    body: s.PatientSelfUpdate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("patient")),
+):
+    # Patient self-service edit. mrn, approval_status, is_active,
+    # primary_doctor_id etc. are deliberately absent from PatientSelfUpdate
+    # — those stay staff-only via PATCH /patients/{id} above.
+    await assert_patient_self(ctx, db, patient_id)
+    return await PatientService(db).update(patient_id, body.model_dump())
+
+
 @router.delete("/patients/{patient_id}", status_code=204)
 async def delete_patient(
     patient_id: UUID,

@@ -397,3 +397,25 @@ class ClinicDeviceRead(BaseModel):
     phase: int | None = None
     device_is_active: bool | None = None
     company_name: str | None = None
+
+
+# ── device units (serial-numbered physical units) ──────────────────────────
+
+
+class DeviceUnitCreate(BaseModel):
+    serial_number: str
+    notes: str | None = None
+
+
+class DeviceUnitUpdate(BaseModel):
+    serial_number: str | None = None
+    status: str | None = Field(default=None, pattern="^(active|retired)$")
+    notes: str | None = None
+
+
+class DeviceUnitRead(BaseModel):
+    device_unit_id: UUID
+    clinic_device_id: UUID
+    serial_number: str
+    status: str
+    notes: str | None = None
