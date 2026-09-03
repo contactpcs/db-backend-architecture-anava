@@ -288,7 +288,7 @@ class AssessmentInstanceRepository:
     async def create(
         self,
         *,
-        disease_id: str,
+        disease_id: str | None,
         patient_id: UUID,
         session_id,
         initiated_by: str,

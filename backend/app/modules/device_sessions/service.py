@@ -20,7 +20,7 @@ update_status at all.
 from __future__ import annotations
 
 import builtins
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -293,7 +293,7 @@ class DeviceSessionService:
         started_at = header.get("started_at")
         elapsed_ratio = None
         if planned_minutes and started_at:
-            elapsed_minutes = (datetime.now(timezone.utc) - started_at).total_seconds() / 60
+            elapsed_minutes = (datetime.now(UTC) - started_at).total_seconds() / 60
             elapsed_ratio = elapsed_minutes / planned_minutes
         if elapsed_ratio is None or elapsed_ratio < 0.75:
             if not override_reason:
