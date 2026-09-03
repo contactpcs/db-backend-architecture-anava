@@ -1583,9 +1583,7 @@ class DeviceUnitService:
                 }
             )
         except IntegrityError as exc:
-            raise ConflictError(
-                "This serial number is already listed for this device", code="DEVICE_UNIT_EXISTS"
-            ) from exc
+            raise ConflictError("This serial number is already listed for this device", code="DEVICE_UNIT_EXISTS") from exc
 
     async def update(self, clinic_id: UUID, clinic_device_id: UUID, device_unit_id: UUID, data: dict, ctx: RequestContext) -> dict:
         await self._clinic_device_or_404(clinic_id, clinic_device_id, ctx)
@@ -1596,9 +1594,7 @@ class DeviceUnitService:
         try:
             return await self.repo.update(device_unit_id, fields) or row
         except IntegrityError as exc:
-            raise ConflictError(
-                "This serial number is already listed for this device", code="DEVICE_UNIT_EXISTS"
-            ) from exc
+            raise ConflictError("This serial number is already listed for this device", code="DEVICE_UNIT_EXISTS") from exc
 
     async def remove(self, clinic_id: UUID, clinic_device_id: UUID, device_unit_id: UUID, ctx: RequestContext) -> None:
         await self._clinic_device_or_404(clinic_id, clinic_device_id, ctx)

@@ -282,9 +282,7 @@ class PrsAssessmentService:
         instance row and returned scales=[] — nothing downstream could
         render an actual question without a second, never-built endpoint."""
         if disease_id is None and assessment_stage != "general_registration":
-            raise ValidationError(
-                f"disease_id is required for assessment_stage={assessment_stage!r}", code="DISEASE_ID_REQUIRED"
-            )
+            raise ValidationError(f"disease_id is required for assessment_stage={assessment_stage!r}", code="DISEASE_ID_REQUIRED")
         profile_id = await _resolve_profile_id(self.session, patient_id)
         if appointment_id is not None:
             appt = await AppointmentRepository(self.session).get(appointment_id)
