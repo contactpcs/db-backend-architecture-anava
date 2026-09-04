@@ -63,6 +63,20 @@ class PatientSelfUpdate(BaseModel):
     pincode: str | None = None
     emergency_contact_name: str | None = None
     emergency_contact_phone: str | None = None
+    # Self-reported, no server-side verification — patients/profile page's
+    # "Medical Information" + remaining "Personal Information" fields.
+    language_pref: str | None = None
+    blood_group: str | None = None
+    allergies: str | None = None
+    occupation: str | None = None
+    marital_status: str | None = None
+    insurance_provider: str | None = None
+    insurance_policy: str | None = None
+    weight_kg: float | None = None
+    height_ft: int | None = None
+    height_in: int | None = None
+    government_id: str | None = None
+    id_type: str | None = None
 
 
 class PatientRead(BaseModel):
@@ -89,6 +103,18 @@ class PatientRead(BaseModel):
     state: str | None = None
     country: str | None = None
     pincode: str | None = None
+    language_pref: str | None = None
+    blood_group: str | None = None
+    allergies: str | None = None
+    occupation: str | None = None
+    marital_status: str | None = None
+    insurance_provider: str | None = None
+    insurance_policy: str | None = None
+    weight_kg: float | None = None
+    height_ft: int | None = None
+    height_in: int | None = None
+    government_id: str | None = None
+    id_type: str | None = None
     profile_is_active: bool = True
     doctor_name: str | None = None
     doctor_first_name: str | None = None

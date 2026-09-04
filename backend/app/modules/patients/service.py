@@ -166,8 +166,23 @@ class PatientService:
             "country",
             "pincode",
             "is_active",
+            "language_pref",
         }
-        patient_keys = {"emergency_contact_name", "emergency_contact_phone"}
+        patient_keys = {
+            "emergency_contact_name",
+            "emergency_contact_phone",
+            "blood_group",
+            "allergies",
+            "occupation",
+            "marital_status",
+            "insurance_provider",
+            "insurance_policy",
+            "weight_kg",
+            "height_ft",
+            "height_in",
+            "government_id",
+            "id_type",
+        }
         clean = {k: v for k, v in fields.items() if v is not None}
         profile_fields = {k: v for k, v in clean.items() if k in profile_keys}
         patient_fields = {k: v for k, v in clean.items() if k in patient_keys}
