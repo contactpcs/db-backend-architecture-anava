@@ -62,6 +62,10 @@ PATIENT_SELF_REGISTRATION_PATH_PREFIXES = (
     "/api/v1/prs-catalog",
     "/api/v1/patient-scale-assignments",
     "/api/v1/prs-assessment-instances",
+    # SSE reconnects on every page nav (assessment steps included) — without
+    # this an inactive mid-registration patient's EventSource 403s on every
+    # single page of the registration wizard, not just once.
+    "/api/v1/events/stream",
 )
 
 

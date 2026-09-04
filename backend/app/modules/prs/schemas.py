@@ -74,7 +74,12 @@ class AssessmentInstanceCreate(BaseModel):
 
 class AssessmentInstanceRead(BaseModel):
     instance_id: str
-    disease_id: str
+    # Nullable since 70_remove_disease_selection.sql (ALTER COLUMN disease_id
+    # DROP NOT NULL) — a general_registration instance has no disease. This
+    # schema was never updated to match, so every general_registration
+    # instance 500'd on response serialization (ResponseValidationError)
+    # despite the DB write succeeding.
+    disease_id: str | None
     patient_id: UUID
     session_id: UUID | None
     appointment_id: UUID | None = None
