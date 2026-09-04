@@ -22,8 +22,18 @@ from app.modules.staff.repository import (
 )
 
 _PROFILE_UPDATE_KEYS = {
-    "first_name", "last_name", "email", "phone", "gender", "dob", "address",
-    "city", "state", "country", "pincode", "language_pref",
+    "first_name",
+    "last_name",
+    "email",
+    "phone",
+    "gender",
+    "dob",
+    "address",
+    "city",
+    "state",
+    "country",
+    "pincode",
+    "language_pref",
 }
 
 

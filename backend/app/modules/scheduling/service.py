@@ -128,7 +128,6 @@ def _initial_status_and_hold(settings) -> tuple[str, dt.datetime | None]:
     return STATUS_PAID, None
 
 
-
 # appointment_date/start_time are plain DATE/TIME columns — no timezone of
 # their own — and every clinic this product serves is in India, so they are
 # wall-clock IST by convention. dt.datetime.now() with no argument returns
