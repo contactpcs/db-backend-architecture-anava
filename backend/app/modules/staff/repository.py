@@ -140,7 +140,8 @@ class DoctorRepository:
             (
                 await self.session.execute(
                     text(
-                        "SELECT d.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active "
+                        "SELECT d.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active, "
+                        "p.gender, p.dob, p.address, p.city, p.state, p.country, p.pincode, p.language_pref "
                         "FROM doctors d JOIN profiles p ON p.id = d.profile_id WHERE d.doctor_id = :id"
                     ),
                     {"id": str(doctor_id)},
@@ -158,7 +159,8 @@ class DoctorRepository:
         # frontend's staff list needs, not something derivable from `doctors` alone.
         # d.deleted_at IS NULL excludes soft-deleted doctors from the active list.
         base = (
-            "SELECT d.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active "
+            "SELECT d.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active, "
+            "p.gender, p.dob, p.address, p.city, p.state, p.country, p.pincode, p.language_pref "
             "FROM doctors d JOIN profiles p ON p.id = d.profile_id WHERE d.deleted_at IS NULL"
         )
         if clinic_id:

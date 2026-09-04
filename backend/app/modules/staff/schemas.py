@@ -51,6 +51,11 @@ class StaffProfileUpdate(BaseModel):
     gender: str | None = Field(default=None, pattern="^(male|female|other)$")
     dob: date | None = None
     address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    pincode: str | None = None
+    language_pref: str | None = None
 
 
 class DoctorUpdate(StaffProfileUpdate):
@@ -76,6 +81,14 @@ class DoctorRead(BaseModel):
     last_name: str
     email: str
     phone: str | None = None
+    gender: str | None = None
+    dob: date | None = None
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    pincode: str | None = None
+    language_pref: str | None = None
     profile_is_active: bool = True
     # Denormalized primary-clinic column (SQL/20_doctor_clinic_id.sql) —
     # clinic_staff_assignments remains the source of truth for multi-clinic

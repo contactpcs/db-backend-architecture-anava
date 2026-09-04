@@ -49,6 +49,23 @@ async def assert_patient_self(ctx: RequestContext, session: AsyncSession, patien
         raise PermissionError_("You can only access your own patient record", code="PATIENT_SCOPE_MISMATCH")
 
 
+def assert_staff_self(ctx: RequestContext, staff_profile_id) -> None:
+    """PATCH /doctors/{id} (and the CA/receptionist equivalents) allow
+    role='doctor'/'clinical_assistant'/'receptionist' on top of the usual
+    admin roles so a staff member can edit their own profile through the
+    same admin-facing endpoint — but the route takes doctor_id/ca_id/
+    receptionist_id as a path param with no other restriction. Without this,
+    any doctor could edit ANY other doctor's row (assert_clinic_scope only
+    checks clinic/region membership, which every doctor at that clinic
+    trivially passes for a colleague's record too). No-op for admin roles,
+    which stay scoped by assert_clinic_scope instead.
+    staff_profile_id is the row's own profile_id (doctors.profile_id etc,
+    already in hand from the caller's own get() — no extra query needed),
+    compared directly against ctx.user_id (also a profiles.id)."""
+    if ctx.role in ("doctor", "clinical_assistant", "receptionist") and str(staff_profile_id) != ctx.user_id:
+        raise PermissionError_("You can only edit your own profile", code="STAFF_SCOPE_MISMATCH")
+
+
 def assert_owns_profile(ctx: RequestContext, profile_id) -> None:
     """Same purpose as assert_patient_self, for records that already store
     the owning profiles.id directly (anamnesis_assessments.patient_id,

@@ -294,7 +294,12 @@ async def update_my_profile(
             await db.execute(text(f"UPDATE profiles SET {set_clause} WHERE id = :id"), {**updates, "id": ctx.user_id})
         except IntegrityError as exc:
             raise ConflictError("Email already in use", code="EMAIL_IN_USE") from exc
-        await db.commit()
+        # No explicit commit here — get_db() already wraps the whole request
+        # in one session.begin() transaction that commits when the request
+        # finishes successfully. An explicit commit() closes that
+        # transaction early, and the get_my_profile() re-fetch right below
+        # then crashes with "Can't operate on closed transaction" (same bug
+        # found live on clinical/router.py's copy of this exact pattern).
     return await get_my_profile(db=db, ctx=ctx)
 
 
@@ -379,7 +384,11 @@ async def toggle_notification_read(
 
     service = NotificationService(db)
     await service.mark_read(UUID(ctx.user_id), [notification_id])
-    await db.commit()
+    # No explicit commit — get_db() already wraps the whole request in one
+    # transaction that commits when the request finishes; committing early
+    # here closes it before the unread_count() re-query right below, which
+    # then crashes with "Can't operate on closed transaction" (same class of
+    # bug found live on /me and /notifications/mark-all-read).
     remaining = await service.unread_count(UUID(ctx.user_id))
     return s.ToggleReadResponse(notification_id=notification_id, is_read=True, total_unread=remaining)
 
@@ -392,7 +401,7 @@ async def mark_all_notifications_read(
 
     service = NotificationService(db)
     marked = await service.mark_read(UUID(ctx.user_id), None)
-    await db.commit()
+    # No explicit commit — see toggle_notification_read above for why.
     remaining = await service.unread_count(UUID(ctx.user_id))
     return s.MarkAllReadResponse(marked_count=marked, total_unread=remaining)
 

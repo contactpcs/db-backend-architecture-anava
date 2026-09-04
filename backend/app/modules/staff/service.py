@@ -21,7 +21,10 @@ from app.modules.staff.repository import (
     update_profile,
 )
 
-_PROFILE_UPDATE_KEYS = {"first_name", "last_name", "email", "phone", "gender", "dob", "address"}
+_PROFILE_UPDATE_KEYS = {
+    "first_name", "last_name", "email", "phone", "gender", "dob", "address",
+    "city", "state", "country", "pincode", "language_pref",
+}
 
 
 def _split_profile_fields(fields: dict) -> tuple[dict, dict]:

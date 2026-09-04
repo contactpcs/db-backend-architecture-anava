@@ -50,6 +50,21 @@ async def get_current_anamnesis(
     return await AnamnesisService(db).get_current(patient_id, assessment_stage)
 
 
+@router.get("/patients/{patient_id}/anamnesis/versions", response_model=list[s.AnamnesisAssessmentRead])
+async def list_anamnesis_versions(
+    patient_id: UUID,
+    assessment_stage: str | None = Query(default=None, pattern="^(registration|main)$"),
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    """Every version ever started for this patient, newest first — powers
+    the doctor-view version picker. get_current_anamnesis above only ever
+    returns the latest; editing (start() again) never overwrites an old
+    version, it just stops being the one that endpoint returns."""
+    await assert_patient_self(ctx, db, patient_id)
+    return await AnamnesisService(db).list_versions(patient_id, assessment_stage)
+
+
 @router.get("/anamnesis/{anamnesis_id}/responses", response_model=list[s.AnamnesisResponseRead])
 async def get_anamnesis_responses(
     anamnesis_id: str, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))

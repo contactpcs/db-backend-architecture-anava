@@ -119,6 +119,20 @@ class AnamnesisAssessmentRepository:
             {"pid": str(patient_id)},
         )
 
+    async def list_for_patient(self, patient_id: UUID, assessment_stage: str | None = None) -> builtins.list[dict]:
+        """Every version ever started for this patient (this assessment_stage
+        if given), newest first — the version picker's data source. get()/
+        get_latest_for_patient() only ever return one row; this is the one
+        place all of them are visible at once."""
+        query = "SELECT * FROM anamnesis_assessments WHERE patient_id = :pid"
+        params: dict = {"pid": str(patient_id)}
+        if assessment_stage:
+            query += " AND assessment_stage = :stage"
+            params["stage"] = assessment_stage
+        query += " ORDER BY version DESC"
+        rows = (await self.session.execute(text(query), params)).mappings().all()
+        return [dict(r) for r in rows]
+
     async def get_by_appointment(self, appointment_id: UUID) -> dict | None:
         return await fetch_optional(
             self.session,

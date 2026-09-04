@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 import datetime as dt
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -127,16 +128,32 @@ def _initial_status_and_hold(settings) -> tuple[str, dt.datetime | None]:
     return STATUS_PAID, None
 
 
+
+# appointment_date/start_time are plain DATE/TIME columns — no timezone of
+# their own — and every clinic this product serves is in India, so they are
+# wall-clock IST by convention. dt.datetime.now() with no argument returns
+# the SERVER PROCESS's local clock, which is only IST by accident: it was
+# IST in local dev and is UTC on the deployed container (standard for a
+# Docker image), silently shifting the "is this slot past" cutoff by 5:30
+# hours — a slot up to 5:30 hours already past showed as bookable in prod,
+# and one up to 5:30 hours in the future could get rejected as past.
+# Anchor explicitly to IST instead of trusting the process's local zone.
+_IST = ZoneInfo("Asia/Kolkata")
+
+
+def _now_ist_naive() -> dt.datetime:
+    """Current wall-clock time in IST, as a naive datetime — matches the
+    naive appointment_date/start_time columns it gets compared against."""
+    return dt.datetime.now(_IST).replace(tzinfo=None)
+
+
 def _hours_until(appointment_date: dt.date, start_time: dt.time) -> float:
     target = dt.datetime.combine(appointment_date, start_time)
-    return (target - dt.datetime.now()).total_seconds() / 3600.0
+    return (target - _now_ist_naive()).total_seconds() / 3600.0
 
 
 def _is_past(on_date: dt.date, start_time: dt.time) -> bool:
-    """Naive local wall-clock comparison, same convention as _hours_until —
-    appointment_date/start_time carry no timezone (plain DATE/TIME columns),
-    so "now" for this comparison is the server's local clock, not UTC."""
-    return dt.datetime.combine(on_date, start_time) < dt.datetime.now()
+    return dt.datetime.combine(on_date, start_time) < _now_ist_naive()
 
 
 def _reject_if_past(on_date: dt.date, start_time: dt.time) -> None:
@@ -634,12 +651,17 @@ class AppointmentService:
         )
 
     async def list_upcoming(self, *, ctx: RequestContext, days: int = 14) -> builtins.list[dict]:
-        today = dt.date.today()
+        today = _now_ist_naive().date()
         rows = await self.list(ctx=ctx, date_from=today, date_to=today + dt.timedelta(days=days), limit=200)
         return [r for r in rows if r["status"] in ACTIVE_STATUSES]
 
     async def list_today(self, *, ctx: RequestContext) -> builtins.list[dict]:
-        today = dt.date.today()
+        # dt.date.today() reads the SERVER PROCESS's local clock, UTC on the
+        # deployed container — "today" would flip a day early/late for
+        # roughly 5:30 hours around IST midnight (e.g. an appointment book
+        # for 1 AM IST would compute as still "yesterday" in UTC). Anchor
+        # to IST explicitly, same fix as _is_past/_hours_until above.
+        today = _now_ist_naive().date()
         return await self.list(ctx=ctx, date_from=today, date_to=today, limit=200)
 
     async def _write_audit(
