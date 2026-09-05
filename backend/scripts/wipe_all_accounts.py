@@ -34,7 +34,7 @@ from app.core.db import get_migration_engine
 # profiles/clinics), so it needs its own explicit entry or the final
 # DELETE FROM profiles fails on a leftover row.
 _DEPENDENT_TABLES = """
-    activity_logs, appointment_requests, appointments, assessment_protocol_requests,
+    activity_logs, appointment_requests, appointments,
     ca_doctor_assignments, clinic_requests, clinic_staff_assignments, clinical_assistants,
     consent_records, device_assignments, doctor_patient_assignments, doctor_schedule_overrides,
     doctor_weekly_schedules, doctors, inventory, notifications, patient_clinic_transfers,
