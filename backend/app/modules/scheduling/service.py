@@ -1379,6 +1379,13 @@ class PatientBookingService:
         claim a slot for them."""
         return await self.repo.list_for_patient(UUID(ctx.user_id), include_past=include_past)
 
+    async def my_appointment_history(self, ctx: RequestContext) -> builtins.list[dict]:
+        """The appointment-section feed: every appointment ever, newest first,
+        each with its most recent payment attached — pending hold, abandoned
+        (hold_sweeper.py cancels rather than deletes these, see its header),
+        paid, or completed."""
+        return await self.repo.list_for_patient_with_payment(UUID(ctx.user_id))
+
 
 class ClinicDeviceScheduleService:
     """Clinic-admin side: when each of the clinic's devices runs sessions, and

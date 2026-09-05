@@ -256,6 +256,18 @@ async def my_appointments(
     return await PatientBookingService(db).my_appointments(ctx, include_past=include_past)
 
 
+@router.get("/me/appointments/history", response_model=list[s.AppointmentHistoryRead])
+async def my_appointment_history(
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("patient")),
+):
+    """The patient portal's appointment section: every appointment ever,
+    newest first, each row carrying its most recent payment — pending hold,
+    abandoned/failed, paid, or completed. One call instead of separately
+    joining /me/appointments and /me/payments client-side."""
+    return await PatientBookingService(db).my_appointment_history(ctx)
+
+
 @router.get("/me/appointments/availability", response_model=list[s.AvailabilitySlotRead])
 async def my_availability(
     from_date: date,

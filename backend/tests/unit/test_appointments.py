@@ -331,7 +331,7 @@ def test_the_hold_invariant_holds_in_both_flag_positions():
 def _expiry_branch(protocol_id):
     """The sweeper's decision, isolated. Mirrors the two statements in
     AppointmentRepository.release_expired_holds and hold_sweeper.sweep_once."""
-    return "revert_to_planned" if protocol_id is not None else "delete"
+    return "revert_to_planned" if protocol_id is not None else "cancelled"
 
 
 def test_protocol_row_reverts_and_keeps_the_doctors_date():
@@ -340,17 +340,18 @@ def test_protocol_row_reverts_and_keeps_the_doctors_date():
     assert _expiry_branch(protocol_id="a-protocol") == "revert_to_planned"
 
 
-def test_patient_booked_row_is_deleted():
-    """No earlier state to fall back to, and nothing unpaid should persist.
-    Deleting also frees uq_one_active_initial_per_patient immediately."""
-    assert _expiry_branch(protocol_id=None) == "delete"
+def test_patient_booked_row_is_cancelled_not_deleted():
+    """The attempt must survive in appointment/payment history for the patient
+    portal instead of vanishing. Cancelled is already excluded from
+    uq_one_active_initial_per_patient, so the slot still frees immediately."""
+    assert _expiry_branch(protocol_id=None) == "cancelled"
 
 
 @pytest.mark.parametrize("appointment_type", sorted(PROTOCOL_BORN_TYPES))
 def test_every_protocol_born_type_carries_a_protocol(appointment_type):
     """chk_appointments_device_session_has_protocol enforces this in the
     database, and the sweeper depends on it: a protocol row that reached
-    'selected' without protocol_id would take the delete branch and lose the
+    'selected' without protocol_id would take the cancel branch and lose the
     doctor's date."""
     assert appointment_type in PROTOCOL_BORN_TYPES
     assert _expiry_branch(protocol_id="set-by-protocol-setup") == "revert_to_planned"

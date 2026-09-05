@@ -241,6 +241,20 @@ class AppointmentRead(BaseModel):
     created_at: datetime
 
 
+class AppointmentHistoryRead(AppointmentRead):
+    """/me/appointments/history — one row per appointment with its most
+    recent payment folded in, so the patient portal's appointment section
+    needs no separate call to /me/payments to show pending-hold, abandoned,
+    paid or completed rows in one feed."""
+
+    payment_id: UUID | None = None
+    payment_status: str | None = None
+    payment_amount: float | None = None
+    payment_currency: str | None = None
+    payment_method: str | None = None
+    paid_at: datetime | None = None
+
+
 # ── clinic device schedule (clinic-admin side) ──────────────────────────────
 
 

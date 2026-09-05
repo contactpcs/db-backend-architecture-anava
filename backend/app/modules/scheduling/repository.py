@@ -209,6 +209,41 @@ class AppointmentRepository:
         )
         return [dict(r) for r in rows]
 
+    async def list_for_patient_with_payment(self, patient_profile_id: UUID) -> builtins.list[dict]:
+        """The patient portal's appointment history feed: every appointment of
+        every type, past and present, each with its most recent payment
+        attached — pending hold, abandoned/failed (see hold_sweeper.py), paid,
+        or none at all (waived, or payment_required=False). Newest first,
+        unlike list_for_patient's upcoming-first ordering, since this is a
+        history view rather than a "what do I need to act on" view.
+
+        LATERAL + LIMIT 1 picks one payment per appointment because a single
+        appointment can carry more than one payments row over its life (a
+        failed attempt followed by a successful retry) — same "most recent
+        wins" rule as PaymentRepository.get_for_appointment.
+        """
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        f"{_APPT_SELECT}"
+                        "LEFT JOIN LATERAL ("
+                        "SELECT p.payment_id, p.status AS payment_status, p.amount AS payment_amount, "
+                        "p.currency AS payment_currency, p.payment_method, p.paid_at "
+                        "FROM payments p WHERE p.appointment_id = a.appointment_id "
+                        "ORDER BY p.created_at DESC LIMIT 1"
+                        ") pay ON true "
+                        "WHERE a.patient_id = :pid "
+                        "ORDER BY a.appointment_date DESC, a.start_time DESC NULLS LAST"
+                    ),
+                    {"pid": str(patient_profile_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
     async def list(
         self,
         *,
@@ -383,20 +418,25 @@ class AppointmentRepository:
         )
 
     async def release_expired_holds(self) -> dict:
-        """The sweeper's whole job, as two statements.
+        """The sweeper's whole job. Mirrors app/workers/hold_sweeper.py::sweep_once
+        (which also updates payments/payment_logs — not this repo's concern).
 
         Expiry is asymmetric, and the asymmetry is the point (31 header):
-          no protocol_id       patient-booked. DELETED — nothing unpaid persists
-                               and the patient simply books again.
+          no protocol_id       patient-booked. Moves to 'cancelled' — same
+                               terminal state as any other cancellation, so
+                               the attempt survives in the patient's history
+                               instead of vanishing, while still freeing the
+                               slot and uq_one_active_initial_per_patient.
           protocol_id set      protocol-born. Reverts to 'planned' with its time
                                cleared. The doctor's prescribed DATE survives;
                                only the slot is released. Deleting these would
                                destroy a prescription because of a payment
                                timeout.
 
-        start_time and end_time are nulled together — chk_appointments_time_pair
-        requires it — and hold_expires_at goes with them, since a 'planned' row
-        may not carry an expiry under chk_appointments_hold.
+        Only the protocol-born branch nulls start_time/end_time (chk_appointments_
+        time_pair) — a cancelled patient-booked row keeps the slot it failed to
+        pay for. Both branches clear hold_expires_at, since only 'selected' may
+        carry one under chk_appointments_hold.
         """
         reverted = await self.session.execute(
             text(
@@ -406,12 +446,16 @@ class AppointmentRepository:
                 "AND protocol_id IS NOT NULL"
             )
         )
-        deleted = await self.session.execute(
-            text("DELETE FROM appointments WHERE status = 'selected' AND hold_expires_at < NOW() AND protocol_id IS NULL")
+        cancelled = await self.session.execute(
+            text(
+                "UPDATE appointments SET status = 'cancelled', hold_expires_at = NULL, "
+                "cancellation_reason = 'Payment not completed within hold window', updated_at = NOW() "
+                "WHERE status = 'selected' AND hold_expires_at < NOW() AND protocol_id IS NULL"
+            )
         )
         return {
             "reverted_to_planned": reverted.rowcount or 0,  # type: ignore[attr-defined]
-            "deleted": deleted.rowcount or 0,  # type: ignore[attr-defined]
+            "cancelled_unpaid": cancelled.rowcount or 0,  # type: ignore[attr-defined]
         }
 
     async def update_fields(self, appointment_id: UUID, fields: dict) -> dict | None:

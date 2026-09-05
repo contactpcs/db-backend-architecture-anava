@@ -7,11 +7,15 @@ a busy calendar silently fills with dead holds nobody can see.
 
 WHAT IT DOES, and why the two branches differ:
 
-    no protocol_id       patient-booked (initial / follow_up). The row is
-                         DELETED. There is no earlier state to fall back to,
-                         nothing unpaid should persist, and the patient simply
-                         books again from an empty screen. Deleting also frees
-                         uq_one_active_initial_per_patient immediately.
+    no protocol_id       patient-booked (initial / follow_up). The row moves
+                         to 'cancelled' (cancellation_reason set), same as any
+                         other cancellation — already excluded from
+                         uq_one_active_initial_per_patient and from the
+                         slot-occupying set, so the patient can book again and
+                         the slot frees immediately. The attempt survives in
+                         appointment history + payments history instead of
+                         vanishing, so the patient portal can show it as a
+                         locked, failed attempt rather than nothing at all.
 
     protocol_id set      protocol-born (device_session / protocol_followup).
                          Reverts to 'planned' with its time cleared. The
@@ -19,9 +23,10 @@ WHAT IT DOES, and why the two branches differ:
                          released. Deleting these would destroy part of a
                          prescription because a payment timed out.
 
-Both branches null start_time and end_time together (chk_appointments_time_pair)
-and clear hold_expires_at (chk_appointments_hold permits an expiry only on
-'selected').
+Both branches null hold_expires_at (chk_appointments_hold permits an expiry
+only on 'selected'). Only the protocol-born branch also nulls start_time/
+end_time — a cancelled patient-booked row keeps the slot it failed to pay for,
+same as any other cancelled appointment.
 
 WHILE PAYMENT IS BYPASSED this worker finds nothing: with
 appointment_payment_required = False, bookings land on 'paid' with no hold at
@@ -82,28 +87,20 @@ async def sweep_once() -> dict:
                     "AND protocol_id IS NOT NULL"
                 )
             )
-            # fk_payments_appointment_id is ON DELETE RESTRICT (30 §5) — and
-            # every abandoned checkout has exactly one payments row pointing
-            # at it (create_order writes it before Checkout even opens), so
-            # the DELETE below would violate that FK on almost every real
-            # pass, roll back the whole transaction, and silently re-fail
-            # forever (found live: a hold sat expired for 25+ minutes,
-            # untouched, because of this). Only 'pending'/'failed' payments
-            # can ever be attached to a still-'selected' appointment — a
-            # 'paid' one would have already moved the appointment out of
-            # 'selected' via mark_paid() — so deleting them here is safe:
-            # nothing that ever completed is at risk.
+            # Only 'pending'/'failed' payments can ever be attached to a
+            # still-'selected' appointment — a 'paid' one would have already
+            # moved the appointment out of 'selected' via mark_paid() — so
+            # flipping them to 'failed' here is safe: nothing that ever
+            # completed is at risk.
             #
-            # Logged first (67_payment_logs_survive_deletion.sql made
-            # payment_logs.payment_id ON DELETE SET NULL specifically so this
-            # survives the payments DELETE below) — an abandoned checkout is
-            # exactly the case worth a durable "why did this never complete"
-            # record, not just silent deletion.
+            # Logged first, same as any other payment status change — an
+            # abandoned checkout is exactly the case worth a durable "why did
+            # this never complete" record.
             await session.execute(
                 text(
                     "INSERT INTO payment_logs (payment_id, status, amount, currency, payment_method, "
                     "razorpay_order_id, razorpay_payment_id, source, failure_reason, changed_by_role) "
-                    "SELECT payment_id, status, amount, currency, payment_method, razorpay_order_id, razorpay_payment_id, "
+                    "SELECT payment_id, 'failed', amount, currency, payment_method, razorpay_order_id, razorpay_payment_id, "
                     "'system', 'Booking hold expired before payment completed', 'system' "
                     "FROM payments WHERE appointment_id IN ("
                     "SELECT appointment_id FROM appointments "
@@ -113,24 +110,41 @@ async def sweep_once() -> dict:
             )
             await session.execute(
                 text(
-                    "DELETE FROM payments WHERE appointment_id IN ("
+                    "UPDATE payments SET status = 'failed', updated_at = NOW() WHERE appointment_id IN ("
                     "SELECT appointment_id FROM appointments "
                     "WHERE status = 'selected' AND hold_expires_at < NOW() AND protocol_id IS NULL"
                     ")"
                 )
             )
-            deleted = await session.execute(
-                text("DELETE FROM appointments WHERE status = 'selected' AND hold_expires_at < NOW() AND protocol_id IS NULL")
+            # Audit row before the status flip, off the same still-'selected'
+            # snapshot — appointment_audit_logs is the durable, patient-visible
+            # record of the attempt; the appointments row itself moves on to
+            # 'cancelled' right after (same table, same statement below).
+            await session.execute(
+                text(
+                    "INSERT INTO appointment_audit_logs (appointment_id, changed_by, changed_by_role, "
+                    "previous_status, new_status, change_reason) "
+                    "SELECT appointment_id, NULL, 'system', 'selected', 'cancelled', "
+                    "'Payment not completed within hold window' "
+                    "FROM appointments WHERE status = 'selected' AND hold_expires_at < NOW() AND protocol_id IS NULL"
+                )
+            )
+            cancelled = await session.execute(
+                text(
+                    "UPDATE appointments SET status = 'cancelled', hold_expires_at = NULL, "
+                    "cancellation_reason = 'Payment not completed within hold window', updated_at = NOW() "
+                    "WHERE status = 'selected' AND hold_expires_at < NOW() AND protocol_id IS NULL"
+                )
             )
             result = {
                 # CursorResult has rowcount; the async Result stubs don't expose
                 # it. Same ignore the repository layer already uses.
                 "reverted_to_planned": reverted.rowcount or 0,  # type: ignore[attr-defined]
-                "deleted": deleted.rowcount or 0,  # type: ignore[attr-defined]
+                "cancelled_unpaid": cancelled.rowcount or 0,  # type: ignore[attr-defined]
                 "skipped": False,
             }
 
-    if result["reverted_to_planned"] or result["deleted"]:
+    if result["reverted_to_planned"] or result["cancelled_unpaid"]:
         logger.info("appointment_holds_released", **result)
     return result
 
