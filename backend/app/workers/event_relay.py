@@ -49,18 +49,98 @@ _relay_session_factory = async_sessionmaker(_relay_engine, expire_on_commit=Fals
 
 
 async def _handle_appointment_booked(session, payload: dict[str, Any]) -> list[dict]:
-    """Notifies the doctor a new appointment was booked on their calendar."""
-    doctor_id = payload.get("doctor_id")
-    if not doctor_id:
+    """Notifies the doctor a new appointment landed on their calendar, and the
+    patient that their booking went through.
+
+    Reads the row itself rather than trusting payload shape — the two emit
+    sites (staff booking on a patient's behalf vs. a patient's own
+    book_initial/book_follow_up) send different payloads, and the old
+    doctor_id-from-payload version silently no-opped for the patient
+    self-booking path (its payload carries no doctor_id at all), so a patient
+    booking their own appointment got told nothing. appointment_id is the one
+    thing both emit sites always send.
+
+    Worded by status, not a separate 'confirmed' state — this app's status
+    vocabulary has no such value; 'paid' IS confirmed (payment bypassed or
+    already settled), 'selected' means the slot is held pending payment.
+    """
+    appointment_id = payload.get("appointment_id")
+    if not appointment_id:
+        return []
+    row = (
+        (
+            await session.execute(
+                text("SELECT patient_id, doctor_id, status, appointment_type FROM appointments WHERE appointment_id = :id"),
+                {"id": appointment_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not row:
+        return []
+
+    notifications = []
+    if row["doctor_id"]:
+        notifications.append(
+            {
+                "recipient_id": str(row["doctor_id"]),
+                "type": "appointment",
+                "title": "New appointment booked",
+                "body": f"Appointment {appointment_id} was booked on your calendar.",
+                "entity_type": "appointment",
+                "entity_id": appointment_id,
+            }
+        )
+    kind = (row["appointment_type"] or "").replace("_", " ").title()
+    notifications.append(
+        {
+            "recipient_id": str(row["patient_id"]),
+            "type": "appointment",
+            "title": "Your appointment is confirmed" if row["status"] == "paid" else "Your appointment is booked",
+            "body": (
+                f"{kind} appointment confirmed."
+                if row["status"] == "paid"
+                else f"{kind} appointment held — complete payment to confirm your slot."
+            ),
+            "entity_type": "appointment",
+            "entity_id": appointment_id,
+        }
+    )
+    return notifications
+
+
+async def _handle_appointment_paid(session, payload: dict[str, Any]) -> list[dict]:
+    """Notifies the patient their payment landed and the visit is confirmed.
+    Fires from AppointmentService.mark_paid() ('selected' -> 'paid') — the
+    hold-then-pay path _handle_appointment_booked's 'booked' message already
+    covered as pending. payment_completed (payments/service.py) fires for the
+    identical real-world moment but is deliberately NOT given a handler here
+    too — mark_paid() is called from the same payment-success codepath, so
+    wiring both would double-notify the same patient for one event."""
+    appointment_id = payload.get("appointment_id")
+    if not appointment_id:
+        return []
+    row = (
+        (
+            await session.execute(
+                text("SELECT patient_id, appointment_date, start_time FROM appointments WHERE appointment_id = :id"),
+                {"id": appointment_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not row:
         return []
     return [
         {
-            "recipient_id": doctor_id,
+            "recipient_id": str(row["patient_id"]),
             "type": "appointment",
-            "title": "New appointment booked",
-            "body": f"Appointment {payload.get('appointment_id')} was booked on your calendar.",
+            "title": "Payment received — appointment confirmed",
+            "body": f"Your appointment on {row['appointment_date']} at {row['start_time']} is confirmed.",
             "entity_type": "appointment",
-            "entity_id": payload.get("appointment_id"),
+            "entity_id": appointment_id,
         }
     ]
 
@@ -272,14 +352,100 @@ async def _handle_staff_request_decided(session, payload: dict[str, Any]) -> lis
     ]
 
 
+async def _handle_sos_raised(session, payload: dict[str, Any]) -> list[dict]:
+    """Pages whoever is actually running the session — the CA who started it
+    (appointments.ca_id, set at DeviceSessionService.start()) and the
+    appointment's responsible doctor. Safety-critical, so both get it rather
+    than picking one."""
+    row = (
+        (
+            await session.execute(
+                text("SELECT ca_id, doctor_id FROM appointments WHERE appointment_id = :id"),
+                {"id": payload["appointment_id"]},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not row:
+        return []
+    body = f"{payload.get('sos_type', 'SOS')} raised during a device session." + (f" Note: {payload['note']}" if payload.get("note") else "")
+    return [
+        {
+            "recipient_id": str(recipient),
+            "type": "clinical",
+            "title": "SOS raised — patient needs attention",
+            "body": body,
+            "entity_type": "device_session",
+            "entity_id": payload["appointment_id"],
+        }
+        for recipient in (row["ca_id"], row["doctor_id"])
+        if recipient
+    ]
+
+
+async def _handle_sos_acknowledged(session, payload: dict[str, Any]) -> list[dict]:
+    """Closes the loop back to the patient who raised it."""
+    row = (
+        (await session.execute(text("SELECT patient_id FROM appointments WHERE appointment_id = :id"), {"id": payload["appointment_id"]}))
+        .mappings()
+        .first()
+    )
+    if not row:
+        return []
+    return [
+        {
+            "recipient_id": str(row["patient_id"]),
+            "type": "clinical",
+            "title": "Your SOS has been acknowledged",
+            "body": "A member of staff is attending to you.",
+            "entity_type": "device_session",
+            "entity_id": payload["appointment_id"],
+        }
+    ]
+
+
+async def _handle_patient_registration_decided(session, payload: dict[str, Any]) -> list[dict]:
+    """Notifies the patient whether their receptionist-reviewed registration
+    was approved. payload's patient_id is patients.patient_id (the public
+    id) — notifications.recipient_id needs profiles.id, hence the join."""
+    row = (
+        (
+            await session.execute(
+                text("SELECT profile_id, rejection_reason FROM patients WHERE patient_id = :id"),
+                {"id": payload["patient_id"]},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not row:
+        return []
+    approved = payload.get("decision") == "approved"
+    return [
+        {
+            "recipient_id": str(row["profile_id"]),
+            "type": "admin",
+            "title": "Your registration has been approved" if approved else "Your registration was not approved",
+            "body": "You can now book appointments." if approved else row["rejection_reason"],
+            "entity_type": "patient",
+            "entity_id": payload["patient_id"],
+        }
+    ]
+
+
 EVENT_HANDLERS = {
     "appointment_booked": _handle_appointment_booked,
+    "appointment_paid": _handle_appointment_paid,
     "appointment_cancelled": _handle_appointment_cancelled,
     "appointment_status_changed": _handle_appointment_status_changed,
     "appointment_rescheduled": _handle_appointment_rescheduled,
     "staff_request_submitted": _handle_staff_request_submitted,
     "staff_request_decided": _handle_staff_request_decided,
     "registration_completed": _handle_registration_completed,
+    "sos_raised": _handle_sos_raised,
+    "sos_acknowledged": _handle_sos_acknowledged,
+    "patient_registration_decided": _handle_patient_registration_decided,
 }
 
 

@@ -594,6 +594,22 @@ class DeviceSessionService:
             ctx=ctx,
             payload={"sos_type": sos_type, "sos_id": str(created["sos_id"])},
         )
+        # _write_event above only writes device_sessions' own local log —
+        # never reaches the outbox/notification pipeline. An SOS mid-session
+        # is safety-critical and needs the CA/doctor actually paged, not just
+        # recorded, so this also goes through the real event system.
+        await emit_event(
+            self.session,
+            aggregate_type="device_session",
+            aggregate_id=header["device_session_record_id"],
+            event_type="sos_raised",
+            payload={
+                "appointment_id": str(appointment_id),
+                "sos_id": str(created["sos_id"]),
+                "sos_type": sos_type,
+                "note": note,
+            },
+        )
         return created
 
     async def acknowledge_sos(self, appointment_id: UUID, sos_id: UUID, ctx: RequestContext) -> dict:
@@ -610,6 +626,15 @@ class DeviceSessionService:
             event_type="sos_acknowledged",
             ctx=ctx,
             payload={"sos_id": str(sos_id)},
+        )
+        # Closes the loop back to the patient who raised it — see sos_raised
+        # above for why this needs the real event system, not just the local log.
+        await emit_event(
+            self.session,
+            aggregate_type="device_session",
+            aggregate_id=header["device_session_record_id"],
+            event_type="sos_acknowledged",
+            payload={"appointment_id": str(appointment_id), "sos_id": str(sos_id)},
         )
         return updated or sos
 

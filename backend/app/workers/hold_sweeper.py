@@ -16,6 +16,10 @@ WHAT IT DOES, and why the two branches differ:
                          appointment history + payments history instead of
                          vanishing, so the patient portal can show it as a
                          locked, failed attempt rather than nothing at all.
+                         Also emits an 'appointment_cancelled' outbox event per
+                         row — event_relay.py's existing handler for that type
+                         turns it into a patient notification + live SSE push,
+                         no new handler needed.
 
     protocol_id set      protocol-born (device_session / protocol_followup).
                          Reverts to 'planned' with its time cleared. The
@@ -43,6 +47,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import get_settings
 from app.core.db import get_migration_engine
+from app.core.events import emit_event
 
 logger = structlog.get_logger()
 
@@ -133,14 +138,30 @@ async def sweep_once() -> dict:
                 text(
                     "UPDATE appointments SET status = 'cancelled', hold_expires_at = NULL, "
                     "cancellation_reason = 'Payment not completed within hold window', updated_at = NOW() "
-                    "WHERE status = 'selected' AND hold_expires_at < NOW() AND protocol_id IS NULL"
+                    "WHERE status = 'selected' AND hold_expires_at < NOW() AND protocol_id IS NULL "
+                    "RETURNING appointment_id"
                 )
             )
+            cancelled_ids = [row[0] for row in cancelled.fetchall()]
+            # Reuses event_relay.py's existing _handle_appointment_cancelled
+            # unchanged — it reads cancellation_reason back off the row above
+            # and resolves the patient as recipient (changed_by_role isn't
+            # 'patient'), so this is what actually gets the abandoned attempt
+            # into the patient's notification bell + live SSE refresh instead
+            # of only showing up next time they reload the appointments page.
+            for appointment_id in cancelled_ids:
+                await emit_event(
+                    session,
+                    aggregate_type="appointment",
+                    aggregate_id=appointment_id,
+                    event_type="appointment_cancelled",
+                    payload={"appointment_id": str(appointment_id), "changed_by_role": "system"},
+                )
             result = {
                 # CursorResult has rowcount; the async Result stubs don't expose
                 # it. Same ignore the repository layer already uses.
                 "reverted_to_planned": reverted.rowcount or 0,  # type: ignore[attr-defined]
-                "cancelled_unpaid": cancelled.rowcount or 0,  # type: ignore[attr-defined]
+                "cancelled_unpaid": len(cancelled_ids),
                 "skipped": False,
             }
 
