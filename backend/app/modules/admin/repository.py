@@ -435,6 +435,7 @@ class AdminsRepository:
                     text(
                         "SELECT a.admin_id, a.profile_id, a.admin_type, a.region_id, a.clinic_id, a.created_at, "
                         "p.first_name, p.last_name, p.email, p.phone, p.is_active, "
+                        "p.gender, p.dob, p.address, p.city, p.state, p.country, p.pincode, "
                         "r.region_name, c.clinic_name "
                         "FROM admins a "
                         "JOIN profiles p ON p.id = a.profile_id "
@@ -475,6 +476,7 @@ class AdminsRepository:
                     text(
                         "SELECT a.admin_id, a.profile_id, a.admin_type, a.region_id, a.clinic_id, a.created_at, "
                         "p.first_name, p.last_name, p.email, p.phone, p.is_active, "
+                        "p.gender, p.dob, p.address, p.city, p.state, p.country, p.pincode, "
                         "r.region_name, c.clinic_name "
                         "FROM admins a "
                         "JOIN profiles p ON p.id = a.profile_id "

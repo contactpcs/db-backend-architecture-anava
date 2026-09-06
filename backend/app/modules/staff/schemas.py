@@ -95,6 +95,8 @@ class DoctorRead(BaseModel):
     # doctor membership, this is a fast-lookup convenience kept in sync at
     # write time (see DoctorRepository.create).
     clinic_id: UUID | None = None
+    profile_completion_percentage: int = 0
+    profile_completion_missing_fields: list[str] = Field(default_factory=list)
 
 
 class ClinicalAssistantCreate(StaffPersonCreate):
@@ -128,6 +130,8 @@ class ClinicalAssistantRead(BaseModel):
     pincode: str | None = None
     language_pref: str | None = None
     profile_is_active: bool = True
+    profile_completion_percentage: int = 0
+    profile_completion_missing_fields: list[str] = Field(default_factory=list)
 
 
 class ReceptionistCreate(StaffPersonCreate):
@@ -159,6 +163,8 @@ class ReceptionistRead(BaseModel):
     pincode: str | None = None
     language_pref: str | None = None
     profile_is_active: bool = True
+    profile_completion_percentage: int = 0
+    profile_completion_missing_fields: list[str] = Field(default_factory=list)
 
 
 class CaDoctorAssignmentCreate(BaseModel):

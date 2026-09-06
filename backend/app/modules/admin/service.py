@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError
 from app.core.fsm import assert_transition
+from app.core.profile_completion import ADMIN_FIELDS, compute_completion_percentage, compute_missing_fields
 from app.modules.admin.repository import (
     AdminsRepository,
     BillableItemRepository,
@@ -497,12 +498,19 @@ class AdminAccountsService:
         self.repo = AdminsRepository(session)
 
     async def list(self, *, admin_type: str | None = None, region_id: UUID | None = None, clinic_id: UUID | None = None) -> list[dict]:
-        return await self.repo.list(admin_type=admin_type, region_id=region_id, clinic_id=clinic_id)
+        admins = await self.repo.list(admin_type=admin_type, region_id=region_id, clinic_id=clinic_id)
+        return [self._attach_completion(a) for a in admins]
 
     async def get(self, admin_id: UUID) -> dict:
         admin = await self.repo.get(admin_id)
         if not admin:
             raise NotFoundError("Admin not found", code="ADMIN_NOT_FOUND")
+        return self._attach_completion(admin)
+
+    @staticmethod
+    def _attach_completion(admin: dict) -> dict:
+        admin["profile_completion_percentage"] = compute_completion_percentage(admin, ADMIN_FIELDS)
+        admin["profile_completion_missing_fields"] = compute_missing_fields(admin, ADMIN_FIELDS)
         return admin
 
     async def update(self, admin_id: UUID, fields: dict) -> dict:

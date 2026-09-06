@@ -41,6 +41,9 @@ class PatientUpdate(BaseModel):
     pincode: str | None = None
     emergency_contact_name: str | None = None
     emergency_contact_phone: str | None = None
+    guardian_name: str | None = None
+    guardian_relationship: str | None = None
+    guardian_contact: str | None = None
     is_active: bool | None = None
 
 
@@ -63,6 +66,9 @@ class PatientSelfUpdate(BaseModel):
     pincode: str | None = None
     emergency_contact_name: str | None = None
     emergency_contact_phone: str | None = None
+    guardian_name: str | None = None
+    guardian_relationship: str | None = None
+    guardian_contact: str | None = None
     # Self-reported, no server-side verification — patients/profile page's
     # "Medical Information" + remaining "Personal Information" fields.
     language_pref: str | None = None
@@ -88,6 +94,9 @@ class PatientRead(BaseModel):
     primary_doctor_id: UUID | None
     emergency_contact_name: str | None
     emergency_contact_phone: str | None
+    guardian_name: str | None = None
+    guardian_relationship: str | None = None
+    guardian_contact: str | None = None
     registration_completed_at: datetime | None
     created_at: datetime
     # Joined from profiles — patients has no name/email/phone columns of its
@@ -130,6 +139,8 @@ class PatientRead(BaseModel):
     approved_by: UUID | None = None
     approved_at: datetime | None = None
     rejection_reason: str | None = None
+    profile_completion_percentage: int = 0
+    profile_completion_missing_fields: list[str] = Field(default_factory=list)
 
 
 class PatientApprovalDecision(BaseModel):

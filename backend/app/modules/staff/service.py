@@ -9,6 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError
+from app.core.profile_completion import (
+    CLINICAL_ASSISTANT_FIELDS,
+    DOCTOR_FIELDS,
+    RECEPTIONIST_FIELDS,
+    compute_completion_percentage,
+    compute_missing_fields,
+)
 from app.modules.admin.repository import StaffAssignmentRepository
 from app.modules.staff.repository import (
     CaDoctorAssignmentRepository,
@@ -55,6 +62,12 @@ def _split_profile_fields(fields: dict) -> tuple[dict, dict]:
     if "is_active" in role_fields:
         profile_fields["is_active"] = role_fields["is_active"]
     return profile_fields, role_fields
+
+
+def _attach_completion(row: dict, fields: tuple[str, ...]) -> dict:
+    row["profile_completion_percentage"] = compute_completion_percentage(row, fields)
+    row["profile_completion_missing_fields"] = compute_missing_fields(row, fields)
+    return row
 
 
 async def _ensure_clinic_ready_for_staff(session: AsyncSession, clinic_id) -> None:
@@ -227,16 +240,17 @@ class DoctorService:
             event_type="doctor_onboarded",
             payload={"doctor_id": str(doctor["doctor_id"]), "clinic_id": str(data["clinic_id"])},
         )
-        return _merge_profile(doctor, profile)
+        return _attach_completion(_merge_profile(doctor, profile), DOCTOR_FIELDS)
 
     async def get(self, doctor_id: UUID) -> dict:
         doctor = await self.repo.get(doctor_id)
         if not doctor:
             raise NotFoundError("Doctor not found", code="DOCTOR_NOT_FOUND")
-        return doctor
+        return _attach_completion(doctor, DOCTOR_FIELDS)
 
     async def list(self, *, clinic_id: UUID | None = None) -> builtins.list[dict]:
-        return await self.repo.list(clinic_id=clinic_id)
+        doctors = await self.repo.list(clinic_id=clinic_id)
+        return [_attach_completion(d, DOCTOR_FIELDS) for d in doctors]
 
     async def update(self, doctor_id: UUID, fields: dict, *, updated_by: UUID) -> dict:
         doctor = await self.get(doctor_id)
@@ -322,16 +336,17 @@ class ClinicalAssistantService:
             event_type="staff_onboarded",
             payload={"ca_id": str(ca["ca_id"]), "clinic_id": str(data["clinic_id"])},
         )
-        return _merge_profile(ca, profile)
+        return _attach_completion(_merge_profile(ca, profile), CLINICAL_ASSISTANT_FIELDS)
 
     async def get(self, ca_id: UUID) -> dict:
         ca = await self.repo.get(ca_id)
         if not ca:
             raise NotFoundError("Clinical assistant not found", code="CA_NOT_FOUND")
-        return ca
+        return _attach_completion(ca, CLINICAL_ASSISTANT_FIELDS)
 
     async def list(self, *, clinic_id: UUID | None = None) -> builtins.list[dict]:
-        return await self.repo.list(clinic_id=clinic_id)
+        cas = await self.repo.list(clinic_id=clinic_id)
+        return [_attach_completion(c, CLINICAL_ASSISTANT_FIELDS) for c in cas]
 
     async def update(self, ca_id: UUID, fields: dict, *, updated_by: UUID) -> dict:
         ca = await self.get(ca_id)
@@ -405,16 +420,17 @@ class ReceptionistService:
             event_type="staff_onboarded",
             payload={"receptionist_id": str(receptionist["receptionist_id"]), "clinic_id": str(data["clinic_id"])},
         )
-        return _merge_profile(receptionist, profile)
+        return _attach_completion(_merge_profile(receptionist, profile), RECEPTIONIST_FIELDS)
 
     async def get(self, receptionist_id: UUID) -> dict:
         receptionist = await self.repo.get(receptionist_id)
         if not receptionist:
             raise NotFoundError("Receptionist not found", code="RECEPTIONIST_NOT_FOUND")
-        return receptionist
+        return _attach_completion(receptionist, RECEPTIONIST_FIELDS)
 
     async def list(self, *, clinic_id: UUID | None = None) -> builtins.list[dict]:
-        return await self.repo.list(clinic_id=clinic_id)
+        receptionists = await self.repo.list(clinic_id=clinic_id)
+        return [_attach_completion(r, RECEPTIONIST_FIELDS) for r in receptionists]
 
     async def update(self, receptionist_id: UUID, fields: dict, *, updated_by: UUID) -> dict:
         receptionist = await self.get(receptionist_id)

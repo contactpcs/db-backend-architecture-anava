@@ -189,6 +189,13 @@ class AdminAccountUpdate(BaseModel):
     last_name: str | None = None
     email: EmailStr | None = None
     phone: str | None = None
+    gender: str | None = Field(default=None, pattern="^(male|female|other)$")
+    dob: date | None = None
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    pincode: str | None = None
     is_active: bool | None = None
 
 
@@ -204,12 +211,21 @@ class AdminAccountRead(BaseModel):
     last_name: str
     email: str
     phone: str | None
+    gender: str | None = None
+    dob: date | None = None
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    pincode: str | None = None
     is_active: bool
     region_id: UUID | None
     region_name: str | None
     clinic_id: UUID | None
     clinic_name: str | None
     created_at: datetime
+    profile_completion_percentage: int = 0
+    profile_completion_missing_fields: list[str] = Field(default_factory=list)
 
 
 class ClinicUpdate(BaseModel):

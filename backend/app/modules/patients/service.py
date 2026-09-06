@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import RequestContext
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, ValidationError
+from app.core.profile_completion import PATIENT_FIELDS, compute_completion_percentage, compute_missing_fields
 from app.core.resolve import resolve_patient_profile_id as _resolve_profile_id
 from app.modules.patients.repository import (
     DoctorPatientAssignmentRepository,
@@ -26,6 +27,12 @@ def _is_minor(dob: date | None) -> bool:
     today = date.today()
     age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
     return age < 18
+
+
+def _attach_completion(patient: dict) -> dict:
+    patient["profile_completion_percentage"] = compute_completion_percentage(patient, PATIENT_FIELDS)
+    patient["profile_completion_missing_fields"] = compute_missing_fields(patient, PATIENT_FIELDS)
+    return patient
 
 
 _GUARDIAN_FIELDS = ("guardian_name", "guardian_relationship", "guardian_contact")
@@ -146,10 +153,11 @@ class PatientService:
         patient = await self.repo.get(patient_id)
         if not patient:
             raise NotFoundError("Patient not found", code="PATIENT_NOT_FOUND")
-        return patient
+        return _attach_completion(patient)
 
     async def list(self, **filters) -> builtins.list[dict]:
-        return await self.repo.list(**filters)
+        patients = await self.repo.list(**filters)
+        return [_attach_completion(p) for p in patients]
 
     async def update(self, patient_id: UUID, fields: dict) -> dict:
         await self.get(patient_id)  # 404 if missing
@@ -171,6 +179,9 @@ class PatientService:
         patient_keys = {
             "emergency_contact_name",
             "emergency_contact_phone",
+            "guardian_name",
+            "guardian_relationship",
+            "guardian_contact",
             "blood_group",
             "allergies",
             "occupation",
@@ -190,7 +201,7 @@ class PatientService:
             updated = await self.repo.update(patient_id, profile_fields=profile_fields, patient_fields=patient_fields)
         except IntegrityError as exc:
             raise ConflictError(f"Email {profile_fields.get('email')!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
-        return updated  # type: ignore[return-value]
+        return _attach_completion(updated)  # type: ignore[return-value,arg-type]
 
     async def decide_approval(self, patient_id: UUID, *, decision: str, decided_by: UUID, rejection_reason: str | None) -> dict:
         """Receptionist review gate for self-registered patients — only
