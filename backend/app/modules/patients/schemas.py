@@ -130,6 +130,10 @@ class PatientRead(BaseModel):
     doctor_last_name: str | None = None
     doctor_phone: str | None = None
     doctor_specialization: str | None = None
+    # Real-time MAX(appointments.appointment_date) WHERE status='completed' —
+    # see _SELECT_WITH_PROFILE in repository.py. Not patients.last_clinical_contact_at
+    # (that's a daily-batch column written by app/workers/retention_purge.py).
+    last_visit_date: date | None = None
     # Self-registration gate — 'not_required' forever for staff-registered
     # patients (unaffected, matches pre-existing behavior). Self-registered
     # patients start 'pending' and only reach 'approved'/'rejected' once a

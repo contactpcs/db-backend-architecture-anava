@@ -131,7 +131,12 @@ class PatientRepository:
         "p.is_active AS profile_is_active, "
         "dp.first_name AS doctor_first_name, dp.last_name AS doctor_last_name, "
         "dp.first_name || ' ' || dp.last_name AS doctor_name, "
-        "dp.phone AS doctor_phone, dd.specialization AS doctor_specialization "
+        "dp.phone AS doctor_phone, dd.specialization AS doctor_specialization, "
+        # Real-time, not the daily-batch patients.last_clinical_contact_at
+        # (app/workers/retention_purge.py) — a doctor needs today's completed
+        # visit to show up immediately, not after tomorrow's worker run.
+        "(SELECT max(a.appointment_date) FROM appointments a "
+        " WHERE a.patient_id = pt.profile_id AND a.status = 'completed') AS last_visit_date "
         "FROM patients pt JOIN profiles p ON p.id = pt.profile_id "
         "LEFT JOIN profiles dp ON dp.id = pt.primary_doctor_id "
         "LEFT JOIN doctors dd ON dd.profile_id = pt.primary_doctor_id"

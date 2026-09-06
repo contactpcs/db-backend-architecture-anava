@@ -332,12 +332,21 @@ class ScheduleService:
         if req.follow_up_every_n:
             for number, planned in numbered:
                 if number % req.follow_up_every_n == 0:
+                    # Day after the triggering session, so the doctor sees the
+                    # patient once that block is complete — but walked forward
+                    # onto the next day this cadence actually treats on. A
+                    # blind +1 day landed on whatever day followed, including
+                    # a day the clinic doesn't run this cadence on at all
+                    # (e.g. Saturday for a Mon/Wed/Fri 3x/week protocol).
+                    follow_up_date = planned + dt.timedelta(days=1)
+                    for _ in range(7):
+                        if follow_up_date.weekday() in weekdays:
+                            break
+                        follow_up_date += dt.timedelta(days=1)
                     follow_ups.append(
                         {
                             "after_session_number": number,
-                            # Day after the triggering session, so the doctor
-                            # sees the patient once that block is complete.
-                            "planned_date": planned + dt.timedelta(days=1),
+                            "planned_date": follow_up_date,
                         }
                     )
 

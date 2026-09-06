@@ -42,6 +42,7 @@ _APPT_SELECT = (
     # — frontend link sites that used a.patient_id directly as a route
     # param 404'd against every patient-scoped endpoint.
     "pt.patient_id AS patient_public_id, "
+    "pt.mrn AS patient_mrn, "
     "a.doctor_id AS responsible_doctor_id, "
     "dp.first_name || ' ' || dp.last_name AS responsible_doctor_name, "
     # The appointment this one replaced, when rescheduled_from is set — date/
