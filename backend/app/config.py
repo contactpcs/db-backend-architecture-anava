@@ -62,6 +62,19 @@ class Settings(BaseSettings):
     appointment_hold_sweep_interval_seconds: int = 60
     appointment_hold_sweeper_enabled: bool = True
 
+    # No-show sweeper — auto-marks an unattended appointment 'no_show' instead
+    # of leaving it stuck at 'paid'/'checked_in' forever with nobody noticing.
+    # Two independent grace windows (see workers/no_show_sweeper.py):
+    #   paid, never checked in        -> no_show after appointment_no_show_paid_grace_hours
+    #   checked_in, session never started/finished -> no_show after
+    #                                     appointment_no_show_checked_in_grace_hours
+    appointment_no_show_paid_grace_hours: float = 2.0
+    appointment_no_show_checked_in_grace_hours: float = 6.0
+    # Hours, not minutes — no need to wake as often as the hold sweeper, which
+    # is racing a 15-minute window; this one is racing multi-hour windows.
+    appointment_no_show_sweep_interval_seconds: int = 900
+    appointment_no_show_sweeper_enabled: bool = True
+
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 

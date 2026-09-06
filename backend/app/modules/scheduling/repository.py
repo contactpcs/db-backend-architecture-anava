@@ -43,12 +43,20 @@ _APPT_SELECT = (
     # param 404'd against every patient-scoped endpoint.
     "pt.patient_id AS patient_public_id, "
     "a.doctor_id AS responsible_doctor_id, "
-    "dp.first_name || ' ' || dp.last_name AS responsible_doctor_name "
+    "dp.first_name || ' ' || dp.last_name AS responsible_doctor_name, "
+    # The appointment this one replaced, when rescheduled_from is set — date/
+    # time only (not the whole row), so a list/detail view can show "moved
+    # from <date> <time>" without a second per-row fetch (staff asked to see
+    # this, not just a bare "Rescheduled" label).
+    "prev.appointment_date AS rescheduled_from_date, "
+    "prev.start_time AS rescheduled_from_start_time, "
+    "prev.end_time AS rescheduled_from_end_time "
     "FROM appointments a "
     "JOIN profiles pp ON pp.id = a.patient_id "
     "LEFT JOIN profiles dp ON dp.id = a.doctor_id "
     "LEFT JOIN doctors dd ON dd.profile_id = a.doctor_id "
     "LEFT JOIN patients pt ON pt.profile_id = a.patient_id "
+    "LEFT JOIN appointments prev ON prev.appointment_id = a.rescheduled_from "
 )
 
 
@@ -466,16 +474,6 @@ class AppointmentRepository:
             self.session,
             text(f"UPDATE appointments SET {set_clause}, updated_at = NOW() WHERE appointment_id = :id RETURNING *"),
             {**fields, "id": str(appointment_id)},
-        )
-
-    async def reschedule(self, appointment_id: UUID, *, new_appointment_id: UUID) -> dict | None:
-        return await fetch_optional(
-            self.session,
-            text(
-                "UPDATE appointments SET status = 'rescheduled', rescheduled_to = :new_id, "
-                "updated_at = NOW() WHERE appointment_id = :id RETURNING *"
-            ),
-            {"new_id": str(new_appointment_id), "id": str(appointment_id)},
         )
 
 

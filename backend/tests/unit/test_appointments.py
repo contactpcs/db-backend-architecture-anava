@@ -24,7 +24,9 @@ from app.modules.scheduling.service import (
     _ATTENDANCE_STATUSES,
     ACTIVE_STATUSES,
     DEFAULT_SLOT_MINUTES,
+    PATIENT_RESCHEDULE_FROM_STATUSES,
     PROTOCOL_BORN_TYPES,
+    RESCHEDULE_FROM_STATUSES,
     SLOT_OCCUPYING_STATUSES,
     STATUS_PAID,
     STATUS_PLANNED,
@@ -35,6 +37,7 @@ from app.modules.scheduling.service import (
     TYPE_PROTOCOL_FOLLOWUP,
     _build_day_slots,
     _build_device_day_slots,
+    _ranges_overlap,
     _step_slots,
 )
 
@@ -175,6 +178,54 @@ def test_doctor_slot_is_taken_by_one_booking():
     booked = {(dt.time(9, 0), dt.time(10, 0))}
     slots = _build_day_slots(MONDAY, [_doctor_rule()], None, booked)
     assert [s["is_available"] for s in slots] == [False, True]
+
+
+def test_ranges_overlap_catches_a_partial_overlap_not_just_exact_match():
+    """The actual bug: an existing booking at 9:00-9:45 (e.g. a longer
+    duration than the doctor's CURRENT weekly slot_minutes) doesn't exactly
+    equal a newly-computed 9:00-10:00 candidate slot, but the two ranges
+    still genuinely overlap. The old exact-tuple-match check called this
+    'available'; the database's real overlap constraint then rejected the
+    insert anyway, producing the confusing 'overlapping' error on a slot the
+    calendar had just shown as free."""
+    booked = {(dt.time(9, 0), dt.time(9, 45))}
+    assert _ranges_overlap(dt.time(9, 0), dt.time(10, 0), booked) is True
+
+
+def test_ranges_overlap_is_false_for_genuinely_free_slots():
+    booked = {(dt.time(9, 0), dt.time(9, 45))}
+    assert _ranges_overlap(dt.time(10, 0), dt.time(10, 30), booked) is False
+
+
+def test_ranges_overlap_touching_boundaries_do_not_overlap():
+    """Back-to-back slots (one ends exactly when the next starts) are not a
+    conflict — half-open interval semantics, matching tsrange's default."""
+    booked = {(dt.time(9, 0), dt.time(9, 30))}
+    assert _ranges_overlap(dt.time(9, 30), dt.time(10, 0), booked) is False
+
+
+def test_ranges_overlap_ignores_a_planned_unclaimed_row():
+    """Regression: a 'planned' protocol-born appointment (device_session/
+    protocol_followup not yet claimed) has an appointment_date but NULL
+    start_time/end_time — (None, None) lands in booked_ranges. This crashed
+    with TypeError ('<' not supported between time and NoneType) on first
+    live use; a planned row occupies no real time and must never count as
+    a conflict."""
+    booked = {(None, None), (dt.time(9, 0), dt.time(9, 30))}
+    assert _ranges_overlap(dt.time(10, 0), dt.time(10, 30), booked) is False
+    assert _ranges_overlap(dt.time(9, 0), dt.time(9, 30), booked) is True
+
+
+def test_build_day_slots_flags_misaligned_overlap_as_unavailable():
+    """End-to-end version of the bug: a doctor whose weekly rule now steps in
+    60-minute slots, but has an existing 45-minute booking at 9:00-9:45 left
+    over from before the schedule changed. The 9:00-10:00 candidate slot
+    must show unavailable, not just an exact 9:00-9:45 one (which would
+    never even be generated at a 60-minute step)."""
+    booked = {(dt.time(9, 0), dt.time(9, 45))}
+    slots = _build_day_slots(MONDAY, [_doctor_rule(start_time=dt.time(9, 0), end_time=dt.time(11, 0), slot_duration_minutes=60)], None, booked)
+    assert slots[0]["start_time"] == dt.time(9, 0)
+    assert slots[0]["is_available"] is False
 
 
 def test_doctor_day_is_empty_when_an_override_closes_it():
@@ -364,3 +415,38 @@ def test_every_protocol_born_type_carries_a_protocol(appointment_type):
 
 def test_default_slot_length_is_thirty_minutes():
     assert DEFAULT_SLOT_MINUTES == 30
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 9. Rescheduling a no_show
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_reschedule_accepts_no_show_on_top_of_every_active_status():
+    """A missed slot must be reschedulable without a staff member first
+    flipping it back to something 'active' — that flip is exactly what
+    nothing used to do automatically (see no_show_sweeper.py)."""
+    assert RESCHEDULE_FROM_STATUSES == ACTIVE_STATUSES | {"no_show"}
+    assert "no_show" in RESCHEDULE_FROM_STATUSES
+
+
+def test_reschedule_still_refuses_a_completed_or_cancelled_appointment():
+    assert "completed" not in RESCHEDULE_FROM_STATUSES
+    assert "cancelled" not in RESCHEDULE_FROM_STATUSES
+
+
+def test_patient_can_only_reschedule_booked_or_no_show():
+    """Narrower than the shared engine's set on purpose: a patient may not
+    reschedule a 'planned' row (no time on it yet — claim_slot is that path)
+    or one already checked_in/in_progress (they are already there)."""
+    assert PATIENT_RESCHEDULE_FROM_STATUSES == {STATUS_SELECTED, STATUS_PAID, "no_show"}
+    assert STATUS_PLANNED not in PATIENT_RESCHEDULE_FROM_STATUSES
+    assert "checked_in" not in PATIENT_RESCHEDULE_FROM_STATUSES
+    assert "in_progress" not in PATIENT_RESCHEDULE_FROM_STATUSES
+
+
+def test_no_show_is_reachable_only_from_paid_or_checked_in():
+    """Matches the two branches no_show_sweeper.py auto-marks: a paid
+    appointment nobody checked in for, or a checked-in one nobody ever
+    started/finished."""
+    assert _ALLOWED_FROM["no_show"] == {STATUS_PAID, "checked_in"}

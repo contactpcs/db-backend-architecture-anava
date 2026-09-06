@@ -235,6 +235,12 @@ class AppointmentRead(BaseModel):
     cancelled_by: UUID | None = None
     rescheduled_from: UUID | None = None
     rescheduled_to: UUID | None = None
+    # Only the previous slot's date/time (not the whole prior row) — lets a
+    # list/detail view show "moved from <date> <time>" without a second
+    # per-appointment fetch. Null unless rescheduled_from is set.
+    rescheduled_from_date: date | None = None
+    rescheduled_from_start_time: time | None = None
+    rescheduled_from_end_time: time | None = None
     checked_in_at: datetime | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None

@@ -226,11 +226,20 @@ async def _handle_appointment_cancelled(session, payload: dict[str, Any]) -> lis
     ]
 
 
-_STATUS_TITLES = {"confirmed": "Your appointment is confirmed", "completed": "Your appointment is complete"}
+_STATUS_TITLES = {
+    "confirmed": "Your appointment is confirmed",
+    "completed": "Your appointment is complete",
+    # Patient-facing so they actually find out — a no_show (manual or the
+    # auto no_show_sweeper) is otherwise invisible to them until they happen
+    # to reopen the appointment. They can reschedule it directly (see
+    # PatientBookingService.reschedule_own, which now accepts a no_show
+    # source) — that's the reason this needs to reach them at all.
+    "no_show": "Your appointment was marked as a no-show — you can reschedule it",
+}
 
 
 async def _handle_appointment_status_changed(session, payload: dict[str, Any]) -> list[dict]:
-    """Only confirmed/completed are patient-facing news — checked_in/
+    """Only statuses in _STATUS_TITLES are patient-facing news — checked_in/
     in_progress are internal workflow states nobody needs pushed to them."""
     title = _STATUS_TITLES.get(payload.get("status", ""))
     if not title:

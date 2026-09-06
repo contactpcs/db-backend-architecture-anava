@@ -71,6 +71,20 @@ SLOT_OCCUPYING_STATUSES = {STATUS_SELECTED, STATUS_PAID, "checked_in", "in_progr
 # What may still be cancelled or rescheduled.
 ACTIVE_STATUSES = {STATUS_PLANNED, STATUS_SELECTED, STATUS_PAID, "checked_in", "in_progress"}
 
+# AppointmentService.reschedule (the shared engine both staff and
+# PatientBookingService.reschedule_own route through) accepts every active
+# status, plus no_show — a missed slot should be reschedulable without
+# waiting on a staff member to notice and flip it back to something "active"
+# first (see no_show_sweeper.py, which is what actually gets a row INTO
+# no_show without a human involved at all).
+RESCHEDULE_FROM_STATUSES = ACTIVE_STATUSES | {"no_show"}
+
+# reschedule_own's own, narrower pre-check: a patient may only move a booked
+# appointment they haven't shown up for yet (selected/paid) or one just
+# auto/staff-marked no_show — never a 'planned' row (no time to move yet) or
+# one already checked_in/in_progress (they're already there).
+PATIENT_RESCHEDULE_FROM_STATUSES = {STATUS_SELECTED, STATUS_PAID, "no_show"}
+
 RESCHEDULE_MIN_HOURS = 24
 DEFAULT_SLOT_MINUTES = 30
 
@@ -205,13 +219,38 @@ def _slot_minutes(start_time: dt.time, end_time: dt.time) -> int:
     return int((dt.datetime.combine(dt.date.today(), end_time) - dt.datetime.combine(dt.date.today(), start_time)).total_seconds() // 60)
 
 
+def _ranges_overlap(start: dt.time, end: dt.time, booked_ranges: set[tuple]) -> bool:
+    """Real time-range overlap (start < other_end and end > other_start), not
+    exact (start,end) equality. An exact-match check used to live here and
+    could under-report a conflict: if the doctor's slot_duration_minutes (or
+    a break window) ever changed since an existing appointment was booked,
+    or a different appointment_type carries a different duration, the
+    newly-computed candidate slot's boundaries no longer line up exactly
+    with the old booking's — so 'not an exact match' wrongly read as
+    'available', even though the two ranges still genuinely overlapped in
+    wall-clock time. The database's excl_doctor_overlap constraint (a real
+    tsrange && overlap check) then correctly rejected the booking anyway,
+    surfacing as 'This doctor already has an appointment overlapping this
+    time slot' on a slot the calendar had just shown as free.
+
+    booked_ranges can also hold (None, None) — a 'planned' protocol-born
+    appointment (device_session/protocol_followup not yet claimed) has an
+    appointment_date but no start_time/end_time. It occupies no real time
+    and can never overlap anything; the old exact-match check tolerated
+    this by accident (tuple equality against None never raises), so this
+    guards it explicitly instead."""
+    return any(
+        b_start is not None and b_end is not None and start < b_end and end > b_start for b_start, b_end in booked_ranges
+    )
+
+
 def _build_day_slots(on_date: dt.date, weekly_rows: list[dict], override: dict | None, booked_ranges: set[tuple]) -> list[dict]:
     """Pure — no I/O. Ports v1's schedule_service.build_day_slots: override
     (blocked or special hours) takes precedence over the weekly template;
     otherwise picks the first active weekly rule for this day-of-week whose
     effective_from/until window covers the date; steps by slot_duration,
     skipping any step that overlaps a break; marks is_available by whether
-    that exact (start,end) pair is already booked."""
+    that slot's time range genuinely overlaps an existing booking."""
     if override and not override["is_available"]:
         return []
     if override and override["is_available"]:
@@ -239,7 +278,7 @@ def _build_day_slots(on_date: dt.date, weekly_rows: list[dict], override: dict |
         break_start, break_end = rule.get("break_start"), rule.get("break_end")
 
     return [
-        {"date": on_date, "start_time": s, "end_time": e, "is_available": (s, e) not in booked_ranges}
+        {"date": on_date, "start_time": s, "end_time": e, "is_available": not _ranges_overlap(s, e, booked_ranges)}
         for s, e in _step_slots(on_date, start, end, slot_minutes, break_start, break_end)
     ]
 
@@ -825,14 +864,31 @@ class AppointmentService:
         ctx: RequestContext,
     ) -> dict:
         old = await self.get(appointment_id)
-        if ctx.role == "patient":
-            raise PermissionError_(
-                "Patients cannot reschedule directly — submit a reschedule request instead",
-                code="PATIENT_ACTION_NOT_ALLOWED",
-            )
-        if old["status"] not in ACTIVE_STATUSES:
-            raise BusinessRuleError("Only an active appointment can be rescheduled", code="APPOINTMENT_NOT_ACTIVE")
+        # PatientBookingService.reschedule_own is the real patient entry point
+        # (ownership + notice-window checked there) — this shared engine used
+        # to hard-block ctx.role == "patient" unconditionally, which meant
+        # every call reschedule_own made into it 403'd, making patient
+        # self-reschedule permanently broken. assert_clinic_scope below is a
+        # no-op for role == "patient" (only clinic_admin/regional_admin are
+        # scope-checked), so nothing else here needs to change for that path.
+        if old["status"] not in RESCHEDULE_FROM_STATUSES:
+            raise BusinessRuleError("Only an active (or no-show) appointment can be rescheduled", code="APPOINTMENT_NOT_ACTIVE")
         await assert_clinic_scope(ctx, self.session, old["clinic_id"])
+
+        # Flip the OLD row out of its active status FIRST, before creating
+        # its replacement. uq_one_active_initial_per_patient (one active
+        # 'initial' per patient) matches on status IN (selected/paid/
+        # checked_in/in_progress) — creating the new 'initial' row while the
+        # old one is still in that set collides with ITSELF on that unique
+        # index, and the generic IntegrityError handler in create() below
+        # mislabels that as "This doctor already has an appointment
+        # overlapping this time slot" — a second, unrelated bug found live
+        # behind the exact same message as excl_doctor_overlap's NULL-time
+        # issue. Both writes share this request's one transaction, so if
+        # create() below fails for a genuine reason, this flip rolls back
+        # too — never left as an orphaned 'rescheduled' row with nothing to
+        # replace it.
+        await self.repo.update_fields(appointment_id, {"status": "rescheduled"})
 
         new_appointment = await self.create(
             {
@@ -853,8 +909,26 @@ class AppointmentService:
             _patient_profile_id_override=old["patient_id"],
             _doctor_profile_id_override=True,
         )
-        await self.repo.reschedule(appointment_id, new_appointment_id=new_appointment["appointment_id"])
+        await self.repo.update_fields(appointment_id, {"rescheduled_to": str(new_appointment["appointment_id"])})
         await self.repo.update_fields(new_appointment["appointment_id"], {"rescheduled_from": str(appointment_id)})
+
+        # Carry the payment forward instead of demanding a second one for
+        # the same visit. old["status"] is 'paid' or 'no_show' here — both
+        # mean the patient already paid (no_show is only reachable FROM
+        # 'paid'/'checked_in', see _ALLOWED_FROM). create() above always
+        # runs the ordinary payment seam (_initial_status_and_hold), landing
+        # the new row on 'selected'/awaiting-payment regardless — found
+        # live: rescheduling an already-paid appointment kept asking to pay
+        # again. Relink the existing payment onto the new row and mark it
+        # 'paid' directly instead.
+        if old["status"] in (STATUS_PAID, "no_show"):
+            from app.modules.payments.repository import PaymentRepository
+
+            old_payment = await PaymentRepository(self.session).get_for_appointment(appointment_id)
+            if old_payment:
+                await PaymentRepository(self.session).relink_appointment(old_payment["payment_id"], new_appointment_id=new_appointment["appointment_id"])
+            await self.repo.update_fields(new_appointment["appointment_id"], {"status": STATUS_PAID, "hold_expires_at": None})
+
         await self._write_audit(
             appointment_id,
             changed_by=changed_by,
@@ -1354,9 +1428,12 @@ class PatientBookingService:
                 "Release this session and claim a new slot instead",
                 code="USE_CLAIM_SLOT_INSTEAD",
             )
-        if appt["status"] not in (STATUS_SELECTED, STATUS_PAID):
-            raise BusinessRuleError("Only a booked appointment can be moved", code="APPOINTMENT_NOT_ACTIVE")
-        if appt["start_time"] and _hours_until(appt["appointment_date"], appt["start_time"]) < RESCHEDULE_MIN_HOURS:
+        if appt["status"] not in PATIENT_RESCHEDULE_FROM_STATUSES:
+            raise BusinessRuleError("Only a booked (or no-show) appointment can be moved", code="APPOINTMENT_NOT_ACTIVE")
+        # The notice-window only makes sense for a still-upcoming slot — a
+        # no_show one is by definition already in the past, so
+        # _hours_until would always be negative and always fail this check.
+        if appt["status"] != "no_show" and appt["start_time"] and _hours_until(appt["appointment_date"], appt["start_time"]) < RESCHEDULE_MIN_HOURS:
             raise BusinessRuleError(
                 f"Rescheduling requires at least {RESCHEDULE_MIN_HOURS} hours' notice",
                 code="RESCHEDULE_WINDOW_PASSED",

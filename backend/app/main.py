@@ -32,6 +32,7 @@ from app.modules.staff.router import router as staff_router
 from app.modules.store.router import router as store_router
 from app.modules.treatment_protocols.router import router as treatment_protocols_router
 from app.workers.hold_sweeper import run_hold_sweeper_forever
+from app.workers.no_show_sweeper import run_no_show_sweeper_forever
 from app.workers.retention_purge import run_partition_maintenance_forever
 
 settings = get_settings()
@@ -63,12 +64,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                            Finds nothing while appointment_payment_required is
                            False — wired now so enabling payment is one config
                            flag, not a deployment.
+
+    no-show sweeper        auto-marks an unattended appointment 'no_show'
+                           instead of leaving it stuck at 'paid'/'checked_in'
+                           forever with nobody noticing (app/workers/
+                           no_show_sweeper.py).
     """
     tasks: list[asyncio.Task] = []
     if settings.partition_maintenance_enabled:
         tasks.append(asyncio.create_task(run_partition_maintenance_forever()))
     if settings.appointment_hold_sweeper_enabled:
         tasks.append(asyncio.create_task(run_hold_sweeper_forever()))
+    if settings.appointment_no_show_sweeper_enabled:
+        tasks.append(asyncio.create_task(run_no_show_sweeper_forever()))
     yield
     for task in tasks:
         task.cancel()
