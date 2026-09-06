@@ -119,6 +119,14 @@ class ClinicalAssistantRead(BaseModel):
     last_name: str
     email: str
     phone: str | None = None
+    gender: str | None = None
+    dob: date | None = None
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    pincode: str | None = None
+    language_pref: str | None = None
     profile_is_active: bool = True
 
 
@@ -142,6 +150,14 @@ class ReceptionistRead(BaseModel):
     last_name: str
     email: str
     phone: str | None = None
+    gender: str | None = None
+    dob: date | None = None
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    pincode: str | None = None
+    language_pref: str | None = None
     profile_is_active: bool = True
 
 

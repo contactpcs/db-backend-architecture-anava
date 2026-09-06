@@ -228,8 +228,9 @@ class ClinicalAssistantRepository:
         return await fetch_optional(
             self.session,
             text(
-                "SELECT ca.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active FROM clinical_assistants ca "
-                "JOIN profiles p ON p.id = ca.profile_id WHERE ca.ca_id = :id"
+                "SELECT ca.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active, "
+                "p.gender, p.dob, p.address, p.city, p.state, p.country, p.pincode, p.language_pref "
+                "FROM clinical_assistants ca JOIN profiles p ON p.id = ca.profile_id WHERE ca.ca_id = :id"
             ),
             {"id": str(ca_id)},
         )
@@ -252,7 +253,8 @@ class ClinicalAssistantRepository:
 
     async def list(self, *, clinic_id: UUID | None = None) -> builtins.list[dict]:
         base = (
-            "SELECT ca.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active "
+            "SELECT ca.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active, "
+            "p.gender, p.dob, p.address, p.city, p.state, p.country, p.pincode, p.language_pref "
             "FROM clinical_assistants ca JOIN profiles p ON p.id = ca.profile_id WHERE ca.deleted_at IS NULL"
         )
         if clinic_id:
@@ -316,7 +318,8 @@ class ReceptionistRepository:
 
     async def list(self, *, clinic_id: UUID | None = None) -> builtins.list[dict]:
         base = (
-            "SELECT r.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active "
+            "SELECT r.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active, "
+            "p.gender, p.dob, p.address, p.city, p.state, p.country, p.pincode, p.language_pref "
             "FROM receptionists r JOIN profiles p ON p.id = r.profile_id WHERE r.deleted_at IS NULL"
         )
         if clinic_id:
@@ -331,7 +334,8 @@ class ReceptionistRepository:
         return await fetch_optional(
             self.session,
             text(
-                "SELECT r.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active FROM receptionists r "
+                "SELECT r.*, p.first_name, p.last_name, p.email, p.phone, p.is_active AS profile_is_active, "
+                "p.gender, p.dob, p.address, p.city, p.state, p.country, p.pincode, p.language_pref FROM receptionists r "
                 "JOIN profiles p ON p.id = r.profile_id WHERE r.receptionist_id = :id"
             ),
             {"id": str(receptionist_id)},

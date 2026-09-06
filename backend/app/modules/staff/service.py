@@ -94,16 +94,28 @@ async def _ensure_clinic_ready_for_staff(session: AsyncSession, clinic_id) -> No
 
 
 def _merge_profile(row: dict, profile: dict) -> dict:
-    """create_profile() already has first_name/last_name/email/phone/is_active
-    in hand — merge them into the just-created role row so the create
-    response matches what list()/get() return (both joined to profiles),
-    instead of a second round-trip query."""
+    """create_profile() already has every profile column in hand — merge them
+    into the just-created role row so the create response matches what
+    list()/get() return (both joined to profiles), instead of a second
+    round-trip query. Every key here must match what each role's own
+    get()/list() SELECTs, or the create response and a follow-up GET
+    disagree (found live: gender/dob/address/etc were missing here, so a
+    freshly-created doctor/CA/receptionist showed those as None until the
+    next GET)."""
     return {
         **row,
         "first_name": profile["first_name"],
         "last_name": profile["last_name"],
         "email": profile["email"],
         "phone": profile["phone"],
+        "gender": profile["gender"],
+        "dob": profile["dob"],
+        "address": profile["address"],
+        "city": profile["city"],
+        "state": profile["state"],
+        "country": profile["country"],
+        "pincode": profile["pincode"],
+        "language_pref": profile["language_pref"],
         "profile_is_active": profile["is_active"],
     }
 
