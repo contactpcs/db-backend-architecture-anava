@@ -66,6 +66,20 @@ def assert_staff_self(ctx: RequestContext, staff_profile_id) -> None:
         raise PermissionError_("You can only edit your own profile", code="STAFF_SCOPE_MISMATCH")
 
 
+def assert_staff_self_cannot_toggle_active(ctx: RequestContext, is_active: bool | None) -> None:
+    """PATCH /clinical-assistants/{id} and /receptionists/{id} accept
+    is_active in the body (unlike doctors, which use availability_status
+    instead — see DoctorUpdate) and, like assert_staff_self above, allow
+    role='clinical_assistant'/'receptionist' to hit their own row through the
+    same admin-facing endpoint. Without this, a CA/receptionist could set
+    is_active themselves — profiles.is_active is the real login gate (see
+    core/middleware.py), so that's a self-deactivate (and, for an admin
+    reactivating them later, a self-reactivate) that only clinic_admin/
+    regional_admin/super_admin should be able to do. No-op for admin roles."""
+    if ctx.role in ("clinical_assistant", "receptionist") and is_active is not None:
+        raise PermissionError_("You cannot change your own active status", code="STAFF_SELF_ACTIVATION_FORBIDDEN")
+
+
 def assert_owns_profile(ctx: RequestContext, profile_id) -> None:
     """Same purpose as assert_patient_self, for records that already store
     the owning profiles.id directly (anamnesis_assessments.patient_id,

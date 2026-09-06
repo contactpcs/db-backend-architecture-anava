@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from app.core.db import RequestContext, get_db
 from app.core.exceptions import PermissionError_
 from app.core.permissions import require_role
-from app.core.scoping import assert_clinic_scope, assert_staff_self, clinic_region_id
+from app.core.scoping import assert_clinic_scope, assert_staff_self, assert_staff_self_cannot_toggle_active, clinic_region_id
 from app.modules.staff import schemas as s
 from app.modules.staff.service import (
     CaDoctorAssignmentService,
@@ -103,6 +103,7 @@ async def update_ca(
 ):
     existing = await ClinicalAssistantService(db).get(ca_id)
     assert_staff_self(ctx, existing["profile_id"])
+    assert_staff_self_cannot_toggle_active(ctx, body.is_active)
     await assert_clinic_scope(ctx, db, existing["clinic_id"])
     return await ClinicalAssistantService(db).update(ca_id, body.model_dump(), updated_by=UUID(ctx.user_id))
 
@@ -152,6 +153,7 @@ async def update_receptionist(
 ):
     existing = await ReceptionistService(db).get(receptionist_id)
     assert_staff_self(ctx, existing["profile_id"])
+    assert_staff_self_cannot_toggle_active(ctx, body.is_active)
     await assert_clinic_scope(ctx, db, existing["clinic_id"])
     return await ReceptionistService(db).update(receptionist_id, body.model_dump(), updated_by=UUID(ctx.user_id))
 
