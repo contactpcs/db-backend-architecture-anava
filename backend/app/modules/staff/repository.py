@@ -109,15 +109,24 @@ class DoctorRepository:
         self.session = session
 
     async def create(
-        self, *, profile_id: UUID, clinic_id: UUID, specialization, license_number, hospital_affiliation, max_patient_count: int
+        self,
+        *,
+        profile_id: UUID,
+        clinic_id: UUID,
+        specialization,
+        license_number,
+        hospital_affiliation,
+        max_patient_count: int,
+        years_of_experience: int | None = None,
     ) -> dict:
         row = (
             (
                 await self.session.execute(
                     text(
                         "INSERT INTO doctors (profile_id, clinic_id, specialization, license_number, "
-                        "hospital_affiliation, max_patient_count) VALUES "
-                        "(:profile_id, :clinic_id, :specialization, :license_number, :hospital_affiliation, :max_patient_count) "
+                        "hospital_affiliation, max_patient_count, years_of_experience) VALUES "
+                        "(:profile_id, :clinic_id, :specialization, :license_number, :hospital_affiliation, "
+                        ":max_patient_count, :years_of_experience) "
                         "RETURNING *"
                     ),
                     {
@@ -127,6 +136,7 @@ class DoctorRepository:
                         "license_number": license_number,
                         "hospital_affiliation": hospital_affiliation,
                         "max_patient_count": max_patient_count,
+                        "years_of_experience": years_of_experience,
                     },
                 )
             )

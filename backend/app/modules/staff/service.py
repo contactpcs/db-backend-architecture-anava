@@ -226,6 +226,7 @@ class DoctorService:
             license_number=data.get("license_number"),
             hospital_affiliation=data.get("hospital_affiliation"),
             max_patient_count=data.get("max_patient_count", 30),
+            years_of_experience=data.get("years_of_experience"),
         )
         await self.assignments.create(clinic_id=data["clinic_id"], profile_id=profile["id"], staff_role="doctor")
         from app.modules.consent.service import create_onboarding_consent
