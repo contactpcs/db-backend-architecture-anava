@@ -73,21 +73,46 @@ class DeviceSessionRepository:
 
     async def get_device_info_for_protocol(self, protocol_id: UUID) -> dict | None:
         """Device name (always, from protocol_plan.device_id — mandatory) and
-        pinned unit id/serial (only if protocol_plan.device_unit_id is set).
-        Independent of whether a device_sessions header row exists yet — the
-        CA-facing live-session screen needs this to auto-populate device
-        name/serial on load, before the pre-session checklist has written
-        anything, not just retroactively once a header exists (see
-        get_pinned_device_unit_serial's use in service.py's lazy
-        header-create, which only ever fires on the FIRST checklist write)."""
+        a resolved unit id/serial. Independent of whether a device_sessions
+        header row exists yet — the CA-facing live-session screen needs this
+        to auto-populate device name/serial on load, before the pre-session
+        checklist has written anything, not just retroactively once a header
+        exists (see get_pinned_device_unit_serial's use in service.py's lazy
+        header-create, which only ever fires on the FIRST checklist write).
+
+        The unit resolves two ways:
+          1. protocol_plan.device_unit_id, if the protocol explicitly pinned
+             one (73) — takes priority, it's a deliberate choice.
+          2. Otherwise, if the clinic has exactly ONE active device_units row
+             for this device type, that's unambiguous — a CA shouldn't have
+             to type a serial by hand when there is physically only one unit
+             it could be. Two-or-more active units stays NULL: a real choice
+             the CA (or whoever pinned the protocol) needs to make, not
+             something to guess at.
+        """
         row = (
             (
                 await self.session.execute(
                     text(
-                        "SELECT nd.device_name, du.device_unit_id, du.serial_number AS device_unit_serial_number "
+                        "WITH ctx AS ("
+                        "    SELECT tp.device_id, pi.clinic_id "
+                        "    FROM protocol_plan tp JOIN protocol_instances pi ON pi.instance_id = tp.instance_id "
+                        "    WHERE tp.protocol_id = :pid"
+                        "), clinic_units AS ("
+                        "    SELECT du.device_unit_id, du.serial_number "
+                        "    FROM clinic_devices cd "
+                        "    JOIN device_units du ON du.clinic_device_id = cd.clinic_device_id AND du.status = 'active' "
+                        "    JOIN ctx ON cd.clinic_id = ctx.clinic_id AND cd.device_id = ctx.device_id"
+                        ") "
+                        "SELECT nd.device_name, "
+                        "COALESCE(pinned.device_unit_id, sole.device_unit_id) AS device_unit_id, "
+                        "COALESCE(pinned.serial_number, sole.serial_number) AS device_unit_serial_number "
                         "FROM protocol_plan tp "
+                        "JOIN ctx ON true "
                         "JOIN reference.neuromod_devices nd ON nd.device_id = tp.device_id "
-                        "LEFT JOIN device_units du ON du.device_unit_id = tp.device_unit_id "
+                        "LEFT JOIN device_units pinned ON pinned.device_unit_id = tp.device_unit_id "
+                        "LEFT JOIN clinic_units sole ON tp.device_unit_id IS NULL "
+                        "    AND (SELECT count(*) FROM clinic_units) = 1 "
                         "WHERE tp.protocol_id = :pid"
                     ),
                     {"pid": str(protocol_id)},
