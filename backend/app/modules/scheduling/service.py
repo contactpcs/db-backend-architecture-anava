@@ -1681,7 +1681,20 @@ class DeviceUnitService:
         return await self.repo.list_for_clinic_device(clinic_device_id, active_only=active_only)
 
     async def add(self, clinic_id: UUID, clinic_device_id: UUID, data: dict, ctx: RequestContext) -> dict:
-        await self._clinic_device_or_404(clinic_id, clinic_device_id, ctx)
+        clinic_device = await self._clinic_device_or_404(clinic_id, clinic_device_id, ctx)
+        # The UNIQUE(clinic_device_id, serial_number) constraint only blocks
+        # a duplicate serial — it does nothing to stop a clinic with quantity=1
+        # from registering two DIFFERENT serials against the same device row,
+        # which makes no physical sense (there's only one unit). Active units
+        # are the ones that actually occupy a physical slot; a retired one
+        # doesn't count against the quota.
+        existing = await self.repo.list_for_clinic_device(clinic_device_id, active_only=True)
+        if len(existing) >= clinic_device["quantity"]:
+            raise BusinessRuleError(
+                f"This clinic has {clinic_device['quantity']} unit(s) of this device on record — "
+                "retire an existing serial or increase the quantity before adding another.",
+                code="DEVICE_UNIT_QUOTA_EXCEEDED",
+            )
         try:
             return await self.repo.create(
                 {

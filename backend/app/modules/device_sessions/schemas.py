@@ -111,6 +111,18 @@ class NextSessionConfirmation(BaseModel):
     note: str | None = None
 
 
+class DeviceInfo(BaseModel):
+    """GET /device-sessions/{id}/device-info — device name (always, from
+    protocol_plan.device_id) and pinned unit id/serial (only if the protocol
+    pinned one). Lets the live-session screen show the actual device instead
+    of a manual-entry field, resolvable before any device_sessions header
+    row exists."""
+
+    device_name: str
+    device_unit_id: UUID | None = None
+    device_unit_serial_number: str | None = None
+
+
 class DeviceSessionRead(BaseModel):
     device_session_record_id: UUID
     appointment_id: UUID

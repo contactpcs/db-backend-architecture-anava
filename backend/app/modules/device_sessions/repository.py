@@ -71,6 +71,33 @@ class DeviceSessionRepository:
         )
         return row["serial_number"] if row else None
 
+    async def get_device_info_for_protocol(self, protocol_id: UUID) -> dict | None:
+        """Device name (always, from protocol_plan.device_id — mandatory) and
+        pinned unit id/serial (only if protocol_plan.device_unit_id is set).
+        Independent of whether a device_sessions header row exists yet — the
+        CA-facing live-session screen needs this to auto-populate device
+        name/serial on load, before the pre-session checklist has written
+        anything, not just retroactively once a header exists (see
+        get_pinned_device_unit_serial's use in service.py's lazy
+        header-create, which only ever fires on the FIRST checklist write)."""
+        row = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT nd.device_name, du.device_unit_id, du.serial_number AS device_unit_serial_number "
+                        "FROM protocol_plan tp "
+                        "JOIN reference.neuromod_devices nd ON nd.device_id = tp.device_id "
+                        "LEFT JOIN device_units du ON du.device_unit_id = tp.device_unit_id "
+                        "WHERE tp.protocol_id = :pid"
+                    ),
+                    {"pid": str(protocol_id)},
+                )
+            )
+            .mappings()
+            .first()
+        )
+        return dict(row) if row else None
+
     async def update_with_now_columns(
         self, device_session_record_id: UUID, fields: dict, *, now_columns: builtins.list[str]
     ) -> dict | None:
