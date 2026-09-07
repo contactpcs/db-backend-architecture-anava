@@ -239,9 +239,7 @@ def _ranges_overlap(start: dt.time, end: dt.time, booked_ranges: set[tuple]) -> 
     and can never overlap anything; the old exact-match check tolerated
     this by accident (tuple equality against None never raises), so this
     guards it explicitly instead."""
-    return any(
-        b_start is not None and b_end is not None and start < b_end and end > b_start for b_start, b_end in booked_ranges
-    )
+    return any(b_start is not None and b_end is not None and start < b_end and end > b_start for b_start, b_end in booked_ranges)
 
 
 def _build_day_slots(on_date: dt.date, weekly_rows: list[dict], override: dict | None, booked_ranges: set[tuple]) -> list[dict]:
@@ -929,9 +927,7 @@ class AppointmentService:
                 await PaymentRepository(self.session).relink_appointment(
                     old_payment["payment_id"], new_appointment_id=new_appointment["appointment_id"]
                 )
-            await self.repo.update_fields(
-                new_appointment["appointment_id"], {"status": STATUS_PAID, "hold_expires_at": None}
-            )
+            await self.repo.update_fields(new_appointment["appointment_id"], {"status": STATUS_PAID, "hold_expires_at": None})
 
         await self._write_audit(
             appointment_id,
