@@ -47,6 +47,22 @@ async def get_device_session(
     return await DeviceSessionService(db).get_or_404(appointment_id, ctx)
 
 
+@router.get("/device-sessions/{appointment_id}/device-info", response_model=s.DeviceInfo)
+async def get_device_info(
+    appointment_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_READERS)),
+):
+    """Device name + pinned unit serial for this appointment's protocol —
+    resolved straight from protocol_plan/device_units, independent of
+    whether a device_sessions header row exists yet. The live-session screen
+    calls this on load so the CA sees the device name/serial immediately
+    instead of typing it manually; GET /device-sessions/{id} 404s until the
+    first checklist write lazily creates the header, so it can't serve this
+    on its own before that point."""
+    return await DeviceSessionService(db).get_device_info(appointment_id, ctx)
+
+
 @router.post("/device-sessions/{appointment_id}/checklist", response_model=s.DeviceSessionRead)
 async def update_checklist(
     appointment_id: UUID,

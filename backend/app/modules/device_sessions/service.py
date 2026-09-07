@@ -131,6 +131,22 @@ class DeviceSessionService:
         detail["sos_events"] = await self.sos_events.list_for_session(sid)
         return detail
 
+    async def get_device_info(self, appointment_id: UUID, ctx: RequestContext) -> dict:
+        """Device name + pinned unit serial for the appointment's protocol,
+        resolvable before any device_sessions header row exists — see
+        router.py's docstring for why get_or_404 can't serve this on its own
+        pre-checklist."""
+        appt = await self._resolve_scoped_appointment(appointment_id, ctx)
+        if not appt.get("protocol_id"):
+            raise ValidationError(
+                "Appointment has no protocol_id — no device to resolve",
+                code="APPOINTMENT_NO_PROTOCOL",
+            )
+        info = await self.repo.get_device_info_for_protocol(appt["protocol_id"])
+        if not info:
+            raise NotFoundError("No device found for this appointment's protocol", code="DEVICE_NOT_FOUND")
+        return info
+
     # -- checklist / lazy header creation --------------------------------------
 
     async def create_or_update_checklist(self, appointment_id: UUID, body, ctx: RequestContext) -> dict:

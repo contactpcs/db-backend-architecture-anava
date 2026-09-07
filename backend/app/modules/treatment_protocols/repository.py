@@ -14,7 +14,7 @@ import builtins
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.sql_helpers import fetch_one, fetch_optional, insert_returning, update_returning
@@ -1113,6 +1113,51 @@ class ProtocolSessionRepository:
         )
         return result.rowcount or 0  # type: ignore[attr-defined]
 
+    async def relink_planned_matching(
+        self, old_protocol_id: UUID, new_protocol_id: UUID, dated: builtins.list[tuple[Any, int]]
+    ) -> builtins.list[dict]:
+        """Amendment relink: repoints still-'planned' rows from the amended
+        protocol onto the new one instead of cancelling + re-inserting, for
+        every (appointment_date, session_number) the new schedule preview
+        reproduces unchanged. Only an exact date+number match is relinked —
+        anything the new preview moved, added, or dropped falls through to
+        the normal cancel_planned + fresh-insert path, so a doctor who
+        actually changed the cadence never gets a stale date silently kept.
+
+        Returns the relinked rows (with appointment_id) so the caller can
+        also repoint protocol_device_sessions/protocol_followup, and so
+        _generate_appointments knows which (date, number) pairs to skip
+        re-creating.
+        """
+        if not dated:
+            return []
+        # Explicit OR of per-pair AND clauses rather than a row-tuple
+        # `IN :pairs` — this codebase has no existing precedent for
+        # SQLAlchemy expanding a row-tuple IN correctly, and getting it
+        # wrong here would silently match/relink the wrong rows.
+        pair_clauses = []
+        params: dict[str, Any] = {"old_id": str(old_protocol_id), "new_id": str(new_protocol_id)}
+        for i, (planned_date, number) in enumerate(dated):
+            pair_clauses.append(f"(appointment_date = :d{i} AND session_number = :n{i})")
+            params[f"d{i}"] = planned_date
+            params[f"n{i}"] = number
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "UPDATE appointments SET protocol_id = :new_id, updated_at = NOW() "
+                        "WHERE protocol_id = :old_id AND status = 'planned' "
+                        f"AND ({' OR '.join(pair_clauses)}) "
+                        "RETURNING appointment_id, appointment_date, session_number, appointment_type"
+                    ),
+                    params,
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
 
 class ProtocolDeviceSessionRepository:
     """core.protocol_device_sessions (47) — one row per device session as the
@@ -1143,6 +1188,21 @@ class ProtocolDeviceSessionRepository:
         )
         return [dict(r) for r in rows]
 
+    async def relink_protocol(self, appointment_ids: builtins.list[UUID], new_protocol_id: UUID) -> None:
+        """Amendment relink counterpart to ProtocolSessionRepository.relink_planned_matching
+        — repoints this row's own protocol_id alongside the appointments row
+        it was already carrying appointment_id for, so a relinked session
+        reads as belonging to the new protocol everywhere, not just on
+        the appointments spine."""
+        if not appointment_ids:
+            return
+        await self.session.execute(
+            text("UPDATE protocol_device_sessions SET protocol_id = :new_id WHERE appointment_id IN :ids").bindparams(
+                bindparam("ids", expanding=True)
+            ),
+            {"new_id": str(new_protocol_id), "ids": [str(i) for i in appointment_ids]},
+        )
+
 
 class ProtocolFollowupRepository:
     """core.protocol_followup (47) — one row per follow-up as the doctor set
@@ -1169,6 +1229,18 @@ class ProtocolFollowupRepository:
             .all()
         )
         return [dict(r) for r in rows]
+
+    async def relink_protocol(self, appointment_ids: builtins.list[UUID], new_protocol_id: UUID) -> None:
+        """Amendment relink counterpart to ProtocolSessionRepository.relink_planned_matching
+        — see ProtocolDeviceSessionRepository.relink_protocol, same reasoning."""
+        if not appointment_ids:
+            return
+        await self.session.execute(
+            text("UPDATE protocol_followup SET protocol_id = :new_id WHERE appointment_id IN :ids").bindparams(
+                bindparam("ids", expanding=True)
+            ),
+            {"new_id": str(new_protocol_id), "ids": [str(i) for i in appointment_ids]},
+        )
 
 
 class ProtocolPrsRepository:
