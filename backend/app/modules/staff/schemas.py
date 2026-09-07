@@ -36,6 +36,7 @@ class DoctorCreate(StaffPersonCreate):
     license_number: str | None = None
     hospital_affiliation: str | None = None
     max_patient_count: int = 30
+    years_of_experience: int | None = Field(default=None, ge=0, le=60)
 
 
 class StaffProfileUpdate(BaseModel):
@@ -64,6 +65,7 @@ class DoctorUpdate(StaffProfileUpdate):
     hospital_affiliation: str | None = None
     max_patient_count: int | None = None
     availability_status: str | None = Field(default=None, pattern="^(available|at_capacity|on_leave|inactive)$")
+    years_of_experience: int | None = Field(default=None, ge=0, le=60)
 
 
 class DoctorRead(BaseModel):
@@ -71,6 +73,13 @@ class DoctorRead(BaseModel):
     profile_id: UUID
     specialization: str | None
     license_number: str | None
+    # Missing here entirely until found live: response_model=DoctorRead
+    # strips any field not declared on this schema, so every doctor API
+    # response (create/get/list/update) silently dropped
+    # hospital_affiliation from the JSON even though it was captured,
+    # editable, and correctly persisted in the DB the whole time.
+    hospital_affiliation: str | None = None
+    years_of_experience: int | None = None
     max_patient_count: int
     availability_status: str
     created_at: datetime

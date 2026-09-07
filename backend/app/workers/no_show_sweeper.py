@@ -100,14 +100,14 @@ async def sweep_once() -> dict:
                     "SELECT appointment_id, NULL, 'system', 'checked_in', 'no_show', "
                     "'Checked in but session never started or completed' "
                     "FROM appointments WHERE status = 'checked_in' "
-                    "AND checked_in_at < NOW() - (:hours || ' hours')::interval"
+                    "AND checked_in_at < NOW() - make_interval(secs := :hours * 3600)"
                 ),
                 {"hours": settings.appointment_no_show_checked_in_grace_hours},
             )
             checked_in_result = await session.execute(
                 text(
                     "UPDATE appointments SET status = 'no_show', updated_at = NOW() "
-                    "WHERE status = 'checked_in' AND checked_in_at < NOW() - (:hours || ' hours')::interval "
+                    "WHERE status = 'checked_in' AND checked_in_at < NOW() - make_interval(secs := :hours * 3600) "
                     "RETURNING appointment_id"
                 ),
                 {"hours": settings.appointment_no_show_checked_in_grace_hours},
