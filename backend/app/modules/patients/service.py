@@ -29,6 +29,13 @@ def _is_minor(dob: date | None) -> bool:
     return age < 18
 
 
+# PatientService.update() — profiles columns that are NOT NULL, so an
+# explicit null for one of these (a client sending {"first_name": null}) is
+# dropped rather than forwarded as "clear this field" the way every other
+# nullable field now works.
+_NEVER_NULL_KEYS = {"first_name", "last_name", "email"}
+
+
 def _attach_completion(patient: dict) -> dict:
     patient["profile_completion_percentage"] = compute_completion_percentage(patient, PATIENT_FIELDS)
     patient["profile_completion_missing_fields"] = compute_missing_fields(patient, PATIENT_FIELDS)
@@ -194,7 +201,15 @@ class PatientService:
             "government_id",
             "id_type",
         }
-        clean = {k: v for k, v in fields.items() if v is not None}
+        # fields only holds keys the caller actually sent (router uses
+        # model_dump(exclude_unset=True)) — so a value of None here means
+        # "clear this field", not "field not touched", for every nullable
+        # column. first_name/last_name/email are NOT NULL on profiles
+        # though — a null there would raise a raw IntegrityError that the
+        # except clause below would misreport as an email conflict, so
+        # those three are the one exception: null for them is dropped
+        # rather than sent as a clear.
+        clean = {k: v for k, v in fields.items() if not (v is None and k in _NEVER_NULL_KEYS)}
         profile_fields = {k: v for k, v in clean.items() if k in profile_keys}
         patient_fields = {k: v for k, v in clean.items() if k in patient_keys}
         try:

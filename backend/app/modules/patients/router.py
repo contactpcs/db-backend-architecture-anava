@@ -96,7 +96,13 @@ async def update_patient(
 ):
     existing = await PatientService(db).get(patient_id)
     await assert_clinic_scope(ctx, db, existing["primary_clinic_id"])
-    return await PatientService(db).update(patient_id, body.model_dump())
+    # exclude_unset, not a plain model_dump(): a field the client genuinely
+    # never mentioned must stay untouched, but one they explicitly sent as
+    # null (e.g. clearing weight_kg) has to reach the service AS null so it
+    # can actually be cleared — a plain model_dump() makes those two cases
+    # indistinguishable (both come out None), which is why clearing a field
+    # silently did nothing before (see PatientService.update()).
+    return await PatientService(db).update(patient_id, body.model_dump(exclude_unset=True))
 
 
 @router.patch("/patients/{patient_id}/self", response_model=s.PatientRead)
@@ -110,7 +116,13 @@ async def update_patient_self(
     # primary_doctor_id etc. are deliberately absent from PatientSelfUpdate
     # — those stay staff-only via PATCH /patients/{id} above.
     await assert_patient_self(ctx, db, patient_id)
-    return await PatientService(db).update(patient_id, body.model_dump())
+    # exclude_unset, not a plain model_dump(): a field the client genuinely
+    # never mentioned must stay untouched, but one they explicitly sent as
+    # null (e.g. clearing weight_kg) has to reach the service AS null so it
+    # can actually be cleared — a plain model_dump() makes those two cases
+    # indistinguishable (both come out None), which is why clearing a field
+    # silently did nothing before (see PatientService.update()).
+    return await PatientService(db).update(patient_id, body.model_dump(exclude_unset=True))
 
 
 @router.delete("/patients/{patient_id}", status_code=204)
