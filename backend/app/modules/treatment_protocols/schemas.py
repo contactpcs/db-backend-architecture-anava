@@ -329,9 +329,9 @@ class ScaleRead(BaseModel):
 
 class SchedulePreviewRequest(BaseModel):
     start_date: date
-    session_count: int = Field(ge=1, le=90)
+    session_count: int = Field(ge=10, le=30)
     sessions_per_week: int = Field(default=5, ge=1, le=7)
-    follow_up_every_n: int | None = Field(default=None, ge=1, le=90)
+    follow_up_every_n: int | None = Field(default=None, ge=1, le=30)
     # Days the generator should skip (clinic holidays, patient unavailability)
     # and extra one-off dates the doctor painted onto the calendar.
     skip_dates: list[date] = Field(default_factory=list)
@@ -489,8 +489,8 @@ class ProtocolCreate(BaseModel):
     placement_id: UUID | None = None
     dosing_id: UUID | None = None
     custom_montage_id: UUID | None = None
-    session_count: int = Field(ge=1, le=90)
-    follow_up_every_n: int | None = Field(default=None, ge=1, le=90)
+    session_count: int = Field(ge=10, le=30)
+    follow_up_every_n: int | None = Field(default=None, ge=1, le=30)
     start_date: date
     sessions_per_week: int = Field(default=5, ge=1, le=7)
     skip_dates: list[date] = Field(default_factory=list)
@@ -511,8 +511,8 @@ class ProtocolCreate(BaseModel):
     # can be saved, but fn_check_protocol_prescription_complete (39) refuses to
     # let a protocol reach 'active' without current, duration and cadence -
     # a NULL current at the bedside is an unanswerable question, not a blank.
-    prescribed_current_ma: Decimal | None = Field(default=None, gt=0, le=4)
-    prescribed_duration_min: int | None = Field(default=None, gt=0, le=120)
+    prescribed_current_ma: Decimal | None = Field(default=None, ge=0, le=2)
+    prescribed_duration_min: int | None = Field(default=None, ge=10, le=45)
     ramp_seconds: int = Field(default=30, ge=0, le=120)
     # Per-patient deviations from the catalogue dose (reduced current for
     # tolerability, etc). The catalogue row stays the prescribed protocol;
@@ -559,10 +559,10 @@ class ProtocolUpdate(BaseModel):
     they are all present.
     """
 
-    session_count: int | None = Field(default=None, ge=1, le=90)
-    follow_up_every_n: int | None = Field(default=None, ge=1, le=90)
-    prescribed_current_ma: Decimal | None = Field(default=None, gt=0, le=4)
-    prescribed_duration_min: int | None = Field(default=None, gt=0, le=120)
+    session_count: int | None = Field(default=None, ge=10, le=30)
+    follow_up_every_n: int | None = Field(default=None, ge=1, le=30)
+    prescribed_current_ma: Decimal | None = Field(default=None, ge=0, le=2)
+    prescribed_duration_min: int | None = Field(default=None, ge=10, le=45)
     ramp_seconds: int | None = Field(default=None, ge=0, le=120)
     sessions_per_week: int | None = None
     device_settings: dict | None = None
