@@ -861,9 +861,7 @@ class ProtocolService:
                 }
             )
         sessions_skipped = sum(1 for item in preview["sessions"] if (item["planned_date"], item["session_number"]) in skip_keys)
-        follow_ups_skipped = sum(
-            1 for item in preview["follow_ups"] if (item["planned_date"], item["after_session_number"]) in skip_keys
-        )
+        follow_ups_skipped = sum(1 for item in preview["follow_ups"] if (item["planned_date"], item["after_session_number"]) in skip_keys)
         return {
             "sessions_created": len(preview["sessions"]) - sessions_skipped,
             "follow_ups_created": len(preview["follow_ups"]) - follow_ups_skipped,

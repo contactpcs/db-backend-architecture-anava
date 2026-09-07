@@ -1197,10 +1197,9 @@ class ProtocolDeviceSessionRepository:
         if not appointment_ids:
             return
         await self.session.execute(
-            text(
-                "UPDATE protocol_device_sessions SET protocol_id = :new_id "
-                "WHERE appointment_id IN :ids"
-            ).bindparams(bindparam("ids", expanding=True)),
+            text("UPDATE protocol_device_sessions SET protocol_id = :new_id WHERE appointment_id IN :ids").bindparams(
+                bindparam("ids", expanding=True)
+            ),
             {"new_id": str(new_protocol_id), "ids": [str(i) for i in appointment_ids]},
         )
 
