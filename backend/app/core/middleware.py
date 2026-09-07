@@ -156,11 +156,54 @@ async def _load_profile_and_scope(cognito_sub: str) -> RequestContext:
             ).first()
             if healed:
                 async with engine.begin() as heal_conn:
+                    # profiles has RLS forced and this connection is fresh
+                    # (no GUC carried over from the read above) — without
+                    # this, rls_profiles_update admits nobody here and the
+                    # UPDATE silently affects zero rows. Found live: this
+                    # write-back had never actually been persisting — see
+                    # SQL/v1/78_profiles_update_system_role_rls.sql.
+                    await heal_conn.execute(text("SELECT set_config('app.current_user_role', 'system', true)"))
                     await heal_conn.execute(
                         text("UPDATE profiles SET is_active = TRUE, consent_signed = TRUE WHERE id = :pid"),
                         {"pid": profile_id},
                     )
                 is_active, consent_signed = True, True
+
+        # Mirror of the self-heal above, other direction: is_active = TRUE
+        # must correspond to a REAL signed consent, not just a flag someone
+        # (or a seed/bootstrap script) set directly. Found live: 6 staff/
+        # admin accounts had is_active = TRUE and consent_signed = TRUE with
+        # zero actual consent_records rows behind them — provisioned by a
+        # seed script that set both flags directly, bypassing the sign flow
+        # entirely. The super-admin consent view correctly reported "not
+        # signed" for every one of them; the flags were simply wrong.
+        # Re-verify against the real table on every request rather than
+        # trusting the flag blindly, and write back (so this doesn't
+        # re-query every request forever for a permanently-fine account) —
+        # same "re-derive from the real source of truth" reasoning as the
+        # self-heal block above, just checking the claim instead of
+        # granting it. Costs one extra indexed lookup per staff request;
+        # accepted deliberately — consent compliance is the kind of
+        # correctness this app already pays for elsewhere (the whole
+        # app-layer ownership-check pattern exists for the same reason).
+        elif role != "patient" and is_active:
+            really_signed = (
+                await conn.execute(
+                    text(
+                        "SELECT 1 FROM consent_records WHERE staff_id = :pid "
+                        "AND consent_type = 'staff_onboarding' AND status = 'signed' LIMIT 1"
+                    ),
+                    {"pid": profile_id},
+                )
+            ).first()
+            if not really_signed:
+                async with engine.begin() as heal_conn:
+                    await heal_conn.execute(text("SELECT set_config('app.current_user_role', 'system', true)"))
+                    await heal_conn.execute(
+                        text("UPDATE profiles SET is_active = FALSE, consent_signed = FALSE WHERE id = :pid"),
+                        {"pid": profile_id},
+                    )
+                is_active, consent_signed = False, False
 
         clinic_id: str | None = None
         region_id: str | None = None
