@@ -223,7 +223,8 @@ def test_build_day_slots_flags_misaligned_overlap_as_unavailable():
     must show unavailable, not just an exact 9:00-9:45 one (which would
     never even be generated at a 60-minute step)."""
     booked = {(dt.time(9, 0), dt.time(9, 45))}
-    slots = _build_day_slots(MONDAY, [_doctor_rule(start_time=dt.time(9, 0), end_time=dt.time(11, 0), slot_duration_minutes=60)], None, booked)
+    rule = _doctor_rule(start_time=dt.time(9, 0), end_time=dt.time(11, 0), slot_duration_minutes=60)
+    slots = _build_day_slots(MONDAY, [rule], None, booked)
     assert slots[0]["start_time"] == dt.time(9, 0)
     assert slots[0]["is_available"] is False
 

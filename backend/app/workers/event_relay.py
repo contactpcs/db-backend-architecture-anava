@@ -378,7 +378,8 @@ async def _handle_sos_raised(session, payload: dict[str, Any]) -> list[dict]:
     )
     if not row:
         return []
-    body = f"{payload.get('sos_type', 'SOS')} raised during a device session." + (f" Note: {payload['note']}" if payload.get("note") else "")
+    note_suffix = f" Note: {payload['note']}" if payload.get("note") else ""
+    body = f"{payload.get('sos_type', 'SOS')} raised during a device session." + note_suffix
     return [
         {
             "recipient_id": str(recipient),
