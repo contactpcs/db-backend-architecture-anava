@@ -7,8 +7,18 @@ just consume profile_completion_missing_fields instead of drifting from
 whatever this file considers complete."""
 
 _STAFF_COMMON_FIELDS = (
-    "first_name", "last_name", "email", "phone", "gender", "dob",
-    "address", "city", "state", "country", "pincode", "language_pref",
+    "first_name",
+    "last_name",
+    "email",
+    "phone",
+    "gender",
+    "dob",
+    "address",
+    "city",
+    "state",
+    "country",
+    "pincode",
+    "language_pref",
 )
 
 # email_verified/phone_verified only apply to patients here — the OTP
@@ -16,13 +26,33 @@ _STAFF_COMMON_FIELDS = (
 # staff accounts are provisioned directly (Cognito admin-create, no OTP
 # step), so those flags are always True there and add nothing.
 PATIENT_FIELDS = (
-    "first_name", "last_name", "email", "phone", "gender", "dob",
-    "address", "city", "state", "country", "pincode",
-    "emergency_contact_name", "emergency_contact_phone", "language_pref",
-    "blood_group", "allergies", "occupation", "marital_status",
-    "insurance_provider", "insurance_policy", "weight_kg", "height_ft",
-    "height_in", "government_id", "id_type",
-    "email_verified", "phone_verified",
+    "first_name",
+    "last_name",
+    "email",
+    "phone",
+    "gender",
+    "dob",
+    "address",
+    "city",
+    "state",
+    "country",
+    "pincode",
+    "emergency_contact_name",
+    "emergency_contact_phone",
+    "language_pref",
+    "blood_group",
+    "allergies",
+    "occupation",
+    "marital_status",
+    "insurance_provider",
+    "insurance_policy",
+    "weight_kg",
+    "height_ft",
+    "height_in",
+    "government_id",
+    "id_type",
+    "email_verified",
+    "phone_verified",
 )
 DOCTOR_FIELDS = _STAFF_COMMON_FIELDS + ("specialization", "license_number", "hospital_affiliation")
 CLINICAL_ASSISTANT_FIELDS = _STAFF_COMMON_FIELDS + ("qualification",)
