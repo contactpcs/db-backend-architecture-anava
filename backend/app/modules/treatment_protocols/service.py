@@ -613,19 +613,6 @@ class ProtocolService:
 
         protocol_id = created["protocol_id"]
 
-        # Same transaction as the new row: the amended protocol stops being
-        # editable/current the instant its replacement exists, never a moment
-        # where both read as the live version. Also cancels its still-planned
-        # appointments/device sessions — cancel_planned is the same call
-        # ProtocolService.cancel() makes; an amendment supersedes the old
-        # course exactly like a cancellation would, it just does so as one
-        # atomic step instead of the caller orchestrating create+activate+
-        # cancel across three separate requests (and 'superseded' is not in
-        # _CANCELLABLE_STATUSES, so a manual cancel() after this would 409).
-        if body.supersedes_protocol_id is not None:
-            await self.sessions.cancel_planned(body.supersedes_protocol_id, reason="Superseded by protocol amendment")
-            await self.repo.set_status(body.supersedes_protocol_id, "superseded")
-
         # Steps 2, 3 and 6. Same transaction as the protocol row, so a
         # prescription cannot exist without the diagnosis that justifies it.
         conditions_written = await self.details.add_conditions(protocol_id, [c.model_dump() for c in body.conditions])
@@ -642,7 +629,45 @@ class ProtocolService:
                 extra_dates=body.extra_dates,
             )
         )
-        counts = await self._generate_appointments(protocol_id, parent, preview, device_id=body.device_id)
+
+        # Same transaction as the new row: the amended protocol stops being
+        # editable/current the instant its replacement exists, never a moment
+        # where both read as the live version.
+        #
+        # Relink whatever the new schedule reproduces unchanged (same date,
+        # same session/follow-up number) instead of cancelling the old row
+        # and inserting a fresh one for it — cuts down on duplicate
+        # appointment rows for a course that mostly carries over, and a
+        # relinked row keeps its original appointment_id, so a doctor who
+        # already has that row open (or a patient with a notification
+        # pointing at it) doesn't lose that continuity over an amendment
+        # that only changed, say, the current_ma. This MUST run before
+        # cancel_planned below: relink only matches still-'planned' rows, so
+        # if cancel_planned ran first there would be nothing left to relink.
+        # Whatever relink doesn't claim (moved/added/dropped dates) falls
+        # through to cancel_planned exactly as a non-relinked amendment
+        # always has.
+        relinked_keys: set[tuple[Any, int]] = set()
+        if body.supersedes_protocol_id is not None:
+            candidates = [(item["planned_date"], item["session_number"]) for item in preview["sessions"]] + [
+                (item["planned_date"], item["after_session_number"]) for item in preview["follow_ups"]
+            ]
+            relinked = await self.sessions.relink_planned_matching(body.supersedes_protocol_id, protocol_id, candidates)
+            if relinked:
+                device_session_ids = [r["appointment_id"] for r in relinked if r["appointment_type"] == _TYPE_DEVICE_SESSION]
+                follow_up_ids = [r["appointment_id"] for r in relinked if r["appointment_type"] == _TYPE_FOLLOW_UP]
+                await self.device_sessions.relink_protocol(device_session_ids, protocol_id)
+                await self.followups.relink_protocol(follow_up_ids, protocol_id)
+                relinked_keys = {(r["appointment_date"], r["session_number"]) for r in relinked}
+
+            # cancel_planned is the same call ProtocolService.cancel() makes;
+            # an amendment supersedes the old course exactly like a
+            # cancellation would for anything relink didn't already claim.
+            await self.sessions.cancel_planned(body.supersedes_protocol_id, reason="Superseded by protocol amendment")
+            await self.repo.set_status(body.supersedes_protocol_id, "superseded")
+
+        counts = await self._generate_appointments(protocol_id, parent, preview, device_id=body.device_id, skip_keys=relinked_keys)
+        counts["sessions_relinked"] = len(relinked_keys)
 
         await emit_event(
             self.session,
@@ -716,7 +741,9 @@ class ProtocolService:
             "clinic_id": instance["clinic_id"],
         }
 
-    async def _generate_appointments(self, protocol_id: UUID, parent: dict, preview: dict, *, device_id: UUID) -> dict:
+    async def _generate_appointments(
+        self, protocol_id: UUID, parent: dict, preview: dict, *, device_id: UUID, skip_keys: set[tuple[Any, int]] | None = None
+    ) -> dict:
         """Writes the whole course onto the appointments spine, and — 47 — a
         matching protocol_device_sessions / protocol_followup row alongside
         each one, carrying the appointment_id it just got back.
@@ -765,7 +792,14 @@ class ProtocolService:
                 code="NO_CLINIC_DEVICE",
             )
 
+        skip_keys = skip_keys or set()
         for item in preview["sessions"]:
+            # Amendment already relinked the old appointment row that covers
+            # this exact (date, session_number) — inserting a second one here
+            # would duplicate it and collide with
+            # uq_protocol_device_sessions_protocol_number.
+            if (item["planned_date"], item["session_number"]) in skip_keys:
+                continue
             appt = await self.sessions.create(
                 {
                     "clinic_id": str(clinic_id),
@@ -798,6 +832,8 @@ class ProtocolService:
                 }
             )
         for item in preview["follow_ups"]:
+            if (item["planned_date"], item["after_session_number"]) in skip_keys:
+                continue
             appt = await self.sessions.create(
                 {
                     "clinic_id": str(clinic_id),
@@ -824,9 +860,13 @@ class ProtocolService:
                     "planned_date": item["planned_date"],
                 }
             )
+        sessions_skipped = sum(1 for item in preview["sessions"] if (item["planned_date"], item["session_number"]) in skip_keys)
+        follow_ups_skipped = sum(
+            1 for item in preview["follow_ups"] if (item["planned_date"], item["after_session_number"]) in skip_keys
+        )
         return {
-            "sessions_created": len(preview["sessions"]),
-            "follow_ups_created": len(preview["follow_ups"]),
+            "sessions_created": len(preview["sessions"]) - sessions_skipped,
+            "follow_ups_created": len(preview["follow_ups"]) - follow_ups_skipped,
         }
 
     # -- lifecycle ---------------------------------------------------------
