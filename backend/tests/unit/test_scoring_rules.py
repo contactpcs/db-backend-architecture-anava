@@ -21,7 +21,7 @@ def test_generic_flat_sum_reverses_higher_better_direction():
     # Barthel: raw 80/100 is 20 points of dependency, i.e. 20% "bad" once reversed
     result = compute_scale_score("BARTHEL", items={}, naive_sum=80, naive_max=100)
     assert result["direction_corrected_percentage"] == 20.0
-    assert result["risk_flags"] == {"functional_dependency": True}
+    assert result["risk_flags"] == ["functional_dependency"]
 
 
 def test_unconfigured_scale_falls_back_to_higher_worse_generic_band():

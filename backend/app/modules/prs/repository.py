@@ -508,7 +508,7 @@ class PrsScaleResultRepository:
         severity_level: str | None = None,
         severity_label: str | None = None,
         subscale_scores: dict | None = None,
-        risk_flags: dict | None = None,
+        risk_flags: list[str] | None = None,
         direction_corrected_percentage: float | None = None,
     ) -> dict:
         scale_result_id = f"{instance_id}/{scale_id.replace('/', '-')}"
@@ -545,8 +545,13 @@ class PrsScaleResultRepository:
                 "max": max_possible,
                 "severity_level": severity_level,
                 "severity_label": severity_label,
-                "subscale_scores": json.dumps(subscale_scores) if subscale_scores is not None else None,
-                "risk_flags": json.dumps(risk_flags) if risk_flags is not None else None,
+                # columns are NOT NULL DEFAULT '{}'/'[]' — an explicit NULL bind
+                # bypasses that default and violates the constraint (surfaced by
+                # EQ-5D-5L, which has no special scorer so subscale_scores is
+                # None), so a missing value must serialize to the empty
+                # container, not fall through to SQL NULL.
+                "subscale_scores": json.dumps(subscale_scores if subscale_scores is not None else {}),
+                "risk_flags": json.dumps(risk_flags if risk_flags is not None else []),
                 "dcp": direction_corrected_percentage,
             },
         )

@@ -129,7 +129,12 @@ def _generic_tier(pct: float) -> tuple[str, str]:
     return "very_severe", "Very Severe"
 
 
-def _risk_flags_for(scale_code: str, calculated_value: float) -> dict | None:
+def _risk_flags_for(scale_code: str, calculated_value: float) -> list[str] | None:
+    # A list, not {name: hit} — prs_scale_results.risk_flags is JSONB NOT NULL
+    # DEFAULT '[]' and the recalculate_final_result trigger (SQL/07_prs_tables.
+    # sql) does jsonb_array_length(r.risk_flags) / v_all_flags || r.risk_flags
+    # to fold every scale's flags into prs_final_results.all_risk_flags — an
+    # object there throws "cannot get array length of a non-array".
     rule = _RISK_THRESHOLDS.get(scale_code)
     if not rule:
         return None
@@ -140,7 +145,7 @@ def _risk_flags_for(scale_code: str, calculated_value: float) -> dict | None:
         "<=": calculated_value <= threshold,
         ">": calculated_value > threshold,
     }[op]
-    return {name: hit}
+    return [name] if hit else None
 
 
 # ---------------------------------------------------------------------------
