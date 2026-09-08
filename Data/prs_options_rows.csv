@@ -1175,9 +1175,7 @@ IADL/006/05,IADL/006,Does not travel at all,4,0,5,true,2026-09-04 00:00:00+00
 IADL/007/01,IADL/007,Is responsible for taking medication in correct dosages at correct time,0,1,1,true,2026-09-04 00:00:00+00
 IADL/007/02,IADL/007,Takes responsibility if medication is prepared in advance in separate dosages,1,0,2,true,2026-09-04 00:00:00+00
 IADL/007/03,IADL/007,Is not capable of dispensing own medication,2,0,3,true,2026-09-04 00:00:00+00
-IADL/008/01,IADL/008,"Manages financial matters independently (budgets, writes 
-checks, pays rent and bills, goes to bank); collects 
-and keeps track of income",0,1,1,true,2026-09-04 00:00:00+00
+IADL/008/01,IADL/008,"Manages financial matters independently (budgets, writes checks, pays rent and bills, goes to bank); collects and keeps track of income",0,1,1,true,2026-09-04 00:00:00+00
 IADL/008/02,IADL/008,"Manages day-to-day purchases but needs help with banking, major purchases, etc",1,1,2,true,2026-09-04 00:00:00+00
 IADL/008/03,IADL/008,Incapable of handling money,2,0,3,true,2026-09-04 00:00:00+00
 IBS-SSS/001/01,IBS-SSS/001,Yes,0,0,1,true,2026-09-04 00:00:00+00
@@ -1311,11 +1309,11 @@ MADRS/010/05,MADRS/010,"Probably better off dead. Suicidal thoughts are common, 
 MADRS/010/06,MADRS/010,5,5,5,6,true,2026-09-04 00:00:00+00
 MADRS/010/07,MADRS/010,Explicit plans for suicide when there is an opportunity. Active preparation for suicide.,6,6,7,true,2026-09-04 00:00:00+00
 MAS/001/01,MAS/001,0,0,0,1,true,2026-09-04 00:00:00+00
-MAS/001/02,MAS/001,1,1,1,2,true,2026-09-04 00:00:00+00
-MAS/001/03,MAS/001,2,2,2,3,true,2026-09-04 00:00:00+00
-MAS/001/04,MAS/001,3,3,3,4,true,2026-09-04 00:00:00+00
-MAS/001/05,MAS/001,4,4,4,5,true,2026-09-04 00:00:00+00
-MAS/001/06,MAS/001,5,5,5,6,true,2026-09-04 00:00:00+00
+MAS/001/02,MAS/001,1,1,20,2,true,2026-09-04 00:00:00+00
+MAS/001/03,MAS/001,2,2,40,3,true,2026-09-04 00:00:00+00
+MAS/001/04,MAS/001,3,3,60,4,true,2026-09-04 00:00:00+00
+MAS/001/05,MAS/001,4,4,80,5,true,2026-09-04 00:00:00+00
+MAS/001/06,MAS/001,5,5,100,6,true,2026-09-04 00:00:00+00
 MFIS/001/01,MFIS/001,Never,0,0,1,true,2026-09-04 00:00:00+00
 MFIS/001/02,MFIS/001,Rarely,1,1,2,true,2026-09-04 00:00:00+00
 MFIS/001/03,MFIS/001,Sometimes,2,2,3,true,2026-09-04 00:00:00+00
@@ -1864,10 +1862,62 @@ PFS-16/016/02,PFS-16/016,Disagree,1,2,2,true,2026-09-04 00:00:00+00
 PFS-16/016/03,PFS-16/016,Do not agree or disagree,2,3,3,true,2026-09-04 00:00:00+00
 PFS-16/016/04,PFS-16/016,Agree,3,4,4,true,2026-09-04 00:00:00+00
 PFS-16/016/05,PFS-16/016,Strongly agree,4,5,5,true,2026-09-04 00:00:00+00
-PSQI/001/01,PSQI/001,Text input (time),0,0,1,true,2026-09-04 00:00:00+00
-PSQI/002/01,PSQI/002,Numeric input (minutes),0,0,1,true,2026-09-04 00:00:00+00
-PSQI/003/01,PSQI/003,Text input (time),0,0,1,true,2026-09-04 00:00:00+00
-PSQI/004/01,PSQI/004,Numeric input (hours),0,0,1,true,2026-09-04 00:00:00+00
+PSQI/005/01,PSQI/005,Not during the past month,0,0,1,true,2026-09-04 00:00:00+00
+PSQI/005/02,PSQI/005,Less than once a week,1,1,2,true,2026-09-04 00:00:00+00
+PSQI/005/03,PSQI/005,Once or twice a week,2,2,3,true,2026-09-04 00:00:00+00
+PSQI/005/04,PSQI/005,Three or more times a week,3,3,4,true,2026-09-04 00:00:00+00
+PSQI/006/01,PSQI/006,Not during the past month,0,0,1,true,2026-09-04 00:00:00+00
+PSQI/006/02,PSQI/006,Less than once a week,1,1,2,true,2026-09-04 00:00:00+00
+PSQI/006/03,PSQI/006,Once or twice a week,2,2,3,true,2026-09-04 00:00:00+00
+PSQI/006/04,PSQI/006,Three or more times a week,3,3,4,true,2026-09-04 00:00:00+00
+PSQI/007/01,PSQI/007,Not during the past month,0,0,1,true,2026-09-04 00:00:00+00
+PSQI/007/02,PSQI/007,Less than once a week,1,1,2,true,2026-09-04 00:00:00+00
+PSQI/007/03,PSQI/007,Once or twice a week,2,2,3,true,2026-09-04 00:00:00+00
+PSQI/007/04,PSQI/007,Three or more times a week,3,3,4,true,2026-09-04 00:00:00+00
+PSQI/008/01,PSQI/008,Not during the past month,0,0,1,true,2026-09-04 00:00:00+00
+PSQI/008/02,PSQI/008,Less than once a week,1,1,2,true,2026-09-04 00:00:00+00
+PSQI/008/03,PSQI/008,Once or twice a week,2,2,3,true,2026-09-04 00:00:00+00
+PSQI/008/04,PSQI/008,Three or more times a week,3,3,4,true,2026-09-04 00:00:00+00
+PSQI/009/01,PSQI/009,Not during the past month,0,0,1,true,2026-09-04 00:00:00+00
+PSQI/009/02,PSQI/009,Less than once a week,1,1,2,true,2026-09-04 00:00:00+00
+PSQI/009/03,PSQI/009,Once or twice a week,2,2,3,true,2026-09-04 00:00:00+00
+PSQI/009/04,PSQI/009,Three or more times a week,3,3,4,true,2026-09-04 00:00:00+00
+PSQI/010/01,PSQI/010,Not during the past month,0,0,1,true,2026-09-04 00:00:00+00
+PSQI/010/02,PSQI/010,Less than once a week,1,1,2,true,2026-09-04 00:00:00+00
+PSQI/010/03,PSQI/010,Once or twice a week,2,2,3,true,2026-09-04 00:00:00+00
+PSQI/010/04,PSQI/010,Three or more times a week,3,3,4,true,2026-09-04 00:00:00+00
+PSQI/011/01,PSQI/011,Not during the past month,0,0,1,true,2026-09-04 00:00:00+00
+PSQI/011/02,PSQI/011,Less than once a week,1,1,2,true,2026-09-04 00:00:00+00
+PSQI/011/03,PSQI/011,Once or twice a week,2,2,3,true,2026-09-04 00:00:00+00
+PSQI/011/04,PSQI/011,Three or more times a week,3,3,4,true,2026-09-04 00:00:00+00
+PSQI/012/01,PSQI/012,Not during the past month,0,0,1,true,2026-09-04 00:00:00+00
+PSQI/012/02,PSQI/012,Less than once a week,1,1,2,true,2026-09-04 00:00:00+00
+PSQI/012/03,PSQI/012,Once or twice a week,2,2,3,true,2026-09-04 00:00:00+00
+PSQI/012/04,PSQI/012,Three or more times a week,3,3,4,true,2026-09-04 00:00:00+00
+PSQI/013/01,PSQI/013,Not during the past month,0,0,1,true,2026-09-04 00:00:00+00
+PSQI/013/02,PSQI/013,Less than once a week,1,1,2,true,2026-09-04 00:00:00+00
+PSQI/013/03,PSQI/013,Once or twice a week,2,2,3,true,2026-09-04 00:00:00+00
+PSQI/013/04,PSQI/013,Three or more times a week,3,3,4,true,2026-09-04 00:00:00+00
+PSQI/014/01,PSQI/014,Not during the past month,0,0,1,true,2026-09-04 00:00:00+00
+PSQI/014/02,PSQI/014,Less than once a week,1,1,2,true,2026-09-04 00:00:00+00
+PSQI/014/03,PSQI/014,Once or twice a week,2,2,3,true,2026-09-04 00:00:00+00
+PSQI/014/04,PSQI/014,Three or more times a week,3,3,4,true,2026-09-04 00:00:00+00
+PSQI/015/01,PSQI/015,Not during the past month,0,0,1,true,2026-09-04 00:00:00+00
+PSQI/015/02,PSQI/015,Less than once a week,1,1,2,true,2026-09-04 00:00:00+00
+PSQI/015/03,PSQI/015,Once or twice a week,2,2,3,true,2026-09-04 00:00:00+00
+PSQI/015/04,PSQI/015,Three or more times a week,3,3,4,true,2026-09-04 00:00:00+00
+PSQI/016/01,PSQI/016,Not during the past month,0,0,1,true,2026-09-04 00:00:00+00
+PSQI/016/02,PSQI/016,Less than once a week,1,1,2,true,2026-09-04 00:00:00+00
+PSQI/016/03,PSQI/016,Once or twice a week,2,2,3,true,2026-09-04 00:00:00+00
+PSQI/016/04,PSQI/016,Three or more times a week,3,3,4,true,2026-09-04 00:00:00+00
+PSQI/017/01,PSQI/017,No problem at all,0,0,1,true,2026-09-04 00:00:00+00
+PSQI/017/02,PSQI/017,Only a very slight problem,1,1,2,true,2026-09-04 00:00:00+00
+PSQI/017/03,PSQI/017,Somewhat of a problem,2,2,3,true,2026-09-04 00:00:00+00
+PSQI/017/04,PSQI/017,A very big problem,3,3,4,true,2026-09-04 00:00:00+00
+PSQI/018/01,PSQI/018,Very good,0,0,1,true,2026-09-04 00:00:00+00
+PSQI/018/02,PSQI/018,Fairly good,1,1,2,true,2026-09-04 00:00:00+00
+PSQI/018/03,PSQI/018,Fairly bad,2,2,3,true,2026-09-04 00:00:00+00
+PSQI/018/04,PSQI/018,Very bad,3,3,4,true,2026-09-04 00:00:00+00
 SARA/001/01,SARA/001,"Normal, no difficulties in walking, turning and walking tandem (up to one misstep allowed)",0,0,1,true,2026-09-04 00:00:00+00
 SARA/001/02,SARA/001,"Slight difficulties, only visible when walking 10 consecutive steps in tandem",1,1,2,true,2026-09-04 00:00:00+00
 SARA/001/03,SARA/001,"Clearly abnormal, tandem walking >10 steps not possible",2,2,3,true,2026-09-04 00:00:00+00

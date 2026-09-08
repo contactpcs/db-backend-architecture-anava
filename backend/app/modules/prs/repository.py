@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from uuid import UUID
@@ -497,19 +498,57 @@ class PrsScaleResultRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def upsert(self, *, instance_id: str, scale_id: str, calculated_value: float, max_possible: float) -> dict:
+    async def upsert(
+        self,
+        *,
+        instance_id: str,
+        scale_id: str,
+        calculated_value: float,
+        max_possible: float,
+        severity_level: str | None = None,
+        severity_label: str | None = None,
+        subscale_scores: dict | None = None,
+        risk_flags: dict | None = None,
+        direction_corrected_percentage: float | None = None,
+    ) -> dict:
         scale_result_id = f"{instance_id}/{scale_id.replace('/', '-')}"
         # Insert/update fires the existing recalculate_final_result() trigger
         # (SQL/07_prs_tables.sql) which aggregates into prs_final_results.
+        # subscale_scores/risk_flags are JSONB — same CAST pattern as
+        # device_sessions/repository.py's dynamic-field updater.
+        #
+        # direction_corrected_percentage (SQL/v1/81) is the scale's 0-100
+        # "higher = worse" percentage from compute_scale_score() — distinct
+        # from the generated `percentage` column (a plain calculated_value/
+        # max_possible ratio, which reads backwards for the 9 HIGHER_BETTER
+        # scales). Disease composite scoring reads THIS column, never the
+        # generated one.
         return await fetch_one(
             self.session,
             text(
-                "INSERT INTO prs_scale_results (scale_result_id, instance_id, scale_id, calculated_value, max_possible) "
-                "VALUES (:id, :instance_id, :scale_id, :calc, :max) "
+                "INSERT INTO prs_scale_results "
+                "(scale_result_id, instance_id, scale_id, calculated_value, max_possible, "
+                "severity_level, severity_label, subscale_scores, risk_flags, direction_corrected_percentage) "
+                "VALUES (:id, :instance_id, :scale_id, :calc, :max, :severity_level, :severity_label, "
+                "CAST(:subscale_scores AS JSONB), CAST(:risk_flags AS JSONB), :dcp) "
                 "ON CONFLICT (scale_result_id) DO UPDATE SET calculated_value = EXCLUDED.calculated_value, "
-                "max_possible = EXCLUDED.max_possible RETURNING *"
+                "max_possible = EXCLUDED.max_possible, severity_level = EXCLUDED.severity_level, "
+                "severity_label = EXCLUDED.severity_label, subscale_scores = EXCLUDED.subscale_scores, "
+                "risk_flags = EXCLUDED.risk_flags, direction_corrected_percentage = EXCLUDED.direction_corrected_percentage "
+                "RETURNING *"
             ),
-            {"id": scale_result_id, "instance_id": instance_id, "scale_id": scale_id, "calc": calculated_value, "max": max_possible},
+            {
+                "id": scale_result_id,
+                "instance_id": instance_id,
+                "scale_id": scale_id,
+                "calc": calculated_value,
+                "max": max_possible,
+                "severity_level": severity_level,
+                "severity_label": severity_label,
+                "subscale_scores": json.dumps(subscale_scores) if subscale_scores is not None else None,
+                "risk_flags": json.dumps(risk_flags) if risk_flags is not None else None,
+                "dcp": direction_corrected_percentage,
+            },
         )
 
     async def list_for_instance(self, instance_id: str) -> list[dict]:
@@ -522,3 +561,48 @@ class PrsScaleResultRepository:
 
     async def final_result(self, instance_id: str) -> dict | None:
         return await fetch_optional(self.session, text("SELECT * FROM prs_final_results WHERE instance_id = :id"), {"id": instance_id})
+
+    async def disease_weights_and_percentages(self, instance_id: str, disease_id: str) -> list[dict]:
+        """One row per scale that is BOTH weighted for this disease (reference.
+        prs_disease_scale_map.weight_pct, SQL/v1/81) AND already scored for
+        this instance — the exact input compute_disease_composite() needs.
+        A scale still awaiting an answer has no prs_scale_results row yet, so
+        the INNER JOIN naturally excludes it (compute_disease_composite()
+        renormalizes over whatever's left)."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT sc.scale_code, sr.direction_corrected_percentage AS percentage, m.weight_pct "
+                        "FROM prs_disease_scale_map m "
+                        "JOIN prs_scales sc ON sc.scale_id = m.scale_id "
+                        "JOIN prs_scale_results sr ON sr.scale_id = m.scale_id AND sr.instance_id = :instance_id "
+                        "WHERE m.disease_id = :disease_id AND m.weight_pct IS NOT NULL "
+                        "AND sr.direction_corrected_percentage IS NOT NULL"
+                    ),
+                    {"instance_id": instance_id, "disease_id": disease_id},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def update_final_result_composite(
+        self, instance_id: str, *, composite_score: float | None, severity_level: str | None, severity_label: str | None
+    ) -> dict | None:
+        """Writes the weighted disease composite (SQL/v1/81 columns) onto the
+        row the recalculate_final_result trigger already upserted for this
+        instance. Only called after that trigger has run (service.py forces
+        it with SET CONSTRAINTS ... IMMEDIATE first) — if no prs_final_results
+        row exists yet for this instance, there is nothing to attach the
+        composite to and this is a no-op."""
+        return await fetch_optional(
+            self.session,
+            text(
+                "UPDATE prs_final_results SET composite_score = :score, "
+                "composite_severity_level = :level, composite_severity_label = :label "
+                "WHERE instance_id = :instance_id RETURNING *"
+            ),
+            {"instance_id": instance_id, "score": composite_score, "level": severity_level, "label": severity_label},
+        )

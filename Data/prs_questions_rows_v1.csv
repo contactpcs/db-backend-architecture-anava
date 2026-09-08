@@ -22,8 +22,7 @@ AMTS/002,AMTS/002,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,What time is it (to near
 AMTS/003,AMTS/003,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,Recall address: 42 West Street This should be repeated by the patient to ensure it has been heard correctly.,radio,,,true,,3,false,2026-09-04 00:00:00+00
 AMTS/004,AMTS/004,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,What year is it?,radio,,,true,,4,false,2026-09-04 00:00:00+00
 AMTS/005,AMTS/005,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,What is your address?,radio,,,true,,5,false,2026-09-04 00:00:00+00
-AMTS/006,AMTS/006,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,"What jobs do these people do? (Show the patient two pictures: a postman and a cook) or 
-Who are these two people? (Show pictures of Pope and Queen.)",radio,,,true,,6,false,2026-09-04 00:00:00+00
+AMTS/006,AMTS/006,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,What jobs do these people do? (Show the patient two pictures: a postman and a cook) or Who are these two people? (Show pictures of Pope and Queen.),radio,,,true,,6,false,2026-09-04 00:00:00+00
 AMTS/007,AMTS/007,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,What is your date of birth?,radio,,,true,,7,false,2026-09-04 00:00:00+00
 AMTS/008,AMTS/008,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,What year did the First World War start?,radio,,,true,,8,false,2026-09-04 00:00:00+00
 AMTS/009,AMTS/009,DEMENTIA/2026,AMTS/2026,Dementia/AMTS,What is the name of the present monarch?,radio,,,true,,9,false,2026-09-04 00:00:00+00
@@ -385,92 +384,36 @@ PFS-16/013,PFS-16/013,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS
 PFS-16/014,PFS-16/014,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,I feel tired even when I haven’t done anything,radio,,,true,,14,false,2026-09-04 00:00:00+00
 PFS-16/015,PFS-16/015,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,Because of fatigue I do less in my day than I would like,radio,,,true,,15,false,2026-09-04 00:00:00+00
 PFS-16/016,PFS-16/016,PARKINSONSDISEASE/2026,PFS-16/2026,Parkinson's Disease/PFS-16,I get so tired I want to lie down wherever I am,radio,,,true,,16,false,2026-09-04 00:00:00+00
-PSQI/001,PSQI/001,,PSQI/2026,,"During the past month, what time have you usually gone to bed at night?",text,,,true,,1,true,2026-09-04 00:00:00+00
-PSQI/002,PSQI/002,,PSQI/2026,,"During the past month, how long (in minutes) has it usually taken you to fall asleep each night?",number,,,true,,2,true,2026-09-04 00:00:00+00
-PSQI/003,PSQI/003,,PSQI/2026,,"During the past month, what time have you usually gotten up in the morning?",text,,,true,,3,true,2026-09-04 00:00:00+00
-PSQI/004,PSQI/004,,PSQI/2026,,"During the past month, how many hours of actual sleep did you get at night?",number,,,true,,4,true,2026-09-04 00:00:00+00
-SARA/001,SARA/001,,SARA/2026,,"GAIT Proband is asked (1) to walk at a safe distance parallel to 
-a wall including a half-turn (turn around to face the 
-opposite direction of gait) and (2) to walk in tandem 
-(heels to toes) without support.",radio,,,true,,1,true,2026-09-04 00:00:00+00
-SARA/002,SARA/002,,SARA/2026,,"STANCE Proband is asked to stand (1) in natural position, (2) with 
-feet together in parallel (big toes touching each other) and 
-(3) in tandem (both feet on one line, no space between 
-heel and toe). Proband does not wear shoes, eyes are 
-open. For each condition, three trials are allowed. Best 
-trial is rated.",radio,,,true,,2,true,2026-09-04 00:00:00+00
-SARA/003,SARA/003,,SARA/2026,,"SITTING Proband is asked to sit on an examination bed without 
-support of feet, eyes open and arms outstretched to the 
-front.",radio,,,true,,3,true,2026-09-04 00:00:00+00
+PSQI/001,PSQI/001,,PSQI/2026,,"During the past month, what time have you usually gone to bed at night?",time,,,true,,1,true,2026-09-04 00:00:00+00
+PSQI/002,PSQI/002,,PSQI/2026,,"During the past month, how long (in minutes) has it usually taken you to fall asleep each night?",number,0,300,true,,2,true,2026-09-04 00:00:00+00
+PSQI/003,PSQI/003,,PSQI/2026,,"During the past month, what time have you usually gotten up in the morning?",time,,,true,,3,true,2026-09-04 00:00:00+00
+PSQI/004,PSQI/004,,PSQI/2026,,"During the past month, how many hours of actual sleep did you get at night?",number,0,24,true,,4,true,2026-09-04 00:00:00+00
+PSQI/005,PSQI/005,,PSQI/2026,,"During the past month, how often have you had trouble sleeping because you cannot get to sleep within 30 minutes?",radio,,,true,,5,true,2026-09-04 00:00:00+00
+PSQI/006,PSQI/006,,PSQI/2026,,"During the past month, how often have you had trouble sleeping because you wake up in the middle of the night or early morning?",radio,,,true,,6,true,2026-09-04 00:00:00+00
+PSQI/007,PSQI/007,,PSQI/2026,,"During the past month, how often have you had trouble sleeping because you have to get up to use the bathroom?",radio,,,true,,7,true,2026-09-04 00:00:00+00
+PSQI/008,PSQI/008,,PSQI/2026,,"During the past month, how often have you had trouble sleeping because you cannot breathe comfortably?",radio,,,true,,8,true,2026-09-04 00:00:00+00
+PSQI/009,PSQI/009,,PSQI/2026,,"During the past month, how often have you had trouble sleeping because you cough or snore loudly?",radio,,,true,,9,true,2026-09-04 00:00:00+00
+PSQI/010,PSQI/010,,PSQI/2026,,"During the past month, how often have you had trouble sleeping because you feel too cold?",radio,,,true,,10,true,2026-09-04 00:00:00+00
+PSQI/011,PSQI/011,,PSQI/2026,,"During the past month, how often have you had trouble sleeping because you feel too hot?",radio,,,true,,11,true,2026-09-04 00:00:00+00
+PSQI/012,PSQI/012,,PSQI/2026,,"During the past month, how often have you had trouble sleeping because you have bad dreams?",radio,,,true,,12,true,2026-09-04 00:00:00+00
+PSQI/013,PSQI/013,,PSQI/2026,,"During the past month, how often have you had trouble sleeping because you have pain?",radio,,,true,,13,true,2026-09-04 00:00:00+00
+PSQI/014,PSQI/014,,PSQI/2026,,"During the past month, how often have you had trouble sleeping for any other reason?",radio,,,true,,14,true,2026-09-04 00:00:00+00
+PSQI/015,PSQI/015,,PSQI/2026,,"During the past month, how often have you taken medicine to help you sleep (prescribed or ""over the counter"")?",radio,,,true,,15,true,2026-09-04 00:00:00+00
+PSQI/016,PSQI/016,,PSQI/2026,,"During the past month, how often have you had trouble staying awake while driving, eating meals, or engaging in social activity?",radio,,,true,,16,true,2026-09-04 00:00:00+00
+PSQI/017,PSQI/017,,PSQI/2026,,"During the past month, how much of a problem has it been for you to keep up enough enthusiasm to get things done?",radio,,,true,,17,true,2026-09-04 00:00:00+00
+PSQI/018,PSQI/018,,PSQI/2026,,"During the past month, how would you rate your sleep quality overall?",radio,,,true,,18,true,2026-09-04 00:00:00+00
+SARA/001,SARA/001,,SARA/2026,,GAIT Proband is asked (1) to walk at a safe distance parallel to a wall including a half-turn (turn around to face the opposite direction of gait) and (2) to walk in tandem (heels to toes) without support.,radio,,,true,,1,true,2026-09-04 00:00:00+00
+SARA/002,SARA/002,,SARA/2026,,"STANCE Proband is asked to stand (1) in natural position, (2) with feet together in parallel (big toes touching each other) and (3) in tandem (both feet on one line, no space between heel and toe). Proband does not wear shoes, eyes are open. For each condition, three trials are allowed. Best trial is rated.",radio,,,true,,2,true,2026-09-04 00:00:00+00
+SARA/003,SARA/003,,SARA/2026,,"SITTING Proband is asked to sit on an examination bed without support of feet, eyes open and arms outstretched to the front.",radio,,,true,,3,true,2026-09-04 00:00:00+00
 SARA/004,SARA/004,,SARA/2026,,SPEECH DISTURBANCE Speech is assessed during normal conversation.,radio,,,true,,4,true,2026-09-04 00:00:00+00
-SARA/005,SARA/005,,SARA/2026,,"FINGER CHASE  Rated separately for each side 
-Proband sits comfortably(LEFT). If necessary, support of feet 
-and trunk is allowed. Examiner sits in front of proband 
-and performs 5 consecutive sudden and fast pointing 
-movements in unpredictable directions in a frontal plane, 
-at about 50 % of proband´s reach. Movements have an 
-amplitude of 30 cm and a frequency of 1 movement 
-every 2 s. Proband is asked to follow the movements 
-with his index finger, as fast and precisely as possible. 
-Average performance of last 3 movements is rated.",radio,,,true,,5,true,2026-09-04 00:00:00+00
-SARA/006,SARA/006,,SARA/2026,,"FINGER CHASE  Rated separately for each side 
-Proband sits comfortably(RIGHT). If necessary, support of feet 
-and trunk is allowed. Examiner sits in front of proband 
-and performs 5 consecutive sudden and fast pointing 
-movements in unpredictable directions in a frontal plane, 
-at about 50 % of proband´s reach. Movements have an 
-amplitude of 30 cm and a frequency of 1 movement 
-every 2 s. Proband is asked to follow the movements 
-with his index finger, as fast and precisely as possible. 
-Average performance of last 3 movements is rated.",radio,,,true,,6,true,2026-09-04 00:00:00+00
-SARA/007,SARA/007,,SARA/2026,,"NOSE-fINGER TEST Rated separately for each side 
-Proband sits comfortably(LEFT). If necessary, support of feet 
-and trunk is allowed. Proband is asked to point repeatedly 
-with his index finger from his nose to examiner’s finger 
-which is in front of the proband at about 90 % of 
-proband’s reach. Movements are performed at moderate 
-speed. Average performance of movements is rated 
-according to the amplitude of the kinetic tremor.",radio,,,true,,7,true,2026-09-04 00:00:00+00
-SARA/008,SARA/008,,SARA/2026,,"NOSE-fINGER TEST Rated separately for each side 
-Proband sits comfortably(RIGHT). If necessary, support of feet 
-and trunk is allowed. Proband is asked to point repeatedly 
-with his index finger from his nose to examiner’s finger 
-which is in front of the proband at about 90 % of 
-proband’s reach. Movements are performed at moderate 
-speed. Average performance of movements is rated 
-according to the amplitude of the kinetic tremor.",radio,,,true,,8,true,2026-09-04 00:00:00+00
-SARA/009,SARA/009,,SARA/2026,,"FAST ALTERNATING HAND MOVEMENTS Rated separately for each side  
-Proband sits comfortably(LEFT). If necessary, support of feet 
-and trunk is allowed. Proband is asked to perform 10 
-cycles of repetitive alternation of pro- and supinations of 
-the hand on his/her thigh as fast and as precise as 
-possible. Movement is demonstrated by examiner at a 
-speed of approx. 10 cycles within 7 s. Exact times for 
-movement execution have to be taken.",radio,,,true,,9,true,2026-09-04 00:00:00+00
-SARA/010,SARA/010,,SARA/2026,,"FAST ALTERNATING HAND MOVEMENTS Rated separately for each side  
-Proband sits comfortably(RIGHT). If necessary, support of feet 
-and trunk is allowed. Proband is asked to perform 10 
-cycles of repetitive alternation of pro- and supinations of 
-the hand on his/her thigh as fast and as precise as 
-possible. Movement is demonstrated by examiner at a 
-speed of approx. 10 cycles within 7 s. Exact times for 
-movement execution have to be taken.",radio,,,true,,10,true,2026-09-04 00:00:00+00
-SARA/011,SARA/011,,SARA/2026,,"HEEL-SHIN SLIDE Rated separately for each side (LEFT)
-Proband lies on examination bed, without sight of his 
-legs. Proband is asked to lift one leg, point with the heel 
-to the opposite knee, slide down along the shin to the 
-ankle, and lay the leg back on the examination bed. The 
-task is performed 3 times. Slide-down movements should 
-be performed within 1 s. If proband slides down without 
-contact to shin in all three trials, rate 4.",radio,,,true,,11,true,2026-09-04 00:00:00+00
-SARA/012,SARA/012,,SARA/2026,,"HEEL-SHIN SLIDE Rated separately for each side(RIGHT) 
-Proband lies on examination bed, without sight of his 
-legs. Proband is asked to lift one leg, point with the heel 
-to the opposite knee, slide down along the shin to the 
-ankle, and lay the leg back on the examination bed. The 
-task is performed 3 times. Slide-down movements should 
-be performed within 1 s. If proband slides down without 
-contact to shin in all three trials, rate 4.",radio,,,true,,12,true,2026-09-04 00:00:00+00
+SARA/005,SARA/005,,SARA/2026,,"FINGER CHASE  Rated separately for each side Proband sits comfortably(LEFT). If necessary, support of feet and trunk is allowed. Examiner sits in front of proband and performs 5 consecutive sudden and fast pointing movements in unpredictable directions in a frontal plane, at about 50 % of proband´s reach. Movements have an amplitude of 30 cm and a frequency of 1 movement every 2 s. Proband is asked to follow the movements with his index finger, as fast and precisely as possible. Average performance of last 3 movements is rated.",radio,,,true,,5,true,2026-09-04 00:00:00+00
+SARA/006,SARA/006,,SARA/2026,,"FINGER CHASE  Rated separately for each side Proband sits comfortably(RIGHT). If necessary, support of feet and trunk is allowed. Examiner sits in front of proband and performs 5 consecutive sudden and fast pointing movements in unpredictable directions in a frontal plane, at about 50 % of proband´s reach. Movements have an amplitude of 30 cm and a frequency of 1 movement every 2 s. Proband is asked to follow the movements with his index finger, as fast and precisely as possible. Average performance of last 3 movements is rated.",radio,,,true,,6,true,2026-09-04 00:00:00+00
+SARA/007,SARA/007,,SARA/2026,,"NOSE-fINGER TEST Rated separately for each side Proband sits comfortably(LEFT). If necessary, support of feet and trunk is allowed. Proband is asked to point repeatedly with his index finger from his nose to examiner’s finger which is in front of the proband at about 90 % of proband’s reach. Movements are performed at moderate speed. Average performance of movements is rated according to the amplitude of the kinetic tremor.",radio,,,true,,7,true,2026-09-04 00:00:00+00
+SARA/008,SARA/008,,SARA/2026,,"NOSE-fINGER TEST Rated separately for each side Proband sits comfortably(RIGHT). If necessary, support of feet and trunk is allowed. Proband is asked to point repeatedly with his index finger from his nose to examiner’s finger which is in front of the proband at about 90 % of proband’s reach. Movements are performed at moderate speed. Average performance of movements is rated according to the amplitude of the kinetic tremor.",radio,,,true,,8,true,2026-09-04 00:00:00+00
+SARA/009,SARA/009,,SARA/2026,,"FAST ALTERNATING HAND MOVEMENTS Rated separately for each side  Proband sits comfortably(LEFT). If necessary, support of feet and trunk is allowed. Proband is asked to perform 10 cycles of repetitive alternation of pro- and supinations of the hand on his/her thigh as fast and as precise as possible. Movement is demonstrated by examiner at a speed of approx. 10 cycles within 7 s. Exact times for movement execution have to be taken.",radio,,,true,,9,true,2026-09-04 00:00:00+00
+SARA/010,SARA/010,,SARA/2026,,"FAST ALTERNATING HAND MOVEMENTS Rated separately for each side  Proband sits comfortably(RIGHT). If necessary, support of feet and trunk is allowed. Proband is asked to perform 10 cycles of repetitive alternation of pro- and supinations of the hand on his/her thigh as fast and as precise as possible. Movement is demonstrated by examiner at a speed of approx. 10 cycles within 7 s. Exact times for movement execution have to be taken.",radio,,,true,,10,true,2026-09-04 00:00:00+00
+SARA/011,SARA/011,,SARA/2026,,"HEEL-SHIN SLIDE Rated separately for each side (LEFT)Proband lies on examination bed, without sight of his legs. Proband is asked to lift one leg, point with the heel to the opposite knee, slide down along the shin to the ankle, and lay the leg back on the examination bed. The task is performed 3 times. Slide-down movements should be performed within 1 s. If proband slides down without contact to shin in all three trials, rate 4.",radio,,,true,,11,true,2026-09-04 00:00:00+00
+SARA/012,SARA/012,,SARA/2026,,"HEEL-SHIN SLIDE Rated separately for each side(RIGHT) Proband lies on examination bed, without sight of his legs. Proband is asked to lift one leg, point with the heel to the opposite knee, slide down along the shin to the ankle, and lay the leg back on the examination bed. The task is performed 3 times. Slide-down movements should be performed within 1 s. If proband slides down without contact to shin in all three trials, rate 4.",radio,,,true,,12,true,2026-09-04 00:00:00+00
 SLEEP-50/001,SLEEP-50/001,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I am told that I snore.,radio,,,true,,1,false,2026-09-04 00:00:00+00
 SLEEP-50/002,SLEEP-50/002,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I sweat during the night.,radio,,,true,,2,false,2026-09-04 00:00:00+00
 SLEEP-50/003,SLEEP-50/003,INSOMNIA/2026,SLEEP-50/2026,Insomnia/SLEEP-50,I am told that I hold my breath when sleeping.,radio,,,true,,3,false,2026-09-04 00:00:00+00

@@ -16,6 +16,8 @@ from app.modules.prs.repository import (
     PrsResponseRepository,
     PrsScaleResultRepository,
 )
+from app.modules.prs.disease_scoring import compute_disease_composite
+from app.modules.prs.scoring_rules import compute_scale_score
 from app.modules.scheduling.repository import AppointmentRepository
 
 
@@ -357,6 +359,7 @@ class PrsAssessmentService:
             # stuck mid-wizard because this check ran too early to see it).
             await self.session.execute(text("SET CONSTRAINTS trg_recalculate_final_result IMMEDIATE"))
             instance = await self.get(instance_id)  # re-fetch — the trigger has now run
+            await self._update_disease_composite(instance)
             if instance["status"] == "completed" and instance["assessment_stage"] == "general_registration":
                 await emit_event(
                     self.session,
@@ -374,8 +377,10 @@ class PrsAssessmentService:
         return instance
 
     async def _finalize_scale(self, instance_id: str, scale_id: str) -> dict:
-        calculated_value, _answered = await self.responses.sum_for_scale(instance_id, scale_id)
+        naive_sum, _answered = await self.responses.sum_for_scale(instance_id, scale_id)
         questions = await self.catalog.questions_for_scale(scale_id)
+        responses = await self.responses.list_for_instance(instance_id)
+        response_by_qid = {r["question_id"]: r for r in responses}
 
         # Denominator must match what this patient was actually asked — a
         # question skipped via skip_logic (e.g. COMPASS-31's branching) never
@@ -383,15 +388,55 @@ class PrsAssessmentService:
         # given_response is already this instance's real recorded answer
         # (server-authoritative), not live UI state, so this can't be spoofed
         # by a client sending a different scales[] than it was shown.
-        given_by_qid = {r["question_id"]: r["given_response"] for r in await self.responses.list_for_instance(instance_id)}
+        given_by_qid = {qid: r["given_response"] for qid, r in response_by_qid.items()}
 
-        max_possible = 0.0
+        naive_max = 0.0
+        items: dict[int, float] = {}
+        raw_responses: dict[int, str] = {}
         for q in questions:
             if _is_skipped(q, questions, given_by_qid):
                 continue
-            max_possible += await self.catalog.max_points_for_question(q["question_id"])
+            naive_max += await self.catalog.max_points_for_question(q["question_id"])
+            resp = response_by_qid.get(q["question_id"])
+            if resp is not None and resp["response_value"] is not None:
+                items[q["display_order"]] = float(resp["response_value"])
+            if resp is not None and resp["given_response"] is not None:
+                raw_responses[q["display_order"]] = resp["given_response"]
+
+        scale_rows = await self.catalog.scales_by_ids([scale_id])
+        scale_code = scale_rows[0]["scale_code"] if scale_rows else scale_id
+
+        scored = compute_scale_score(
+            scale_code, items, naive_sum=naive_sum, naive_max=naive_max, raw_responses=raw_responses
+        )
+
         return await self.scale_results.upsert(
-            instance_id=instance_id, scale_id=scale_id, calculated_value=calculated_value, max_possible=max_possible
+            instance_id=instance_id,
+            scale_id=scale_id,
+            calculated_value=scored["calculated_value"],
+            max_possible=scored["max_possible"],
+            severity_level=scored["severity_level"],
+            severity_label=scored["severity_label"],
+            subscale_scores=scored["subscale_scores"],
+            risk_flags=scored["risk_flags"],
+            direction_corrected_percentage=scored["direction_corrected_percentage"],
+        )
+
+    async def _update_disease_composite(self, instance: dict) -> None:
+        """Recomputes the weighted disease composite (Documents/Anava_PRS_
+        Scoring_Engine_Specification_v1.docx Section 3) and writes it onto
+        this instance's prs_final_results row. general_registration instances
+        have no disease_id (disease selection removed from registration) —
+        nothing to composite, so this is a no-op for them."""
+        if not instance["disease_id"]:
+            return
+        rows = await self.scale_results.disease_weights_and_percentages(instance["instance_id"], instance["disease_id"])
+        result = compute_disease_composite(rows)
+        await self.scale_results.update_final_result_composite(
+            instance["instance_id"],
+            composite_score=result["composite_score"],
+            severity_level=result["severity_level"],
+            severity_label=result["severity_label"],
         )
 
     async def results(self, instance_id: str) -> dict:
