@@ -2,10 +2,11 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from app.config import get_settings
 from app.core.db import RequestContext, engine, get_db
-from app.core.exceptions import AuthenticationError, NotFoundError, ValidationError
+from app.core.exceptions import AuthenticationError, ConflictError, NotFoundError, ValidationError, profile_conflict_error
 from app.core.permissions import get_current_context, require_role
 from app.core.security import create_local_token
 from app.modules.auth.schemas import (
@@ -334,16 +335,34 @@ async def patient_receptionist_signup_complete(
 
 
 @router.post("/patients/verify-channel/start", status_code=204)
-async def verify_channel_start(body: VerifyChannelStart, request: Request, _ctx: RequestContext = Depends(get_current_context)) -> None:
+async def verify_channel_start(
+    body: VerifyChannelStart, request: Request, db=Depends(get_db), ctx: RequestContext = Depends(get_current_context)
+) -> None:
     """Post-signup: adds the channel NOT used at signup (e.g. a
     mobile-signup patient's Cognito user has no email attribute at all yet)
     and triggers its verification code in one call. Authenticated — needs
     the caller's own Cognito access token, which this reads straight off the
     Authorization header (get_current_context already validated it; this
-    just needs the raw string Cognito itself wants)."""
+    just needs the raw string Cognito itself wants).
+
+    Checks our own profiles table for the value up front — otherwise a
+    number/email already owned by another profile would send a real OTP
+    (Cognito has no idea about our own uniqueness rules) only to fail at
+    /confirm anyway, once the code's already been used."""
     if settings.auth_mode != "cognito":
         raise NotFoundError("Not found", code="NOT_FOUND")
     from app.core.cognito import add_and_verify_channel_start
+
+    column = "email" if body.attribute == "email" else "phone"
+    taken = await db.execute(
+        text(f"SELECT 1 FROM profiles WHERE {column} = :value AND id != :id"),
+        {"value": body.value, "id": ctx.user_id},
+    )
+    if taken.first() is not None:
+        raise ConflictError(
+            f"{'Email' if body.attribute == 'email' else 'Phone number'} {body.value!r} already in use",
+            code="EMAIL_ALREADY_EXISTS" if body.attribute == "email" else "PHONE_ALREADY_EXISTS",
+        )
 
     add_and_verify_channel_start(access_token=_bearer_token(request), attribute=body.attribute, value=body.value)
 
@@ -360,16 +379,20 @@ async def verify_channel_confirm(
     from app.core.cognito import verify_attribute
 
     verify_attribute(access_token=_bearer_token(request), attribute=body.attribute, code=body.code)
-    if body.attribute == "email":
-        await db.execute(
-            text("UPDATE profiles SET email_verified = TRUE, email = :value WHERE id = :id"),
-            {"value": body.value, "id": ctx.user_id},
-        )
-    else:
-        await db.execute(
-            text("UPDATE profiles SET phone_verified = TRUE, phone = :value WHERE id = :id"),
-            {"value": body.value, "id": ctx.user_id},
-        )
+    try:
+        if body.attribute == "email":
+            await db.execute(
+                text("UPDATE profiles SET email_verified = TRUE, email = :value WHERE id = :id"),
+                {"value": body.value, "id": ctx.user_id},
+            )
+        else:
+            await db.execute(
+                text("UPDATE profiles SET phone_verified = TRUE, phone = :value WHERE id = :id"),
+                {"value": body.value, "id": ctx.user_id},
+            )
+    except IntegrityError as exc:
+        kwargs = {"email": body.value} if body.attribute == "email" else {"phone": body.value}
+        raise profile_conflict_error(exc, **kwargs) from exc
     await db.commit()
 
 

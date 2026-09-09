@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import RequestContext
 from app.core.events import emit_event
-from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, ValidationError
+from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, ValidationError, profile_conflict_error
 from app.core.profile_completion import PATIENT_FIELDS, compute_completion_percentage, compute_missing_fields
 from app.core.resolve import resolve_patient_profile_id as _resolve_profile_id
 from app.modules.patients.repository import (
@@ -133,7 +133,7 @@ class PatientService:
                 guardian_contact=data.get("guardian_contact"),
             )
         except IntegrityError as exc:
-            raise ConflictError(f"Email {data['email']!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
+            raise profile_conflict_error(exc, email=data["email"], phone=data.get("phone")) from exc
 
         # Local import — avoids a module-load-time circular import (consent doesn't import patients).
         from app.modules.consent.service import create_onboarding_consent
@@ -215,7 +215,7 @@ class PatientService:
         try:
             updated = await self.repo.update(patient_id, profile_fields=profile_fields, patient_fields=patient_fields)
         except IntegrityError as exc:
-            raise ConflictError(f"Email {profile_fields.get('email')!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
+            raise profile_conflict_error(exc, email=profile_fields.get("email"), phone=profile_fields.get("phone")) from exc
         return _attach_completion(updated)  # type: ignore[return-value,arg-type]
 
     async def decide_approval(self, patient_id: UUID, *, decision: str, decided_by: UUID, rejection_reason: str | None) -> dict:

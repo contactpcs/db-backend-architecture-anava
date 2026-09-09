@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
-from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError
+from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, profile_conflict_error
 from app.core.profile_completion import (
     CLINICAL_ASSISTANT_FIELDS,
     DOCTOR_FIELDS,
@@ -158,7 +158,7 @@ async def _apply_profile_update(session: AsyncSession, profile_id, profile_field
     try:
         await update_profile(session, profile_id, profile_fields)
     except IntegrityError as exc:
-        raise ConflictError(f"Email {profile_fields.get('email')!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
+        raise profile_conflict_error(exc, email=profile_fields.get("email"), phone=profile_fields.get("phone")) from exc
 
 
 async def _resolve_staff_request(session: AsyncSession, staff_request_id, *, expected_role: str, clinic_id) -> dict | None:
@@ -217,7 +217,7 @@ class DoctorService:
                 pincode=data.get("pincode"),
             )
         except IntegrityError as exc:
-            raise ConflictError(f"Email {data['email']!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
+            raise profile_conflict_error(exc, email=data["email"], phone=data.get("phone")) from exc
 
         doctor = await self.repo.create(
             profile_id=profile["id"],
@@ -321,7 +321,7 @@ class ClinicalAssistantService:
                 pincode=data.get("pincode"),
             )
         except IntegrityError as exc:
-            raise ConflictError(f"Email {data['email']!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
+            raise profile_conflict_error(exc, email=data["email"], phone=data.get("phone")) from exc
 
         ca = await self.repo.create(profile_id=profile["id"], clinic_id=data["clinic_id"], qualification=data.get("qualification"))
         await self.assignments.create(clinic_id=data["clinic_id"], profile_id=profile["id"], staff_role="clinical_assistant")
@@ -405,7 +405,7 @@ class ReceptionistService:
                 pincode=data.get("pincode"),
             )
         except IntegrityError as exc:
-            raise ConflictError(f"Email {data['email']!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
+            raise profile_conflict_error(exc, email=data["email"], phone=data.get("phone")) from exc
 
         receptionist = await self.repo.create(profile_id=profile["id"], clinic_id=data["clinic_id"])
         await self.assignments.create(clinic_id=data["clinic_id"], profile_id=profile["id"], staff_role="receptionist")

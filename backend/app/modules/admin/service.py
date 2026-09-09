@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
-from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError
+from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, profile_conflict_error
 from app.core.fsm import assert_transition
 from app.core.profile_completion import ADMIN_FIELDS, compute_completion_percentage, compute_missing_fields
 from app.modules.admin.repository import (
@@ -246,7 +246,7 @@ class RegionService:
                 pincode=data.get("pincode"),
             )
         except IntegrityError as exc:
-            raise ConflictError(f"Email {data['email']!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
+            raise profile_conflict_error(exc, email=data["email"], phone=data.get("phone")) from exc
 
         admins_repo = AdminsRepository(self.session)
         await admins_repo.create(
@@ -333,7 +333,7 @@ class ClinicService:
                 pincode=data.get("pincode"),
             )
         except IntegrityError as exc:
-            raise ConflictError(f"Email {data['email']!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
+            raise profile_conflict_error(exc, email=data["email"], phone=data.get("phone")) from exc
 
         await self.admins_repo.create(profile_id=profile["id"], admin_type="clinic_admin", region_id=None, clinic_id=clinic_id)
         await self.staff_repo.create(clinic_id=clinic_id, profile_id=profile["id"], staff_role="clinic_admin")
@@ -520,5 +520,5 @@ class AdminAccountsService:
             try:
                 await update_profile(self.session, admin["profile_id"], clean)
             except IntegrityError as exc:
-                raise ConflictError(f"Email {clean.get('email')!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
+                raise profile_conflict_error(exc, email=clean.get("email"), phone=clean.get("phone")) from exc
         return await self.get(admin_id)

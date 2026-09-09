@@ -3,7 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.core.db import RequestContext, get_db
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import NotFoundError, profile_conflict_error
 from app.core.permissions import require_role
 from app.modules.clinical import schemas as s
 
@@ -73,7 +73,7 @@ async def update_my_profile(
         try:
             await db.execute(text(f"UPDATE profiles SET {set_clause} WHERE id = :id"), {**updates, "id": ctx.user_id})
         except IntegrityError as exc:
-            raise ConflictError("Email already in use", code="EMAIL_IN_USE") from exc
+            raise profile_conflict_error(exc, email=updates.get("email"), phone=updates.get("phone")) from exc
         # No explicit commit here — get_db() already wraps the whole request
         # in one session.begin() transaction that commits when the request
         # finishes successfully. An explicit commit() closes that
