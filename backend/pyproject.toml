@@ -33,17 +33,25 @@ dev = [
 ]
 
 [tool.ruff]
-# Bumped from 140 — the PRS scoring-rule tables (scoring_rules.py,
-# disease_scoring.py) are literal severity-band lookup tables (threshold,
-# code, label triples/pairs); wrapping them mid-tuple to fit 140 makes them
-# harder to read and diff against the source instrument, not easier. 230
-# comfortably covers the longest of those (226 chars) with headroom.
-line-length = 230
+line-length = 140
 target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["B008"]  # FastAPI's Depends()-in-default-arg is the documented idiom
+
+[tool.ruff.lint.per-file-ignores]
+# E501 only, scoped to files that are literal severity-band lookup tables
+# (threshold, code, label triples/pairs) — wrapping them mid-tuple to fit 140
+# makes them harder to read and diff against the source clinical instrument,
+# not easier. A global line-length bump instead made `ruff format` want to
+# reformat 66 unrelated files across the whole codebase (its wrap/collapse
+# decisions are keyed off the same setting), so this is scoped per-file
+# rather than global.
+"app/modules/prs/scoring_rules.py" = ["E501"]
+"app/modules/prs/disease_scoring.py" = ["E501"]
+"tests/unit/test_disease_scoring.py" = ["E501"]
+"tests/unit/test_scoring_rules.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"
