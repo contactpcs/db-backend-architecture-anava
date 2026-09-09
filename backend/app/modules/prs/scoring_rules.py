@@ -20,6 +20,7 @@ different capture workflow entirely (see Section 4 of the spec doc).
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
 HIGHER_WORSE = "higher_worse"
 HIGHER_BETTER = "higher_better"
@@ -354,9 +355,11 @@ def _psqi_parse_hhmm(text: str | None):
 
 
 def _psqi_to_float(text: str | None):
+    if text is None:
+        return None
     try:
         return float(text)
-    except (TypeError, ValueError):
+    except ValueError:
         return None
 
 
@@ -459,7 +462,7 @@ def _score_psqi(items: dict[int, float], raw: dict[int, str]):
     return calculated_value, max_possible, valid
 
 
-SPECIAL_SCORERS = {
+SPECIAL_SCORERS: dict[str, Callable[..., tuple]] = {
     "ASRS-v1.1": _score_asrs,
     "COMPASS-31": _score_compass31,
     "DASS-21": _score_dass21,
