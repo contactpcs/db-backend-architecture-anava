@@ -960,6 +960,12 @@ class ProtocolService:
                 f"Only an active protocol can be completed (current status: '{row['status']}')",
                 code="PROTOCOL_NOT_ACTIVE",
             )
+        if await self.sessions.has_pending(protocol_id):
+            raise BusinessRuleError(
+                "This protocol still has device sessions or follow-ups that aren't completed, "
+                "cancelled, or marked no-show — resolve them before marking the course complete.",
+                code="PROTOCOL_HAS_PENDING_SESSIONS",
+            )
         updated = await self.repo.set_status(protocol_id, "completed")
         await emit_event(
             self.session,

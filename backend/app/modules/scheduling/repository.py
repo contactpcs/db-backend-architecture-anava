@@ -51,13 +51,21 @@ _APPT_SELECT = (
     # this, not just a bare "Rescheduled" label).
     "prev.appointment_date AS rescheduled_from_date, "
     "prev.start_time AS rescheduled_from_start_time, "
-    "prev.end_time AS rescheduled_from_end_time "
+    "prev.end_time AS rescheduled_from_end_time, "
+    # Which protocol_plan version a device_session/protocol_followup
+    # belongs to — GET /treatment-protocols/{id} is staff-only, so the
+    # patient app has no other way to learn "this is Protocol Version v2"
+    # for its own sessions. Denormalised here since patient_id-scoped
+    # appointment reads are the one endpoint patients can already call.
+    "tp.version_major AS protocol_version_major, "
+    "tp.version_minor AS protocol_version_minor "
     "FROM appointments a "
     "JOIN profiles pp ON pp.id = a.patient_id "
     "LEFT JOIN profiles dp ON dp.id = a.doctor_id "
     "LEFT JOIN doctors dd ON dd.profile_id = a.doctor_id "
     "LEFT JOIN patients pt ON pt.profile_id = a.patient_id "
     "LEFT JOIN appointments prev ON prev.appointment_id = a.rescheduled_from "
+    "LEFT JOIN protocol_plan tp ON tp.protocol_id = a.protocol_id "
 )
 
 
