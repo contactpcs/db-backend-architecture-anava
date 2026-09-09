@@ -33,7 +33,12 @@ dev = [
 ]
 
 [tool.ruff]
-line-length = 140
+# Bumped from 140 — the PRS scoring-rule tables (scoring_rules.py,
+# disease_scoring.py) are literal severity-band lookup tables (threshold,
+# code, label triples/pairs); wrapping them mid-tuple to fit 140 makes them
+# harder to read and diff against the source instrument, not easier. 230
+# comfortably covers the longest of those (226 chars) with headroom.
+line-length = 230
 target-version = "py312"
 
 [tool.ruff.lint]
