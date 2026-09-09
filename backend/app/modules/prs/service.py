@@ -406,9 +406,7 @@ class PrsAssessmentService:
         scale_rows = await self.catalog.scales_by_ids([scale_id])
         scale_code = scale_rows[0]["scale_code"] if scale_rows else scale_id
 
-        scored = compute_scale_score(
-            scale_code, items, naive_sum=naive_sum, naive_max=naive_max, raw_responses=raw_responses
-        )
+        scored = compute_scale_score(scale_code, items, naive_sum=naive_sum, naive_max=naive_max, raw_responses=raw_responses)
 
         return await self.scale_results.upsert(
             instance_id=instance_id,

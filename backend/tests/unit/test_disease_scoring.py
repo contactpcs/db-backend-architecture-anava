@@ -18,7 +18,17 @@ DISEASE_WEIGHTS = {
     "Fibromyalgia": {"FIQR": 40, "FSS": 15, "PRS": 15, "VAS": 10, "PainDETECT": 10, "COMPASS-31": 5, "EQ-5D-5L": 5},
     "Migraine": {"MIDAS": 30, "MSQ": 15, "PRS": 15, "DASS-21": 10, "BDI-II": 10, "PSQI": 10, "COMPASS-31": 5, "EQ-5D-5L": 5},
     "Ataxia": {"SARA": 40, "DHI": 15, "VVAS": 15, "DASS-21": 10, "BDI-II": 10, "COMPASS-31": 5, "EQ-5D-5L": 5},
-    "After Stroke/TBI": {"BARTHEL": 25, "SS-QOL": 20, "KPS": 10, "MRC": 10, "MAS": 10, "MoCA": 10, "DASS-21": 5, "COMPASS-31": 5, "PainDETECT": 5},
+    "After Stroke/TBI": {
+        "BARTHEL": 25,
+        "SS-QOL": 20,
+        "KPS": 10,
+        "MRC": 10,
+        "MAS": 10,
+        "MoCA": 10,
+        "DASS-21": 5,
+        "COMPASS-31": 5,
+        "PainDETECT": 5,
+    },
     "Dementia": {"MoCA": 30, "AMTS": 20, "DSRS": 15, "GDS": 10, "IADL": 10, "DASS-21": 5, "COMPASS-31": 5, "EQ-5D-5L": 5},
     "Parkinson's Disease": {"PDSS": 30, "PFS-16": 25, "MoCA": 20, "PainDETECT": 15, "COMPASS-31": 10},
     "Tinnitus": {"THI": 50, "DASS-21": 15, "GAD-7": 10, "PSQI": 10, "COMPASS-31": 10, "EQ-5D-5L": 5},
@@ -30,11 +40,46 @@ DISEASE_WEIGHTS = {
 }
 
 EXAMPLE_PCTS = {
-    "BDI-II": 60, "GAD-7": 55, "DASS-21": 65, "MADRS": 58, "PSQI": 45, "COMPASS-31": 40, "EQ-5D-5L": 50,
-    "PRS": 70, "DN-4": 60, "PainDETECT": 50, "FIQR": 65, "FSS": 55, "VAS": 60, "MIDAS": 45, "MSQ": 50,
-    "SARA": 30, "DHI": 40, "VVAS": 35, "BARTHEL": 25, "SS-QOL": 30, "KPS": 20, "MRC": 15, "MAS": 40,
-    "MoCA": 35, "AMTS": 20, "DSRS": 30, "GDS": 25, "IADL": 20, "PDSS": 45, "PFS-16": 50, "THI": 60, "ISI": 55,
-    "AIS": 50, "SLEEP-50": 40, "FFS": 45, "MFIS": 40, "ASRS-v1.1": 70, "SNAP-IV": 60, "ALSFRS-R": 50, "HDRS": 45,
+    "BDI-II": 60,
+    "GAD-7": 55,
+    "DASS-21": 65,
+    "MADRS": 58,
+    "PSQI": 45,
+    "COMPASS-31": 40,
+    "EQ-5D-5L": 50,
+    "PRS": 70,
+    "DN-4": 60,
+    "PainDETECT": 50,
+    "FIQR": 65,
+    "FSS": 55,
+    "VAS": 60,
+    "MIDAS": 45,
+    "MSQ": 50,
+    "SARA": 30,
+    "DHI": 40,
+    "VVAS": 35,
+    "BARTHEL": 25,
+    "SS-QOL": 30,
+    "KPS": 20,
+    "MRC": 15,
+    "MAS": 40,
+    "MoCA": 35,
+    "AMTS": 20,
+    "DSRS": 30,
+    "GDS": 25,
+    "IADL": 20,
+    "PDSS": 45,
+    "PFS-16": 50,
+    "THI": 60,
+    "ISI": 55,
+    "AIS": 50,
+    "SLEEP-50": 40,
+    "FFS": 45,
+    "MFIS": 40,
+    "ASRS-v1.1": 70,
+    "SNAP-IV": 60,
+    "ALSFRS-R": 50,
+    "HDRS": 45,
     "IBS-SSS": 65,
 }
 
@@ -59,7 +104,9 @@ EXPECTED_TOTALS = {
 
 
 def _inputs_for(disease: str) -> list[dict]:
-    return [{"scale_code": code, "percentage": EXAMPLE_PCTS[code], "weight_pct": weight} for code, weight in DISEASE_WEIGHTS[disease].items()]
+    return [
+        {"scale_code": code, "percentage": EXAMPLE_PCTS[code], "weight_pct": weight} for code, weight in DISEASE_WEIGHTS[disease].items()
+    ]
 
 
 def test_all_14_diseases_match_spec_doc_worked_examples():
