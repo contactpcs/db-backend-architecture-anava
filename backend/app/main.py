@@ -27,6 +27,7 @@ from app.modules.patients.router import router as patients_router
 from app.modules.payments.router import router as payments_router
 from app.modules.prs.router import router as prs_router
 from app.modules.reception.router import router as reception_router
+from app.modules.reports.router import router as reports_router
 from app.modules.scheduling.router import router as scheduling_router
 from app.modules.staff.router import router as staff_router
 from app.modules.store.router import router as store_router
@@ -152,6 +153,7 @@ app.include_router(store_router, prefix="/api/v1", tags=["store"])
 app.include_router(inventory_router, prefix="/api/v1", tags=["inventory"])
 app.include_router(notifications_router, prefix="/api/v1", tags=["notifications"])
 app.include_router(reception_router, prefix="/api/v1/reception", tags=["reception"])
+app.include_router(reports_router, prefix="/api/v1", tags=["reports"])
 
 
 @app.get("/api/v1/_internal/whoami")
