@@ -314,15 +314,18 @@ def compute_protocol_outcomes(rows: list[dict], weights: dict[str, float]) -> di
 
     for r in rows:
         pid, label, code, name, pct, date = (
-            r["patient_id"], r["protocol_label"], r["scale_code"], r["scale_name"], r["percentage"], r["recorded_at"],
+            r["patient_id"],
+            r["protocol_label"],
+            r["scale_code"],
+            r["scale_name"],
+            r["percentage"],
+            r["recorded_at"],
         )
         scale_names[code] = name
         session_dates.setdefault((pid, label), set()).add(date)
         weight = weights.get(code, 0)
         if weight > 0:
-            sessions.setdefault((pid, label, date), []).append(
-                {"scale_code": code, "percentage": float(pct), "weight_pct": weight}
-            )
+            sessions.setdefault((pid, label, date), []).append({"scale_code": code, "percentage": float(pct), "weight_pct": weight})
         scale_points.setdefault((pid, label, code), []).append((date, float(pct)))
 
     # -- 5.5: composite trend per protocol --
@@ -335,7 +338,7 @@ def compute_protocol_outcomes(rows: list[dict], weights: dict[str, float]) -> di
                 visits.append(result["composite_score"])
         protocol_patients.setdefault(label, {})[pid] = visits
 
-    protocols = []
+    protocols: list[dict] = []
     for label, patients in protocol_patients.items():
         counts = {"improving": 0, "stable": 0, "worsening": 0, "insufficient_data": 0}
         for visits in patients.values():
@@ -344,11 +347,11 @@ def compute_protocol_outcomes(rows: list[dict], weights: dict[str, float]) -> di
                 continue
             counts[_classify_trend(visits[0], visits[-1])] += 1
         protocols.append({"protocol_label": label, "total": len(patients), **counts})
-    protocols.sort(key=lambda p: p["total"], reverse=True)
+    protocols.sort(key=lambda p: int(p["total"]), reverse=True)
 
     # -- 5.6: protocol x scale heatmap --
     heatmap_acc: dict[tuple, list] = {}
-    for (pid, label, code), points in scale_points.items():
+    for (_pid, label, code), points in scale_points.items():
         ordered = sorted(points)
         if len(ordered) < 2:
             continue
