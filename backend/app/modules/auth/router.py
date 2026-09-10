@@ -34,6 +34,24 @@ router = APIRouter()
 settings = get_settings()
 
 
+async def _reject_if_contact_taken(db, method: str, contact: str) -> None:
+    """Signup Start's own pre-check — same reasoning as verify-channel/start
+    (see its docstring): Cognito's user pool has no idea about our own
+    profiles.email/phone uniqueness, so without this an OTP would go out to
+    a real number/email that's already registered here, only to fail once
+    the patient actually tries to complete signup — after they've already
+    received and entered a code that was never going to lead anywhere.
+    No `id != :id` exclusion needed here (verify-channel's has one): nothing
+    has been created yet at this step, so any match at all is a duplicate."""
+    column = "email" if method == "email" else "phone"
+    taken = await db.execute(text(f"SELECT 1 FROM profiles WHERE {column} = :value"), {"value": contact})
+    if taken.first() is not None:
+        raise ConflictError(
+            f"{'Email' if method == 'email' else 'Phone number'} {contact!r} already in use",
+            code="EMAIL_ALREADY_EXISTS" if method == "email" else "PHONE_ALREADY_EXISTS",
+        )
+
+
 @router.get("/config")
 async def get_auth_config() -> dict:
     """Public — tells the frontend which endpoints to call (the OTP signup
@@ -149,13 +167,14 @@ def _bearer_token(request: Request) -> str:
 
 
 @router.post("/patients/signup/start", status_code=204)
-async def patient_signup_start(body: PatientSignupStart) -> None:
+async def patient_signup_start(body: PatientSignupStart, db=Depends(get_db)) -> None:
     """Step 1 of the real patient signup wizard — starts Cognito's SignUp,
     which auto-sends the OTP to whichever channel (email or phone) the
     patient chose. 404s in local mode (use /auth/register there instead —
     no OTP step needed for local testing)."""
     if settings.auth_mode != "cognito":
         raise NotFoundError("Not found", code="NOT_FOUND")
+    await _reject_if_contact_taken(db, body.method, body.contact)
     from app.core.cognito import sign_up_patient
 
     sign_up_patient(
@@ -248,10 +267,11 @@ async def patient_signup_complete(body: PatientSignupComplete, db=Depends(get_db
 
 @router.post("/patients/receptionist-signup/start", status_code=204)
 async def patient_receptionist_signup_start(
-    body: PatientSignupStart, _ctx: RequestContext = Depends(require_role(*_RECEPTIONIST_SIGNUP_ROLES))
+    body: PatientSignupStart, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_RECEPTIONIST_SIGNUP_ROLES))
 ) -> None:
     if settings.auth_mode != "cognito":
         raise NotFoundError("Not found", code="NOT_FOUND")
+    await _reject_if_contact_taken(db, body.method, body.contact)
     from app.core.cognito import sign_up_patient
 
     sign_up_patient(
