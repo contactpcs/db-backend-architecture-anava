@@ -142,16 +142,26 @@ def compute_dashboard_overview(patients: list[dict]) -> dict:
     return {"kpis": kpis, "patients": patient_rows}
 
 
-def compute_diseases_overview(rows: list[dict]) -> dict:
+def compute_diseases_overview(rows: list[dict], total_patients: int) -> dict:
     """Raw joined rows (repository.doctor_diseases_overview) -> per-disease
-    trend-bucket counts, the all-diseases cohort landing view (Backend
-    Design v1 Section 5.1). Every active disease in the catalog appears —
-    including ones with a NULL patient_id (zero of this doctor's patients
-    have PRS data for it yet), which is why disease_name is read off the
-    placeholder row rather than requiring a real composite to exist first.
-    Reuses the exact same _classify_trend as the per-disease KPI panel."""
+    trend-bucket counts plus a cohort-wide summary card (Backend Design v1
+    Section 5.1). Every active disease in the catalog appears — including
+    ones with a NULL patient_id (zero of this doctor's patients have PRS
+    data for it yet), which is why disease_name is read off the placeholder
+    row rather than requiring a real composite to exist first. Reuses the
+    exact same _classify_trend as the per-disease KPI panel.
+
+    The summary counts (patient, disease) PAIRS, not distinct patients — a
+    patient tracked under two diseases counts once per disease there. Only
+    `total_patients` (passed in from a separate DISTINCT headcount query)
+    is a true unique count; the rest intentionally mirror the per-disease
+    breakdown's own units so the numbers agree with what's on the page
+    right below the summary card.
+    """
     by_disease: dict[str, dict] = {}
     disease_order: list[str] = []
+    assessments_in_window = 0
+    provisional_pending = 0
 
     for r in rows:
         did = r["disease_id"]
@@ -165,8 +175,15 @@ def compute_diseases_overview(rows: list[dict]) -> dict:
         if pid not in patients:
             patients[pid] = []
         patients[pid].append({"score": float(r["calculated_value"]), "is_baseline": r["is_baseline"]})
+        assessments_in_window += 1
+        if r.get("is_provisional"):
+            provisional_pending += 1
 
     diseases = []
+    total_improving = 0
+    total_worsening = 0
+    total_pairs = 0
+    tracked_cohorts = 0
     for did in disease_order:
         entry = by_disease[did]
         counts = {"improving": 0, "stable": 0, "worsening": 0, "insufficient_data": 0}
@@ -177,15 +194,25 @@ def compute_diseases_overview(rows: list[dict]) -> dict:
             baseline = next((v for v in visits if v["is_baseline"]), visits[0])
             latest = visits[-1]
             counts[_classify_trend(baseline["score"], latest["score"])] += 1
-        diseases.append(
-            {
-                "disease_id": did,
-                "disease_name": entry["disease_name"],
-                "total": len(entry["patients"]),
-                **counts,
-            }
-        )
-    return {"diseases": diseases}
+        total = len(entry["patients"])
+        if total > 0:
+            tracked_cohorts += 1
+        total_improving += counts["improving"]
+        total_worsening += counts["worsening"]
+        total_pairs += total
+        diseases.append({"disease_id": did, "disease_name": entry["disease_name"], "total": total, **counts})
+
+    summary = {
+        "total_patients": total_patients,
+        "disease_cohorts": tracked_cohorts,
+        "improving_pct": round(total_improving / total_pairs * 100, 1) if total_pairs else 0.0,
+        "improving_patients": total_improving,
+        "worsening_pct": round(total_worsening / total_pairs * 100, 1) if total_pairs else 0.0,
+        "worsening_patients": total_worsening,
+        "assessments_in_window": assessments_in_window,
+        "provisional_pending": provisional_pending,
+    }
+    return {"summary": summary, "diseases": diseases}
 
 
 def compute_scale_trajectories(rows: list[dict]) -> dict:
@@ -383,7 +410,8 @@ class ReportsService:
 
     async def doctor_diseases_overview(self, doctor_profile_id: UUID) -> dict:
         rows = await self.repo.doctor_diseases_overview(doctor_profile_id)
-        return compute_diseases_overview(rows)
+        total_patients = await self.repo.doctor_active_patient_count(doctor_profile_id)
+        return compute_diseases_overview(rows, total_patients)
 
     async def patient_scale_trajectories(self, doctor_profile_id: UUID, patient_id: UUID, disease_id: str) -> dict:
         rows = await self.repo.patient_scale_trajectories(doctor_profile_id, patient_id, disease_id)
