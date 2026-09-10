@@ -580,9 +580,11 @@ class PrsScaleResultRepository:
 
     async def active_disease_formula(self, disease_id: str) -> dict | None:
         """The disease's currently-active weight version (SQL/v1/84 widened
-        reference.scoring_logic_versions). `config` is JSONB but comes back
-        from a raw text() query as a JSON string, not a dict — caller must
-        json.loads() it."""
+        reference.scoring_logic_versions). `config` is JSONB and comes back
+        already decoded to a dict — SQLAlchemy's asyncpg dialect registers a
+        jsonb codec at the connection level, so this applies even to a raw
+        text() query. Caller reads formula["config"]["weights"] directly,
+        no json.loads()."""
         return await fetch_optional(
             self.session,
             text(

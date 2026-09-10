@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -389,13 +388,13 @@ class ReportsService:
 
     async def doctor_weekly_trend(self, doctor_profile_id: UUID, disease_id: str, weeks: int) -> dict:
         formula = await self.scale_results.active_disease_formula(disease_id)
-        weights: dict[str, float] = json.loads(formula["config"])["weights"] if formula else {}
+        weights: dict[str, float] = formula["config"]["weights"] if formula else {}
         rows = await self.repo.doctor_protocol_scale_captures(doctor_profile_id, disease_id)
         patients = group_protocol_captures_by_patient(rows, weights)
         return compute_weekly_trend(patients, weeks)
 
     async def doctor_protocol_outcomes(self, doctor_profile_id: UUID, disease_id: str) -> dict:
         formula = await self.scale_results.active_disease_formula(disease_id)
-        weights: dict[str, float] = json.loads(formula["config"])["weights"] if formula else {}
+        weights: dict[str, float] = formula["config"]["weights"] if formula else {}
         rows = await self.repo.doctor_protocol_scale_history(doctor_profile_id, disease_id)
         return compute_protocol_outcomes(rows, weights)

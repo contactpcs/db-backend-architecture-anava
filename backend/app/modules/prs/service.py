@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import builtins
-import json
 from uuid import UUID
 
 from sqlalchemy import text
@@ -445,7 +444,7 @@ class PrsAssessmentService:
         formula = await self.scale_results.active_disease_formula(disease_id)
         if not formula:
             return
-        weights: dict[str, float] = json.loads(formula["config"])["weights"]
+        weights: dict[str, float] = formula["config"]["weights"]
 
         scale_rows = await self.scale_results.asof_scale_values_for_disease(patient_id, disease_id)
         scale_rows = [r for r in scale_rows if r["scale_code"] in weights]
