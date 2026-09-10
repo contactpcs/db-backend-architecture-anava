@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
-from app.core.exceptions import NotFoundError, ValidationError
+from app.core.exceptions import BusinessRuleError, NotFoundError, ValidationError
 from app.core.resolve import resolve_patient_profile_id as _resolve_profile_id
 from app.modules.anamnesis.repository import (
     AnamnesisAssessmentRepository,
@@ -105,6 +105,20 @@ class AnamnesisService:
             )
 
         if complete:
+            # Defense in depth against a "completed" record with nothing in
+            # it — found live via the doctor-side form: a per-question
+            # autosave that silently failed left this call's own `items`
+            # empty (submit() only ever resubmits its caller's answers, it
+            # doesn't resend everything previously autosaved), so the record
+            # was marked complete with zero response rows. items being empty
+            # here is normal on a real submit (responses already landed via
+            # earlier autosave calls) — only refuse when NO responses exist
+            # for this assessment at all, from this call or any earlier one.
+            if not items and not await self.responses.list_for_assessment(anamnesis_id):
+                raise BusinessRuleError(
+                    "Cannot complete an anamnesis with no recorded responses",
+                    code="ANAMNESIS_EMPTY",
+                )
             completed = await self.assessments.mark_complete(anamnesis_id)
             if not completed:
                 raise NotFoundError("Anamnesis assessment not found", code="ANAMNESIS_NOT_FOUND")
