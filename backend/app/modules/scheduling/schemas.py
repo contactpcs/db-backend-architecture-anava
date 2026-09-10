@@ -211,6 +211,13 @@ class AppointmentRead(BaseModel):
     ca_id: UUID | None
     instance_id: UUID | None = None
     protocol_id: UUID | None = None
+    # Which protocol_plan version this session belongs to — display as
+    # f"v{protocol_version_major}" when minor is 0, else
+    # f"v{protocol_version_major}.{protocol_version_minor}" (same convention
+    # as treatment_protocols' own ProtocolRead.version_major/minor). Patients
+    # have no other endpoint that surfaces this.
+    protocol_version_major: int | None = None
+    protocol_version_minor: int | None = None
     # Set only for appointment_type = device_session — which of the clinic's
     # devices this session runs on and books capacity against.
     clinic_device_id: UUID | None = None

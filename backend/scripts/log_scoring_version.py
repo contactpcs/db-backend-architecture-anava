@@ -63,11 +63,15 @@ async def log_scale(conn, scale_code: str, *, reason: str, changed_by: str | Non
     new_hash = content_hash(config, source_code)
 
     active = (
-        await conn.execute(
-            text('SELECT "config", "source_code" FROM reference."scoring_logic_versions" WHERE "scale_code" = :s AND "is_active"'),
-            {"s": scale_code},
+        (
+            await conn.execute(
+                text('SELECT "config", "source_code" FROM reference."scoring_logic_versions" WHERE "scale_code" = :s AND "is_active"'),
+                {"s": scale_code},
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     if active is not None:
         if content_hash(active["config"], active["source_code"]) == new_hash:
             return f"{scale_code}: unchanged, skipped"
@@ -125,14 +129,18 @@ async def show_version(conn, scale_code: str, version: int | None) -> None:
 
 async def list_versions(conn, scale_code: str) -> None:
     rows = (
-        await conn.execute(
-            text(
-                'SELECT "version", "logic_kind", "is_active", "created_at", "change_reason" '
-                'FROM reference."scoring_logic_versions" WHERE "scale_code" = :s ORDER BY "version"'
-            ),
-            {"s": scale_code},
+        (
+            await conn.execute(
+                text(
+                    'SELECT "version", "logic_kind", "is_active", "created_at", "change_reason" '
+                    'FROM reference."scoring_logic_versions" WHERE "scale_code" = :s ORDER BY "version"'
+                ),
+                {"s": scale_code},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     if not rows:
         print(f"No versions logged for {scale_code} yet")
         return

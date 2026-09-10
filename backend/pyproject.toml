@@ -35,10 +35,29 @@ dev = [
 [tool.ruff]
 line-length = 140
 target-version = "py312"
+# These two are literal severity-band lookup tables (threshold, code, label
+# triples/pairs) — `ruff format` wraps each dict/list entry onto its own line
+# once it exceeds line-length, which for these specific files means exploding
+# a 5-tuple band list into 7 lines apiece, harder to read and harder to diff
+# against the source clinical instrument than the original one-line-per-scale
+# layout. per-file-ignores only silences the E501 lint rule, not the
+# formatter (it has no per-file line-length knob), so these are excluded from
+# ruff format entirely and hand-maintained instead — everything else in the
+# repo still gets formatted normally.
+extend-exclude = ["app/modules/prs/scoring_rules.py", "app/modules/prs/disease_scoring.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["B008"]  # FastAPI's Depends()-in-default-arg is the documented idiom
+
+[tool.ruff.lint.per-file-ignores]
+# E501 for the two scoring-table test files — they quote the same long
+# literal band/weight tables from scoring_rules.py/disease_scoring.py
+# (excluded from ruff entirely, see extend-exclude above) in fixtures and
+# assertions, so the same "don't fragment the table" reasoning applies here
+# even though the test files themselves aren't excluded outright.
+"tests/unit/test_disease_scoring.py" = ["E501"]
+"tests/unit/test_scoring_rules.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"

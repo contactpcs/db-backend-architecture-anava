@@ -1096,6 +1096,26 @@ class ProtocolSessionRepository:
             {"id": str(appointment_id)},
         )
 
+    async def has_pending(self, protocol_id: UUID) -> bool:
+        """True if this protocol still has a device_session/protocol_followup
+        appointment that hasn't been resolved one way or another. 'rescheduled'
+        counts as resolved here, same as list_for_doctor_on_date/_in_range's
+        own status NOT IN ('cancelled', 'rescheduled') convention elsewhere in
+        this codebase — a rescheduled row is a dead pointer, not live work;
+        its replacement is a separate row this same query independently sees.
+        Used to gate ProtocolService.complete() so a doctor can't mark a
+        course done while a session is still planned/selected/paid/etc.
+        """
+        result = await self.session.execute(
+            text(
+                "SELECT 1 FROM appointments "
+                "WHERE protocol_id = :id AND status NOT IN ('completed', 'cancelled', 'no_show', 'rescheduled') "
+                "LIMIT 1"
+            ),
+            {"id": str(protocol_id)},
+        )
+        return result.first() is not None
+
     async def cancel_planned(self, protocol_id: UUID, *, reason: str) -> int:
         """Cancels only the not-yet-booked rows.
 

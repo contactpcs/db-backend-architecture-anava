@@ -157,16 +157,30 @@ def test_psqi_full_worked_example_all_7_components():
     raw = {1: "23:00", 2: "10", 3: "07:00", 4: "7.5"}
     items = {
         5: 1,  # Q5a
-        6: 0, 7: 0, 8: 0, 9: 0, 10: 0, 11: 0, 12: 0, 13: 0, 14: 0,  # Q5b-5j, sum=0 -> C5=0
+        6: 0,
+        7: 0,
+        8: 0,
+        9: 0,
+        10: 0,
+        11: 0,
+        12: 0,
+        13: 0,
+        14: 0,  # Q5b-5j, sum=0 -> C5=0
         15: 1,  # Q6 medication -> C6=1 directly
-        16: 1, 17: 1,  # Q7+Q8=2 -> C7=1
+        16: 1,
+        17: 1,  # Q7+Q8=2 -> C7=1
         18: 1,  # Q9 -> C1=1
     }
     result = compute_scale_score("PSQI", items=items, naive_sum=0, naive_max=0, raw_responses=raw)
     # C1=1, C2=bucket(0+1)=1, C3=bucket(7.5)=0, C4=bucket(7.5/8*100=93.75%)=0, C5=0, C6=1, C7=bucket(2)=1
     assert result["subscale_scores"] == {
-        "subjective_sleep_quality": 1, "sleep_latency": 1, "sleep_duration": 0,
-        "sleep_efficiency": 0, "sleep_disturbance": 0, "medication_use": 1, "daytime_dysfunction": 1,
+        "subjective_sleep_quality": 1,
+        "sleep_latency": 1,
+        "sleep_duration": 0,
+        "sleep_efficiency": 0,
+        "sleep_disturbance": 0,
+        "medication_use": 1,
+        "daytime_dysfunction": 1,
     }
     assert result["calculated_value"] == 4  # sum of all 7 components
     assert result["max_possible"] == 21  # all 7 components valid -> full 0-21 range

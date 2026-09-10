@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import RequestContext
 from app.core.events import emit_event
-from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, ValidationError, profile_conflict_error
+from app.core.exceptions import BusinessRuleError, NotFoundError, ValidationError, profile_conflict_error
 from app.core.profile_completion import PATIENT_FIELDS, compute_completion_percentage, compute_missing_fields
 from app.core.resolve import resolve_patient_profile_id as _resolve_profile_id
 from app.modules.patients.repository import (

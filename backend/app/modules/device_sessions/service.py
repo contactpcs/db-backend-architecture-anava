@@ -48,6 +48,16 @@ from app.modules.scheduling.repository import AppointmentRepository
 
 _TYPE_DEVICE_SESSION = "device_session"
 
+# rls_device_session_scales_insert (56) only grants INSERT to these roles —
+# a patient/doctor/receptionist/regional_admin can SELECT/UPDATE an existing
+# row but can never INSERT one, even via upsert()'s ON CONFLICT DO UPDATE
+# branch: Postgres evaluates the INSERT policy's WITH CHECK before it knows
+# the statement will collide and fall through to the update. list_scales_due
+# is reachable by every role in device_sessions/router.py's _READERS, so it
+# must only attempt to seed missing rows when the caller is one of these —
+# everyone else just sees whatever the CA/system has already seeded.
+_SCALE_SEED_ROLES = {"super_admin", "clinic_admin", "clinical_assistant", "system"}
+
 # Session-level FSM. Deliberately separate from appointments.status — see
 # module docstring and 53's file header "WHAT THIS FILE DELIBERATELY DOES NOT DO".
 #
@@ -443,23 +453,30 @@ class DeviceSessionService:
     async def list_scales_due(self, appointment_id: UUID, ctx: RequestContext) -> builtins.list[dict]:
         """Seeds device_session_scales from the protocol's protocol_scales on
         first read, so the CA screen always shows every scale due this visit
-        even before any delivery-mode decision has been made."""
+        even before any delivery-mode decision has been made.
+
+        Seeding only runs for roles rls_device_session_scales_insert (56)
+        actually grants INSERT to — a patient/doctor/receptionist/
+        regional_admin reading this before the CA ever has just sees
+        whatever's already seeded (possibly nothing yet), rather than 500ing
+        on an RLS violation the first time they're the one to call this."""
         await self._resolve_scoped_appointment(appointment_id, ctx)
         header = await self._header_or_404(appointment_id)
         sid = header["device_session_record_id"]
 
-        existing = await self.scales.list_for_session(sid)
-        seeded_ids = {str(r["protocol_scale_id"]) for r in existing}
+        if ctx.role in _SCALE_SEED_ROLES:
+            existing = await self.scales.list_for_session(sid)
+            seeded_ids = {str(r["protocol_scale_id"]) for r in existing}
 
-        protocol_scales = await self.scales.list_protocol_scales(header["protocol_id"])
-        for ps in protocol_scales:
-            if str(ps["protocol_scale_id"]) in seeded_ids:
-                continue
-            await self.scales.upsert(
-                sid,
-                ps["protocol_scale_id"],
-                {"delivery_mode": _DEFAULT_DELIVERY_MODE, "status": "pending"},
-            )
+            protocol_scales = await self.scales.list_protocol_scales(header["protocol_id"])
+            for ps in protocol_scales:
+                if str(ps["protocol_scale_id"]) in seeded_ids:
+                    continue
+                await self.scales.upsert(
+                    sid,
+                    ps["protocol_scale_id"],
+                    {"delivery_mode": _DEFAULT_DELIVERY_MODE, "status": "pending"},
+                )
 
         return await self.scales.list_for_session(sid)
 

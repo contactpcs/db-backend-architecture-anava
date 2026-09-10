@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.events import emit_event
 from app.core.exceptions import NotFoundError, ValidationError
 from app.core.resolve import resolve_patient_profile_id as _resolve_profile_id
+from app.modules.prs.disease_scoring import compute_disease_composite
 from app.modules.prs.repository import (
     AssessmentInstanceRepository,
     PatientScaleAssignmentRepository,
@@ -17,7 +18,6 @@ from app.modules.prs.repository import (
     PrsResponseRepository,
     PrsScaleResultRepository,
 )
-from app.modules.prs.disease_scoring import compute_disease_composite
 from app.modules.prs.scoring_rules import compute_scale_score
 from app.modules.scheduling.repository import AppointmentRepository
 
@@ -407,9 +407,7 @@ class PrsAssessmentService:
         scale_rows = await self.catalog.scales_by_ids([scale_id])
         scale_code = scale_rows[0]["scale_code"] if scale_rows else scale_id
 
-        scored = compute_scale_score(
-            scale_code, items, naive_sum=naive_sum, naive_max=naive_max, raw_responses=raw_responses
-        )
+        scored = compute_scale_score(scale_code, items, naive_sum=naive_sum, naive_max=naive_max, raw_responses=raw_responses)
 
         return await self.scale_results.upsert(
             instance_id=instance_id,
