@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import json
 from uuid import UUID
 
 from sqlalchemy import text
@@ -423,11 +424,24 @@ class PrsAssessmentService:
         )
 
     async def _update_disease_composite(self, instance: dict) -> None:
-        """Recomputes the weighted disease composite (Documents/Anava_PRS_
-        Scoring_Engine_Specification_v1.docx Section 3) and writes it onto
-        this instance's prs_final_results row. general_registration instances
-        have no disease_id (disease selection removed from registration) —
-        nothing to composite, so this is a no-op for them."""
+        """Recomputes the weighted disease composite. general_registration
+        instances have no disease_id (disease selection removed from
+        registration) — nothing to composite, so this is a no-op for them.
+
+        SQL/v1/84 + Documents/Anava_Doctor_Dashboard_Backend_Provisions_v1.
+        docx Decision 1: the real composite is now as-of-latest-per-scale
+        (each mapped scale's most recent completed value in the patient's
+        current treatment cycle), stored append-only in disease_composite_
+        scores — not the old per-instance renormalization over just this
+        one sitting's scales.
+
+        Also still writes the old per-instance prs_final_results.composite_
+        score (Documents/Anava_PRS_Scoring_Engine_Specification_v1.docx
+        Section 3) — TEMPORARY dual-write so the already-shipped /reports/
+        doctor/patients-overview endpoint (which reads prs_final_results)
+        keeps working until Phase 3 migrates it to read disease_composite_
+        scores instead. Remove this half once that migration lands.
+        """
         if not instance["disease_id"]:
             return
         rows = await self.scale_results.disease_weights_and_percentages(instance["instance_id"], instance["disease_id"])
@@ -438,6 +452,34 @@ class PrsAssessmentService:
             severity_level=result["severity_level"],
             severity_label=result["severity_label"],
         )
+        await self._compute_asof_disease_composite(instance["patient_id"], instance["disease_id"])
+
+    async def _compute_asof_disease_composite(self, patient_id, disease_id: str) -> None:
+        formula = await self.scale_results.active_disease_formula(disease_id)
+        if not formula:
+            return
+        weights: dict[str, float] = json.loads(formula["config"])["weights"]
+
+        scale_rows = await self.scale_results.asof_scale_values_for_disease(patient_id, disease_id)
+        scale_rows = [r for r in scale_rows if r["scale_code"] in weights]
+        scale_inputs = [{"scale_code": r["scale_code"], "percentage": float(r["percentage"]), "weight_pct": weights[r["scale_code"]]} for r in scale_rows]
+
+        result = compute_disease_composite(scale_inputs)
+        if result["composite_score"] is None:
+            return
+
+        contributing = {r["scale_code"]: r["instance_id"] for r in scale_rows}
+        await self.scale_results.insert_composite_score(
+            patient_id=patient_id,
+            disease_id=disease_id,
+            formula_version_id=formula["id"],
+            calculated_value=result["composite_score"],
+            severity_level=result["severity_level"],
+            severity_label=result["severity_label"],
+            is_provisional=len(scale_inputs) < len(weights),
+            contributing_instance_ids=contributing,
+        )
+        await self.scale_results.ensure_baseline(patient_id, disease_id)
 
     async def results(self, instance_id: str) -> dict:
         await self.get(instance_id)

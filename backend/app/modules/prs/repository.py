@@ -611,3 +611,118 @@ class PrsScaleResultRepository:
             ),
             {"instance_id": instance_id, "score": composite_score, "level": severity_level, "label": severity_label},
         )
+
+    # -----------------------------------------------------------------
+    # As-of-latest-per-scale composite (SQL/v1/84, replacing the old
+    # per-instance disease_weights_and_percentages/update_final_result_
+    # composite pair above for real disease-composite scoring). See
+    # Documents/Anava_Doctor_Dashboard_Backend_Provisions_v1.docx Section
+    # 4.4, Decision 1: a composite draws each mapped scale's most recent
+    # completed value, not one PRS sitting's full battery.
+    # -----------------------------------------------------------------
+
+    async def active_disease_formula(self, disease_id: str) -> dict | None:
+        """The disease's currently-active weight version (SQL/v1/84 widened
+        reference.scoring_logic_versions). `config` is JSONB but comes back
+        from a raw text() query as a JSON string, not a dict — caller must
+        json.loads() it."""
+        return await fetch_optional(
+            self.session,
+            text(
+                "SELECT id, config FROM scoring_logic_versions "
+                "WHERE disease_id = :disease_id AND logic_kind = 'disease_composite_weights' AND is_active"
+            ),
+            {"disease_id": disease_id},
+        )
+
+    async def asof_scale_values_for_disease(self, patient_id, disease_id: str) -> list[dict]:
+        """For every scale mapped to this disease, the patient's most recent
+        completed, non-voided scale result — but only if that result's
+        instance belongs to their CURRENT treatment cycle (the staleness
+        rule: a value from a closed-out prior cycle must not silently blend
+        into today's composite). DISTINCT ON + ORDER BY completed_at DESC
+        picks the single latest qualifying result per scale."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT DISTINCT ON (sc.scale_code) sc.scale_code, "
+                        "sr.direction_corrected_percentage AS percentage, sr.instance_id "
+                        "FROM prs_scale_results sr "
+                        "JOIN prs_assessment_instances pai ON pai.instance_id = sr.instance_id "
+                        "JOIN prs_scales sc ON sc.scale_id = sr.scale_id "
+                        "JOIN prs_disease_scale_map m ON m.scale_id = sr.scale_id AND m.disease_id = :disease_id "
+                        "WHERE pai.patient_id = :patient_id AND pai.status = 'completed' "
+                        "AND pai.is_voided = FALSE AND sr.direction_corrected_percentage IS NOT NULL "
+                        "AND pai.cycle_id = ("
+                        "  SELECT tc.cycle_id FROM treatment_cycles tc "
+                        "  WHERE tc.patient_id = :patient_id AND tc.status = 'in_progress' "
+                        "  ORDER BY tc.created_at DESC LIMIT 1"
+                        ") "
+                        "ORDER BY sc.scale_code, pai.completed_at DESC, pai.instance_id DESC"
+                    ),
+                    {"patient_id": str(patient_id), "disease_id": disease_id},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def insert_composite_score(
+        self,
+        *,
+        patient_id,
+        disease_id: str,
+        formula_version_id,
+        calculated_value: float,
+        severity_level: str | None,
+        severity_label: str | None,
+        is_provisional: bool,
+        contributing_instance_ids: dict,
+    ) -> dict:
+        """Append-only — every call is a new row (Decision 2: a formula
+        version change never rewrites an old computation)."""
+        return await fetch_one(
+            self.session,
+            text(
+                "INSERT INTO disease_composite_scores "
+                "(patient_id, disease_id, formula_version_id, calculated_value, severity_level, "
+                "severity_label, is_provisional, contributing_instance_ids) "
+                "VALUES (:patient_id, :disease_id, :formula_version_id, :calc, :level, :label, "
+                ":provisional, CAST(:contributing AS JSONB)) RETURNING *"
+            ),
+            {
+                "patient_id": str(patient_id),
+                "disease_id": disease_id,
+                "formula_version_id": str(formula_version_id),
+                "calc": calculated_value,
+                "level": severity_level,
+                "label": severity_label,
+                "provisional": is_provisional,
+                "contributing": json.dumps(contributing_instance_ids),
+            },
+        )
+
+    async def ensure_baseline(self, patient_id, disease_id: str) -> None:
+        """If this patient+disease has no baseline yet, flags the
+        chronologically-earliest disease_composite_scores row as the
+        baseline. Idempotent and order-independent — safe to call after
+        every new composite insert, whether or not that new row turns out
+        to be the earliest one (a late-arriving backfill row with an older
+        computed_at would correctly become the baseline instead)."""
+        await self.session.execute(
+            text(
+                "UPDATE disease_composite_scores SET is_baseline = TRUE "
+                "WHERE composite_id = ("
+                "  SELECT composite_id FROM disease_composite_scores "
+                "  WHERE patient_id = :patient_id AND disease_id = :disease_id "
+                "  ORDER BY computed_at ASC, composite_id ASC LIMIT 1"
+                ") "
+                "AND NOT EXISTS ("
+                "  SELECT 1 FROM disease_composite_scores "
+                "  WHERE patient_id = :patient_id AND disease_id = :disease_id AND is_baseline"
+                ")"
+            ),
+            {"patient_id": str(patient_id), "disease_id": disease_id},
+        )
