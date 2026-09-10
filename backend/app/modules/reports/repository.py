@@ -161,6 +161,17 @@ class ReportsRepository:
         )
         return [dict(r) for r in rows]
 
+    async def doctor_active_patient_count(self, doctor_profile_id) -> int:
+        """Distinct headcount of this doctor's active patients — independent
+        of disease, unlike every other count in this module (which counts
+        (patient, disease) pairs). Backs the "Patients under review" cohort
+        summary card, which is a real headcount, not a pair count."""
+        result = await self.session.execute(
+            text("SELECT COUNT(DISTINCT patient_id) FROM doctor_patient_assignments WHERE doctor_id = :doctor_id AND status = 'active'"),
+            {"doctor_id": str(doctor_profile_id)},
+        )
+        return result.scalar_one()
+
     async def doctor_diseases_overview(self, doctor_profile_id) -> list[dict]:
         """Every active disease in the reference catalog (Backend Design v1
         Section 5.1), even ones this doctor has zero patients or zero PRS
@@ -180,7 +191,7 @@ class ReportsRepository:
                 await self.session.execute(
                     text(
                         "SELECT d.disease_id, d.disease_name, dcs.patient_id, "
-                        "dcs.composite_id, dcs.calculated_value, dcs.is_baseline, dcs.computed_at "
+                        "dcs.composite_id, dcs.calculated_value, dcs.is_baseline, dcs.is_provisional, dcs.computed_at "
                         "FROM prs_diseases d "
                         "LEFT JOIN ("
                         "  SELECT s.* FROM disease_composite_scores s "

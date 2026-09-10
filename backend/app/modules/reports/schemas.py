@@ -50,7 +50,19 @@ class DiseaseOverviewRow(BaseModel):
     insufficient_data: int
 
 
+class CohortSummary(BaseModel):
+    total_patients: int
+    disease_cohorts: int
+    improving_pct: float
+    improving_patients: int
+    worsening_pct: float
+    worsening_patients: int
+    assessments_in_window: int
+    provisional_pending: int
+
+
 class DiseasesOverviewResponse(BaseModel):
+    summary: CohortSummary
     diseases: list[DiseaseOverviewRow]
 
 

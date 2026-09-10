@@ -125,19 +125,37 @@ def test_provisional_pct_counts_patients_whose_latest_visit_is_provisional():
 
 
 def test_diseases_overview_groups_and_classifies_per_disease():
+    def _dcs_row(disease_id, disease_name, patient_id, calculated_value, is_baseline, is_provisional=False):
+        return {
+            "disease_id": disease_id,
+            "disease_name": disease_name,
+            "patient_id": patient_id,
+            "calculated_value": calculated_value,
+            "is_baseline": is_baseline,
+            "is_provisional": is_provisional,
+        }
+
     rows = [
-        {"disease_id": "ADHD", "disease_name": "ADHD", "patient_id": "p1", "calculated_value": 80.0, "is_baseline": True},
-        {"disease_id": "ADHD", "disease_name": "ADHD", "patient_id": "p1", "calculated_value": 55.0, "is_baseline": False},
-        {"disease_id": "ADHD", "disease_name": "ADHD", "patient_id": "p2", "calculated_value": 40.0, "is_baseline": True},
-        {"disease_id": "PAIN", "disease_name": "Chronic Pain", "patient_id": "p3", "calculated_value": 60.0, "is_baseline": True},
+        _dcs_row("ADHD", "ADHD", "p1", 80.0, True),
+        _dcs_row("ADHD", "ADHD", "p1", 55.0, False, is_provisional=True),
+        _dcs_row("ADHD", "ADHD", "p2", 40.0, True),
+        _dcs_row("PAIN", "Chronic Pain", "p3", 60.0, True),
     ]
-    result = compute_diseases_overview(rows)
+    result = compute_diseases_overview(rows, total_patients=3)
     by_id = {d["disease_id"]: d for d in result["diseases"]}
     assert by_id["ADHD"]["total"] == 2
     assert by_id["ADHD"]["improving"] == 1  # p1: 80 -> 55, >=20% drop
     assert by_id["ADHD"]["insufficient_data"] == 1  # p2: only 1 row
     assert by_id["PAIN"]["total"] == 1
     assert by_id["PAIN"]["insufficient_data"] == 1
+
+    summary = result["summary"]
+    assert summary["total_patients"] == 3
+    assert summary["disease_cohorts"] == 2
+    assert summary["assessments_in_window"] == 4  # every composite row across both diseases
+    assert summary["provisional_pending"] == 1
+    assert summary["improving_patients"] == 1
+    assert summary["improving_pct"] == 33.3  # 1 improving / 3 total (patient,disease) pairs
 
 
 def test_scale_trajectories_groups_by_scale_in_arrival_order():
@@ -209,11 +227,12 @@ def test_diseases_overview_includes_diseases_with_zero_scored_patients():
         # zero-patient disease: LEFT JOIN placeholder, everything but disease_id/disease_name is NULL
         {"disease_id": "PTSD", "disease_name": "PTSD", "patient_id": None, "calculated_value": None, "is_baseline": None},
     ]
-    result = compute_diseases_overview(rows)
+    result = compute_diseases_overview(rows, total_patients=1)
     by_id = {d["disease_id"]: d for d in result["diseases"]}
     assert by_id["PTSD"]["total"] == 0
     assert by_id["PTSD"]["improving"] == 0
     assert by_id["PTSD"]["insufficient_data"] == 0
+    assert result["summary"]["disease_cohorts"] == 1  # PTSD has zero patients, excluded from the cohort count
     assert by_id["ADHD"]["total"] == 1
 
 
