@@ -39,9 +39,7 @@ async def patient_scale_trajectories(
 
 
 @router.get("/reports/doctor/weekly-trend", response_model=s.WeeklyTrendResponse)
-async def doctor_weekly_trend(
-    disease_id: str, weeks: int = 8, db=Depends(get_db), ctx: RequestContext = Depends(require_role("doctor"))
-):
+async def doctor_weekly_trend(disease_id: str, weeks: int = 8, db=Depends(get_db), ctx: RequestContext = Depends(require_role("doctor"))):
     # Weekly composite trend table (Backend Design v1 Section 5.7) — one row
     # per patient, one column per ISO week, doctor-selectable window.
     weeks = max(1, min(weeks, 52))

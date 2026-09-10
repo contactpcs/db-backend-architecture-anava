@@ -142,9 +142,30 @@ def test_diseases_overview_groups_and_classifies_per_disease():
 
 def test_scale_trajectories_groups_by_scale_in_arrival_order():
     rows = [
-        {"scale_code": "BDI-II", "scale_name": "Beck Depression Inventory", "score": 40, "severity_level": "moderate", "severity_label": "Moderate", "date": "2026-01-01"},
-        {"scale_code": "BDI-II", "scale_name": "Beck Depression Inventory", "score": 25, "severity_level": "mild", "severity_label": "Mild", "date": "2026-02-01"},
-        {"scale_code": "GAD-7", "scale_name": "Generalized Anxiety Disorder 7", "score": 60, "severity_level": "moderate", "severity_label": "Moderate", "date": "2026-01-01"},
+        {
+            "scale_code": "BDI-II",
+            "scale_name": "Beck Depression Inventory",
+            "score": 40,
+            "severity_level": "moderate",
+            "severity_label": "Moderate",
+            "date": "2026-01-01",
+        },
+        {
+            "scale_code": "BDI-II",
+            "scale_name": "Beck Depression Inventory",
+            "score": 25,
+            "severity_level": "mild",
+            "severity_label": "Mild",
+            "date": "2026-02-01",
+        },
+        {
+            "scale_code": "GAD-7",
+            "scale_name": "Generalized Anxiety Disorder 7",
+            "score": 60,
+            "severity_level": "moderate",
+            "severity_label": "Moderate",
+            "date": "2026-01-01",
+        },
     ]
     result = compute_scale_trajectories(rows)
     by_code = {s["scale_code"]: s for s in result["scales"]}
@@ -199,9 +220,23 @@ def test_diseases_overview_includes_diseases_with_zero_scored_patients():
 def test_group_protocol_captures_weights_scales_captured_in_same_session():
     weights = {"BDI-II": 60.0, "GAD-7": 40.0}
     rows = [
-        {"patient_id": "p1", "first_name": "A", "last_name": "One", "recorded_at": "2026-01-05", "scale_code": "BDI-II", "percentage": 80.0},
+        {
+            "patient_id": "p1",
+            "first_name": "A",
+            "last_name": "One",
+            "recorded_at": "2026-01-05",
+            "scale_code": "BDI-II",
+            "percentage": 80.0,
+        },
         {"patient_id": "p1", "first_name": "A", "last_name": "One", "recorded_at": "2026-01-05", "scale_code": "GAD-7", "percentage": 60.0},
-        {"patient_id": "p1", "first_name": "A", "last_name": "One", "recorded_at": "2026-01-12", "scale_code": "BDI-II", "percentage": 40.0},
+        {
+            "patient_id": "p1",
+            "first_name": "A",
+            "last_name": "One",
+            "recorded_at": "2026-01-12",
+            "scale_code": "BDI-II",
+            "percentage": 40.0,
+        },
         # patient with zero device-session captures still shows up, empty
         {"patient_id": "p2", "first_name": "B", "last_name": "Two", "recorded_at": None, "scale_code": None, "percentage": None},
     ]
@@ -215,8 +250,22 @@ def test_group_protocol_captures_weights_scales_captured_in_same_session():
 def test_group_protocol_captures_ignores_scale_not_in_disease_weights():
     weights = {"BDI-II": 100.0}
     rows = [
-        {"patient_id": "p1", "first_name": "A", "last_name": "One", "recorded_at": "2026-01-05", "scale_code": "BDI-II", "percentage": 50.0},
-        {"patient_id": "p1", "first_name": "A", "last_name": "One", "recorded_at": "2026-01-05", "scale_code": "UNRELATED-SCALE", "percentage": 99.0},
+        {
+            "patient_id": "p1",
+            "first_name": "A",
+            "last_name": "One",
+            "recorded_at": "2026-01-05",
+            "scale_code": "BDI-II",
+            "percentage": 50.0,
+        },
+        {
+            "patient_id": "p1",
+            "first_name": "A",
+            "last_name": "One",
+            "recorded_at": "2026-01-05",
+            "scale_code": "UNRELATED-SCALE",
+            "percentage": 99.0,
+        },
     ]
     patients = group_protocol_captures_by_patient(rows, weights)
     assert patients[0]["visits"] == [{"date": "2026-01-05", "score": 50.0}]

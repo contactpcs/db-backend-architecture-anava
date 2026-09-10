@@ -448,7 +448,10 @@ class PrsAssessmentService:
 
         scale_rows = await self.scale_results.asof_scale_values_for_disease(patient_id, disease_id)
         scale_rows = [r for r in scale_rows if r["scale_code"] in weights]
-        scale_inputs = [{"scale_code": r["scale_code"], "percentage": float(r["percentage"]), "weight_pct": weights[r["scale_code"]]} for r in scale_rows]
+        scale_inputs = [
+            {"scale_code": r["scale_code"], "percentage": float(r["percentage"]), "weight_pct": weights[r["scale_code"]]}
+            for r in scale_rows
+        ]
 
         result = compute_disease_composite(scale_inputs)
         if result["composite_score"] is None:
