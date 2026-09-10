@@ -125,11 +125,21 @@ def test_provisional_pct_counts_patients_whose_latest_visit_is_provisional():
 
 
 def test_diseases_overview_groups_and_classifies_per_disease():
+    def _dcs_row(disease_id, disease_name, patient_id, calculated_value, is_baseline, is_provisional=False):
+        return {
+            "disease_id": disease_id,
+            "disease_name": disease_name,
+            "patient_id": patient_id,
+            "calculated_value": calculated_value,
+            "is_baseline": is_baseline,
+            "is_provisional": is_provisional,
+        }
+
     rows = [
-        {"disease_id": "ADHD", "disease_name": "ADHD", "patient_id": "p1", "calculated_value": 80.0, "is_baseline": True, "is_provisional": False},
-        {"disease_id": "ADHD", "disease_name": "ADHD", "patient_id": "p1", "calculated_value": 55.0, "is_baseline": False, "is_provisional": True},
-        {"disease_id": "ADHD", "disease_name": "ADHD", "patient_id": "p2", "calculated_value": 40.0, "is_baseline": True, "is_provisional": False},
-        {"disease_id": "PAIN", "disease_name": "Chronic Pain", "patient_id": "p3", "calculated_value": 60.0, "is_baseline": True, "is_provisional": False},
+        _dcs_row("ADHD", "ADHD", "p1", 80.0, True),
+        _dcs_row("ADHD", "ADHD", "p1", 55.0, False, is_provisional=True),
+        _dcs_row("ADHD", "ADHD", "p2", 40.0, True),
+        _dcs_row("PAIN", "Chronic Pain", "p3", 60.0, True),
     ]
     result = compute_diseases_overview(rows, total_patients=3)
     by_id = {d["disease_id"]: d for d in result["diseases"]}
