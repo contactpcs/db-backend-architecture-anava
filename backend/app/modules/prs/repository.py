@@ -567,58 +567,15 @@ class PrsScaleResultRepository:
     async def final_result(self, instance_id: str) -> dict | None:
         return await fetch_optional(self.session, text("SELECT * FROM prs_final_results WHERE instance_id = :id"), {"id": instance_id})
 
-    async def disease_weights_and_percentages(self, instance_id: str, disease_id: str) -> list[dict]:
-        """One row per scale that is BOTH weighted for this disease (reference.
-        prs_disease_scale_map.weight_pct, SQL/v1/81) AND already scored for
-        this instance — the exact input compute_disease_composite() needs.
-        A scale still awaiting an answer has no prs_scale_results row yet, so
-        the INNER JOIN naturally excludes it (compute_disease_composite()
-        renormalizes over whatever's left)."""
-        rows = (
-            (
-                await self.session.execute(
-                    text(
-                        "SELECT sc.scale_code, sr.direction_corrected_percentage AS percentage, m.weight_pct "
-                        "FROM prs_disease_scale_map m "
-                        "JOIN prs_scales sc ON sc.scale_id = m.scale_id "
-                        "JOIN prs_scale_results sr ON sr.scale_id = m.scale_id AND sr.instance_id = :instance_id "
-                        "WHERE m.disease_id = :disease_id AND m.weight_pct IS NOT NULL "
-                        "AND sr.direction_corrected_percentage IS NOT NULL"
-                    ),
-                    {"instance_id": instance_id, "disease_id": disease_id},
-                )
-            )
-            .mappings()
-            .all()
-        )
-        return [dict(r) for r in rows]
-
-    async def update_final_result_composite(
-        self, instance_id: str, *, composite_score: float | None, severity_level: str | None, severity_label: str | None
-    ) -> dict | None:
-        """Writes the weighted disease composite (SQL/v1/81 columns) onto the
-        row the recalculate_final_result trigger already upserted for this
-        instance. Only called after that trigger has run (service.py forces
-        it with SET CONSTRAINTS ... IMMEDIATE first) — if no prs_final_results
-        row exists yet for this instance, there is nothing to attach the
-        composite to and this is a no-op."""
-        return await fetch_optional(
-            self.session,
-            text(
-                "UPDATE prs_final_results SET composite_score = :score, "
-                "composite_severity_level = :level, composite_severity_label = :label "
-                "WHERE instance_id = :instance_id RETURNING *"
-            ),
-            {"instance_id": instance_id, "score": composite_score, "level": severity_level, "label": severity_label},
-        )
-
     # -----------------------------------------------------------------
-    # As-of-latest-per-scale composite (SQL/v1/84, replacing the old
-    # per-instance disease_weights_and_percentages/update_final_result_
-    # composite pair above for real disease-composite scoring). See
-    # Documents/Anava_Doctor_Dashboard_Backend_Provisions_v1.docx Section
-    # 4.4, Decision 1: a composite draws each mapped scale's most recent
-    # completed value, not one PRS sitting's full battery.
+    # As-of-latest-per-scale composite (SQL/v1/84). See Documents/Anava_
+    # Doctor_Dashboard_Backend_Provisions_v1.docx Section 4.4, Decision 1:
+    # a composite draws each mapped scale's most recent completed value,
+    # not one PRS sitting's full battery. The old per-instance renormalize-
+    # this-one-sitting pair (disease_weights_and_percentages/update_final_
+    # result_composite) was removed once Phase 3 moved the reports endpoint
+    # onto disease_composite_scores — nothing reads prs_final_results.
+    # composite_score anymore.
     # -----------------------------------------------------------------
 
     async def active_disease_formula(self, disease_id: str) -> dict | None:

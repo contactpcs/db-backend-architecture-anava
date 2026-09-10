@@ -427,29 +427,18 @@ class PrsAssessmentService:
         registration) — nothing to composite, so this is a no-op for them.
 
         SQL/v1/84 + Documents/Anava_Doctor_Dashboard_Backend_Provisions_v1.
-        docx Decision 1: the real composite is now as-of-latest-per-scale
-        (each mapped scale's most recent completed value in the patient's
-        current treatment cycle), stored append-only in disease_composite_
-        scores — not the old per-instance renormalization over just this
-        one sitting's scales.
+        docx Decision 1: the composite is as-of-latest-per-scale (each
+        mapped scale's most recent completed value in the patient's current
+        treatment cycle), stored append-only in disease_composite_scores.
 
-        Also still writes the old per-instance prs_final_results.composite_
-        score (Documents/Anava_PRS_Scoring_Engine_Specification_v1.docx
-        Section 3) — TEMPORARY dual-write so the already-shipped /reports/
-        doctor/patients-overview endpoint (which reads prs_final_results)
-        keeps working until Phase 3 migrates it to read disease_composite_
-        scores instead. Remove this half once that migration lands.
+        The old per-instance prs_final_results.composite_score dual-write
+        was removed here once Phase 3 (Documents/Anava_Doctor_Portal_
+        Analytics_Dashboard_Backend_Design_v1.docx) moved the reports
+        endpoint onto disease_composite_scores — nothing reads the old
+        columns anymore.
         """
         if not instance["disease_id"]:
             return
-        rows = await self.scale_results.disease_weights_and_percentages(instance["instance_id"], instance["disease_id"])
-        result = compute_disease_composite(rows)
-        await self.scale_results.update_final_result_composite(
-            instance["instance_id"],
-            composite_score=result["composite_score"],
-            severity_level=result["severity_level"],
-            severity_label=result["severity_label"],
-        )
         await self._compute_asof_disease_composite(instance["patient_id"], instance["disease_id"])
 
     async def _compute_asof_disease_composite(self, patient_id, disease_id: str) -> None:
