@@ -596,11 +596,25 @@ class PrsScaleResultRepository:
 
     async def asof_scale_values_for_disease(self, patient_id, disease_id: str) -> list[dict]:
         """For every scale mapped to this disease, the patient's most recent
-        completed, non-voided scale result — but only if that result's
-        instance belongs to their CURRENT treatment cycle (the staleness
-        rule: a value from a closed-out prior cycle must not silently blend
-        into today's composite). DISTINCT ON + ORDER BY completed_at DESC
-        picks the single latest qualifying result per scale."""
+        completed, non-voided scale result — but only if that result is on
+        or after the start of the patient's CURRENT open episode of care
+        (the staleness rule: a value from a closed-out prior episode must
+        not silently blend into today's composite). DISTINCT ON + ORDER BY
+        completed_at DESC picks the single latest qualifying result per
+        scale.
+
+        core.treatment_cycles and prs_assessment_instances.cycle_id were
+        retired by SQL/v1/58_protocol_instances_absorb_cycle.sql — this
+        query originally filtered on those (a stale assumption from before
+        58 was cross-checked, live-caught via a production 500:
+        `UndefinedColumnError: column pai.cycle_id does not exist`, every
+        PRS submission failing). core.protocol_instances is the current
+        replacement for "the patient's open episode": at most one row per
+        patient with status IN ('draft','active') (DB-enforced unique
+        index), whose created_at marks when that episode began. No open
+        episode (patient between episodes, or never on a protocol at all —
+        main/registration PRS still needs a composite) -> COALESCE falls
+        back to no time filter rather than excluding everything."""
         rows = (
             (
                 await self.session.execute(
@@ -613,11 +627,11 @@ class PrsScaleResultRepository:
                         "JOIN prs_disease_scale_map m ON m.scale_id = sr.scale_id AND m.disease_id = :disease_id "
                         "WHERE pai.patient_id = :patient_id AND pai.status = 'completed' "
                         "AND pai.is_voided = FALSE AND sr.direction_corrected_percentage IS NOT NULL "
-                        "AND pai.cycle_id = ("
-                        "  SELECT tc.cycle_id FROM treatment_cycles tc "
-                        "  WHERE tc.patient_id = :patient_id AND tc.status = 'in_progress' "
-                        "  ORDER BY tc.created_at DESC LIMIT 1"
-                        ") "
+                        "AND pai.completed_at >= COALESCE(("
+                        "  SELECT pi.created_at FROM protocol_instances pi "
+                        "  WHERE pi.patient_id = :patient_id AND pi.status IN ('draft', 'active') "
+                        "  ORDER BY pi.created_at DESC LIMIT 1"
+                        "), '-infinity'::timestamptz) "
                         "ORDER BY sc.scale_code, pai.completed_at DESC, pai.instance_id DESC"
                     ),
                     {"patient_id": str(patient_id), "disease_id": disease_id},
@@ -627,6 +641,21 @@ class PrsScaleResultRepository:
             .all()
         )
         return [dict(r) for r in rows]
+
+    async def latest_for_patient(self, patient_id, disease_id: str) -> dict | None:
+        """The patient's current as-of composite for one disease — same row
+        the analytics dashboard's "latest visit" is, used by the instance
+        results page's Overall Disease Score card. None if no scale mapped
+        to this disease has ever been scored for this patient yet."""
+        return await fetch_optional(
+            self.session,
+            text(
+                "SELECT * FROM disease_composite_scores "
+                "WHERE patient_id = :patient_id AND disease_id = :disease_id "
+                "ORDER BY computed_at DESC LIMIT 1"
+            ),
+            {"patient_id": str(patient_id), "disease_id": disease_id},
+        )
 
     async def insert_composite_score(
         self,

@@ -141,6 +141,15 @@ class PrsAssessmentService:
         self.scale_results = PrsScaleResultRepository(session)
         self.catalog = PrsCatalogRepository(session)
 
+    async def latest_disease_composite(self, patient_id: UUID, disease_id: str) -> dict | None:
+        """Current as-of disease composite (core.disease_composite_scores)
+        for the instance results page's Overall Disease Score card — replaces
+        the retired per-instance prs_final_results.composite_score, which
+        stopped being written once Phase 3 moved onto the as-of-latest-per-
+        scale model and is now permanently null."""
+        profile_id = await _resolve_profile_id(self.session, patient_id)
+        return await self.scale_results.latest_for_patient(profile_id, disease_id)
+
     async def list_for_patient(self, patient_id: UUID, *, assessment_stage: str | None = None) -> list[dict]:
         """Used by the admin/staff patient-detail view to show a patient's
         PRS history (e.g. their general_registration assessment) without
