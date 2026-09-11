@@ -597,10 +597,27 @@ class PrsScaleResultRepository:
     async def asof_scale_values_for_disease(self, patient_id, disease_id: str) -> list[dict]:
         """For every scale mapped to this disease, the patient's most recent
         completed, non-voided scale result — but only if that result's
-        instance belongs to their CURRENT treatment cycle (the staleness
-        rule: a value from a closed-out prior cycle must not silently blend
-        into today's composite). DISTINCT ON + ORDER BY completed_at DESC
-        picks the single latest qualifying result per scale."""
+        instance belongs to their CURRENT episode of care (the staleness
+        rule: a value from a closed-out prior episode must not silently
+        blend into today's composite). DISTINCT ON + ORDER BY completed_at
+        DESC picks the single latest qualifying result per scale.
+
+        core.treatment_cycles (and prs_assessment_instances.cycle_id, which
+        this query originally scoped against) were dropped in 58 —
+        core.protocol_instances absorbed "episode of care" and is the live
+        concept now (status = 'active' is the one-active-per-patient row,
+        replacing treatment_cycles.status = 'in_progress'). This crashed
+        every disease-scale submission in production with `UndefinedColumnError:
+        column pai.cycle_id does not exist` (both tables it referenced no
+        longer exist) until this join replaced the dead cycle_id lookup with
+        the real chain: prs_assessment_instances.appointment_id ->
+        appointments.protocol_id -> protocol_plan.protocol_id ->
+        protocol_plan.instance_id -> protocol_instances.instance_id.
+        appointment_id is nullable (a protocol may be authored outside a
+        booked visit, or the instance may predate any protocol at all) —
+        same fail-closed behavior as the old cycle_id IS NULL case: a scale
+        result that can't be resolved to an active episode is excluded, not
+        included by default."""
         rows = (
             (
                 await self.session.execute(
@@ -611,13 +628,12 @@ class PrsScaleResultRepository:
                         "JOIN prs_assessment_instances pai ON pai.instance_id = sr.instance_id "
                         "JOIN prs_scales sc ON sc.scale_id = sr.scale_id "
                         "JOIN prs_disease_scale_map m ON m.scale_id = sr.scale_id AND m.disease_id = :disease_id "
+                        "JOIN appointments a ON a.appointment_id = pai.appointment_id "
+                        "JOIN protocol_plan pp ON pp.protocol_id = a.protocol_id "
+                        "JOIN protocol_instances pi ON pi.instance_id = pp.instance_id AND pi.status = 'active' "
                         "WHERE pai.patient_id = :patient_id AND pai.status = 'completed' "
                         "AND pai.is_voided = FALSE AND sr.direction_corrected_percentage IS NOT NULL "
-                        "AND pai.cycle_id = ("
-                        "  SELECT tc.cycle_id FROM treatment_cycles tc "
-                        "  WHERE tc.patient_id = :patient_id AND tc.status = 'in_progress' "
-                        "  ORDER BY tc.created_at DESC LIMIT 1"
-                        ") "
+                        "AND pi.patient_id = :patient_id "
                         "ORDER BY sc.scale_code, pai.completed_at DESC, pai.instance_id DESC"
                     ),
                     {"patient_id": str(patient_id), "disease_id": disease_id},
