@@ -59,6 +59,23 @@ async def list_patient_prs_instances(
     return await PrsAssessmentService(db).list_for_patient(patient_id, assessment_stage=assessment_stage)
 
 
+@router.get("/patients/{patient_id}/disease-composite", response_model=s.DiseaseCompositeRead)
+async def get_latest_disease_composite(
+    patient_id: UUID,
+    disease_id: str,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    # The instance results page's Overall Disease Score — the current as-of
+    # composite for this patient+disease, not tied to any single instance
+    # (see disease_scoring's as-of-latest-per-scale model). All-null response
+    # (not 404) when no scale mapped to this disease has been scored yet, so
+    # the card reads "—" honestly instead of the page erroring.
+    await assert_patient_self(ctx, db, patient_id)
+    composite = await PrsAssessmentService(db).latest_disease_composite(patient_id, disease_id)
+    return composite or s.DiseaseCompositeRead()
+
+
 @router.post("/prs-assessment-instances", response_model=s.AssessmentStartRead, status_code=201)
 async def start_assessment(
     body: s.AssessmentInstanceCreate,

@@ -151,3 +151,11 @@ class AssessmentStartRead(BaseModel):
     instance_id: str
     is_resumed: bool
     scales: list[AssessmentStartScaleRead]
+
+
+class DiseaseCompositeRead(BaseModel):
+    calculated_value: float | None = None
+    severity_level: str | None = None
+    severity_label: str | None = None
+    is_provisional: bool | None = None
+    computed_at: datetime | None = None
