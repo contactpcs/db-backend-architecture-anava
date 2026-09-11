@@ -647,10 +647,16 @@ class ProtocolService:
         # Whatever relink doesn't claim (moved/added/dropped dates) falls
         # through to cancel_planned exactly as a non-relinked amendment
         # always has.
-        relinked_keys: set[tuple[Any, int]] = set()
+        relinked_keys: set[tuple[Any, int, str]] = set()
         if body.supersedes_protocol_id is not None:
-            candidates = [(item["planned_date"], item["session_number"]) for item in preview["sessions"]] + [
-                (item["planned_date"], item["after_session_number"]) for item in preview["follow_ups"]
+            # appointment_type is part of the key, not just date+number: a
+            # device session's recomputed date can coincidentally equal an
+            # unrelated old follow-up's own (date, number) — without the type
+            # tag here, relink_planned_matching's SQL (also type-checked, see
+            # its docstring) would never be reachable, since the mismatch
+            # would already be baked into what candidates this call sends it.
+            candidates = [(item["planned_date"], item["session_number"], _TYPE_DEVICE_SESSION) for item in preview["sessions"]] + [
+                (item["planned_date"], item["after_session_number"], _TYPE_FOLLOW_UP) for item in preview["follow_ups"]
             ]
             relinked = await self.sessions.relink_planned_matching(body.supersedes_protocol_id, protocol_id, candidates)
             if relinked:
@@ -658,7 +664,7 @@ class ProtocolService:
                 follow_up_ids = [r["appointment_id"] for r in relinked if r["appointment_type"] == _TYPE_FOLLOW_UP]
                 await self.device_sessions.relink_protocol(device_session_ids, protocol_id)
                 await self.followups.relink_protocol(follow_up_ids, protocol_id)
-                relinked_keys = {(r["appointment_date"], r["session_number"]) for r in relinked}
+                relinked_keys = {(r["appointment_date"], r["session_number"], r["appointment_type"]) for r in relinked}
 
             # cancel_planned is the same call ProtocolService.cancel() makes;
             # an amendment supersedes the old course exactly like a
@@ -795,10 +801,12 @@ class ProtocolService:
         skip_keys = skip_keys or set()
         for item in preview["sessions"]:
             # Amendment already relinked the old appointment row that covers
-            # this exact (date, session_number) — inserting a second one here
-            # would duplicate it and collide with
-            # uq_protocol_device_sessions_protocol_number.
-            if (item["planned_date"], item["session_number"]) in skip_keys:
+            # this exact (date, session_number, type) — inserting a second
+            # one here would duplicate it and collide with
+            # uq_appointments_protocol_session. Type is part of the key: see
+            # relink_planned_matching's docstring for why date+number alone
+            # isn't enough to tell a device session from a follow-up.
+            if (item["planned_date"], item["session_number"], _TYPE_DEVICE_SESSION) in skip_keys:
                 continue
             appt = await self.sessions.create(
                 {
@@ -832,7 +840,7 @@ class ProtocolService:
                 }
             )
         for item in preview["follow_ups"]:
-            if (item["planned_date"], item["after_session_number"]) in skip_keys:
+            if (item["planned_date"], item["after_session_number"], _TYPE_FOLLOW_UP) in skip_keys:
                 continue
             appt = await self.sessions.create(
                 {
@@ -860,8 +868,12 @@ class ProtocolService:
                     "planned_date": item["planned_date"],
                 }
             )
-        sessions_skipped = sum(1 for item in preview["sessions"] if (item["planned_date"], item["session_number"]) in skip_keys)
-        follow_ups_skipped = sum(1 for item in preview["follow_ups"] if (item["planned_date"], item["after_session_number"]) in skip_keys)
+        sessions_skipped = sum(
+            1 for item in preview["sessions"] if (item["planned_date"], item["session_number"], _TYPE_DEVICE_SESSION) in skip_keys
+        )
+        follow_ups_skipped = sum(
+            1 for item in preview["follow_ups"] if (item["planned_date"], item["after_session_number"], _TYPE_FOLLOW_UP) in skip_keys
+        )
         return {
             "sessions_created": len(preview["sessions"]) - sessions_skipped,
             "follow_ups_created": len(preview["follow_ups"]) - follow_ups_skipped,

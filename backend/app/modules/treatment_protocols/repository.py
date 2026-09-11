@@ -1134,33 +1134,46 @@ class ProtocolSessionRepository:
         return result.rowcount or 0  # type: ignore[attr-defined]
 
     async def relink_planned_matching(
-        self, old_protocol_id: UUID, new_protocol_id: UUID, dated: builtins.list[tuple[Any, int]]
+        self, old_protocol_id: UUID, new_protocol_id: UUID, dated: builtins.list[tuple[Any, int, str]]
     ) -> builtins.list[dict]:
         """Amendment relink: repoints still-'planned' rows from the amended
         protocol onto the new one instead of cancelling + re-inserting, for
-        every (appointment_date, session_number) the new schedule preview
-        reproduces unchanged. Only an exact date+number match is relinked —
-        anything the new preview moved, added, or dropped falls through to
-        the normal cancel_planned + fresh-insert path, so a doctor who
-        actually changed the cadence never gets a stale date silently kept.
+        every (appointment_date, session_number, appointment_type) the new
+        schedule preview reproduces unchanged. Only an exact date+number+type
+        match is relinked — anything the new preview moved, added, or dropped
+        falls through to the normal cancel_planned + fresh-insert path, so a
+        doctor who actually changed the cadence never gets a stale date
+        silently kept.
+
+        appointment_type MUST be part of the match, not just date+number: a
+        device session's own date can (and, live-caught, did) land on the
+        exact same date+number as an unrelated old follow-up row — without
+        the type check, this UPDATE relinks that follow-up under a
+        device-session candidate it was never meant to match, silently
+        occupying (new_protocol_id, 'protocol_followup', N) before
+        _generate_appointments gets there — which then inserts a SECOND row
+        for that same slot and hits uq_appointments_protocol_session
+        (UniqueViolationError) on every retry, since the coincidence
+        reproduces identically each time.
 
         Returns the relinked rows (with appointment_id) so the caller can
         also repoint protocol_device_sessions/protocol_followup, and so
-        _generate_appointments knows which (date, number) pairs to skip
-        re-creating.
+        _generate_appointments knows which (date, number, type) triples to
+        skip re-creating.
         """
         if not dated:
             return []
-        # Explicit OR of per-pair AND clauses rather than a row-tuple
+        # Explicit OR of per-triple AND clauses rather than a row-tuple
         # `IN :pairs` — this codebase has no existing precedent for
         # SQLAlchemy expanding a row-tuple IN correctly, and getting it
         # wrong here would silently match/relink the wrong rows.
         pair_clauses = []
         params: dict[str, Any] = {"old_id": str(old_protocol_id), "new_id": str(new_protocol_id)}
-        for i, (planned_date, number) in enumerate(dated):
-            pair_clauses.append(f"(appointment_date = :d{i} AND session_number = :n{i})")
+        for i, (planned_date, number, appt_type) in enumerate(dated):
+            pair_clauses.append(f"(appointment_date = :d{i} AND session_number = :n{i} AND appointment_type = :t{i})")
             params[f"d{i}"] = planned_date
             params[f"n{i}"] = number
+            params[f"t{i}"] = appt_type
         rows = (
             (
                 await self.session.execute(
