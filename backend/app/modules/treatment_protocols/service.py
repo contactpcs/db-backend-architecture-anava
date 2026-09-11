@@ -748,7 +748,7 @@ class ProtocolService:
         }
 
     async def _generate_appointments(
-        self, protocol_id: UUID, parent: dict, preview: dict, *, device_id: UUID, skip_keys: set[tuple[Any, int]] | None = None
+        self, protocol_id: UUID, parent: dict, preview: dict, *, device_id: UUID, skip_keys: set[tuple[Any, int, str]] | None = None
     ) -> dict:
         """Writes the whole course onto the appointments spine, and — 47 — a
         matching protocol_device_sessions / protocol_followup row alongside
