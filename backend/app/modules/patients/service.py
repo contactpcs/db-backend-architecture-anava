@@ -605,20 +605,23 @@ class PatientVisitService:
 
         registration = await PatientService(self.session).get(patient_id) if is_initial else None
 
-        # Anamnesis is genuinely per-visit, never inherited across visits: a
-        # follow-up only has one if the doctor actually took it there —
-        # otherwise this stays None ("no anamnesis taken"), not a copy of an
-        # earlier visit's. The one exception is the initial visit itself:
-        # self-registration creates version 1 before any appointment_id
-        # exists to link it to (that flow has no visit context at all), so
-        # without this fallback the initial visit would wrongly show "no
-        # anamnesis taken" for a patient who has one. Not "inheritance" in
-        # the PRS/protocol sense — version 1 IS the initial visit's record,
-        # just not linked by column for historical reasons.
+        # Anamnesis is genuinely per-visit, never inherited across visits —
+        # a visit (including the initial one) only has one if the doctor
+        # actually took it there; otherwise this stays None ("no anamnesis
+        # taken"). Previously fell back to anamnesis version 1 for the
+        # initial visit on the theory that "version 1 IS the initial visit's
+        # record, just not linked by column" — wrong: version 1 is the
+        # patient's REGISTRATION intake (a distinct thing, already surfaced
+        # separately via `registration` above / the Registration Record
+        # section), not necessarily anything the doctor has taken or
+        # reviewed during this consultation. That fallback silently marked
+        # the Initial Consultation's own Anamnesis "Done" using registration
+        # data the doctor never touched, and editing it there created a v2
+        # AMENDING the registration record instead of starting the
+        # consultation's own v1 (found live: reported as "editing and saving
+        # produces v2 when this should have been the first one").
         anamnesis_repo = AnamnesisAssessmentRepository(self.session)
         anamnesis = await anamnesis_repo.get_by_appointment(appointment_id)
-        if not anamnesis and is_initial:
-            anamnesis = await anamnesis_repo.get_by_version(profile_id, 1)
 
         # PRS and protocol DO carry forward: a visit with nothing recorded
         # specifically for it inherits whatever was current as of its date,
