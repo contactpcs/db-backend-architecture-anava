@@ -35,7 +35,7 @@ from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, ValidationError
 from app.core.resolve import resolve_doctor_profile_id as _resolve_doctor_profile_id
 from app.core.resolve import resolve_patient_profile_id as _resolve_patient_profile_id
-from app.core.scoping import assert_clinic_scope
+from app.core.scoping import assert_clinic_scope, assert_owns_profile
 from app.modules.treatment_protocols import schemas as s
 from app.modules.treatment_protocols.repository import (
     CatalogueRepository,
@@ -390,6 +390,10 @@ class ProtocolService:
 
     async def get_detail(self, protocol_id: UUID, ctx: RequestContext) -> dict:
         row = await self.get_or_404(protocol_id)
+        # assert_clinic_scope has no patient branch (patient passes through
+        # like super_admin) — without this, any patient could read any other
+        # patient's protocol in the same clinic just by guessing the UUID.
+        assert_owns_profile(ctx, row["patient_id"])
         await assert_clinic_scope(ctx, self.session, row["clinic_id"])
 
         slug = _slug_for_modality(row["modality"])

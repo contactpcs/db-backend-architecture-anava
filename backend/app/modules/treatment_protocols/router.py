@@ -369,8 +369,10 @@ async def list_protocols(
 async def get_protocol(
     protocol_id: UUID,
     db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
+    ctx: RequestContext = Depends(require_role(*_READERS)),
 ):
+    # A patient may only read their own protocol — get_detail enforces this
+    # (assert_owns_profile against row["patient_id"]) before returning.
     return await ProtocolService(db).get_detail(protocol_id, ctx)
 
 
