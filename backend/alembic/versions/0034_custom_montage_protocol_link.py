@@ -18,7 +18,12 @@ the other gets renumbered at merge time — normal alembic-history-merge
 housekeeping, not something to guess a number for pre-emptively here.
 
 Revision ID: 0034
-Revises: 0033
+Revises: 0033a
+
+UPDATE (backfill): re-chained off 0033a, not 0033 directly — 0033a was
+inserted later to wrap SQL/v1 42-53, which had no migration at all until
+then. This is a one-line down_revision change only; 0034 itself is
+unmodified otherwise.
 """
 
 from collections.abc import Sequence
@@ -27,7 +32,7 @@ from pathlib import Path
 from alembic import op
 
 revision: str = "0034"
-down_revision: str | None = "0033"
+down_revision: str | None = "0033a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

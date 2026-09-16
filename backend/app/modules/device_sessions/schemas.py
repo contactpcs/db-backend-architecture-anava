@@ -40,7 +40,7 @@ AdverseEventType = Literal["sharp_burning_pain", "skin_burn_lesion", "dizziness"
 DeliveryMode = Literal["ca_administered", "patient_app"]
 
 # chk_dss2_status
-ScaleStatus = Literal["pending", "in_progress", "completed"]
+ScaleStatus = Literal["pending", "in_progress", "completed", "frozen"]
 
 # chk_dsm_media_type
 MediaType = Literal["photo", "video"]
@@ -127,6 +127,10 @@ class DeviceSessionRead(BaseModel):
     device_session_record_id: UUID
     appointment_id: UUID
     protocol_id: UUID
+    # Denormalised from appointments.ca_id/executor_role at session start —
+    # who actually ran this session, Doctor or Clinical Assistant.
+    performed_by_id: UUID | None = None
+    performed_by_role: str | None = None
 
     payment_verified: bool
     payment_override_reason: str | None = None

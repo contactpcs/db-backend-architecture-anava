@@ -676,6 +676,19 @@ class ProtocolService:
             await self.sessions.cancel_planned(body.supersedes_protocol_id, reason="Superseded by protocol amendment")
             await self.repo.set_status(body.supersedes_protocol_id, "superseded")
 
+            # PRS-freeze: any pending scale on an already-completed session
+            # under the old protocol can no longer be answered — closes the
+            # gap where a very late answer would retroactively change an
+            # already-superseded (and possibly already-reported-on) protocol
+            # version's outcome numbers. Same transaction as the supersede
+            # above, so there's no window for a late submission to land
+            # in between. A session still in flight right now is deliberately
+            # not touched here — see DeviceSessionScaleRepository.
+            # freeze_pending_for_session for that edge case.
+            from app.modules.device_sessions.repository import DeviceSessionScaleRepository
+
+            await DeviceSessionScaleRepository(self.session).freeze_pending_for_protocol(body.supersedes_protocol_id)
+
         counts = await self._generate_appointments(protocol_id, parent, preview, device_id=body.device_id, skip_keys=relinked_keys)
         counts["sessions_relinked"] = len(relinked_keys)
 
@@ -1239,6 +1252,21 @@ class ProtocolPrsService:
                 code="WRONG_APPOINTMENT_TYPE",
             )
         await self._assert_prs_instance_patient_match(body.instance_id, appt["patient_id"])
+
+        # Hard-reject a late submission against a superseded protocol — the
+        # actual enforcement for the PRS-freeze mechanism. Without this, a
+        # very late answer could still be recorded here and retroactively
+        # change an already-reported protocol version's outcome numbers,
+        # even after its scale rows were marked 'frozen'.
+        from app.modules.device_sessions.repository import DeviceSessionRepository, DeviceSessionScaleRepository
+
+        header = await DeviceSessionRepository(self.session).get_by_appointment(body.appointment_id)
+        if header and await DeviceSessionScaleRepository(self.session).any_frozen_for_session(header["device_session_record_id"]):
+            raise BusinessRuleError(
+                "This assessment is no longer open — the protocol it belonged to has since been amended",
+                code="SESSION_SCALE_FROZEN",
+            )
+
         try:
             row = await self.repo.create_device_session(
                 {

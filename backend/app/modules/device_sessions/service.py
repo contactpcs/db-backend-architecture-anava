@@ -56,7 +56,7 @@ _TYPE_DEVICE_SESSION = "device_session"
 # is reachable by every role in device_sessions/router.py's _READERS, so it
 # must only attempt to seed missing rows when the caller is one of these —
 # everyone else just sees whatever the CA/system has already seeded.
-_SCALE_SEED_ROLES = {"super_admin", "clinic_admin", "clinical_assistant", "system"}
+_SCALE_SEED_ROLES = {"super_admin", "clinic_admin", "clinical_assistant", "doctor", "system"}
 
 # Session-level FSM. Deliberately separate from appointments.status — see
 # module docstring and 53's file header "WHAT THIS FILE DELIBERATELY DOES NOT DO".
@@ -220,15 +220,21 @@ class DeviceSessionService:
         header = await self._header_or_404(appointment_id)
         assert_transition(header["session_status"], "in_progress", _TRANSITIONS, entity="device session", code="INVALID_SESSION_TRANSITION")
 
+        # performed_by_id/role stamped once, here, at the moment execution
+        # actually starts — a doctor or a clinical assistant, whoever hit
+        # start. Denormalised onto the header the same way protocol_id
+        # already is, so "who ran this" is a direct column read, not a join.
         now_columns = ["started_at"] if header.get("started_at") is None else []
         updated = await self.repo.update_with_now_columns(
-            header["device_session_record_id"], {"session_status": "in_progress"}, now_columns=now_columns
+            header["device_session_record_id"],
+            {"session_status": "in_progress", "performed_by_id": ctx.user_id, "performed_by_role": ctx.role},
+            now_columns=now_columns,
         )
 
         # Reuses the existing appointments FSM — appointments.status is the
         # single source of truth for this coarse transition, per the explicit
         # design decision in 53's file header.
-        await self.appointments.update_status(appointment_id, status="in_progress", ca_id=ctx.user_id)
+        await self.appointments.update_status(appointment_id, status="in_progress", ca_id=ctx.user_id, executor_role=ctx.role)
 
         await self._write_event(header["device_session_record_id"], event_type="started", ctx=ctx)
         await emit_event(
@@ -291,6 +297,13 @@ class DeviceSessionService:
         # appointment is marked completed, not cancelled.
         await self.appointments.update_status(appointment_id, status="completed")
 
+        # Completion-time freeze check: this session may have been left
+        # in-flight (claimed/in-progress) when its protocol was amended out
+        # from under it — freeze_pending_for_protocol only catches sessions
+        # already completed at the moment of amendment. Catches that edge
+        # case right here, on the ordinary path it's a 0-row no-op.
+        await self.scales.freeze_pending_for_session(header["device_session_record_id"])
+
         await self._write_event(header["device_session_record_id"], event_type="stopped", ctx=ctx, payload={"reason": reason})
         await emit_event(
             self.session,
@@ -335,6 +348,9 @@ class DeviceSessionService:
         )
 
         await self.appointments.update_status(appointment_id, status="completed")
+
+        # Completion-time freeze check — see stop()'s identical comment.
+        await self.scales.freeze_pending_for_session(header["device_session_record_id"])
 
         await self._write_event(header["device_session_record_id"], event_type="completed", ctx=ctx)
         await emit_event(
@@ -429,7 +445,10 @@ class DeviceSessionService:
         return await self.notes.list_for_session(header["device_session_record_id"])
 
     async def record_activity(self, appointment_id: UUID, body, ctx: RequestContext) -> dict:
-        await self._resolve_scoped_appointment(appointment_id, ctx)
+        # _for_patient_write, not the plain scoped-appointment check — a
+        # patient can now self-log an activity from their own portal, same
+        # "either portal" shape scale delivery already has.
+        await self._resolve_scoped_appointment_for_patient_write(appointment_id, ctx)
         header = await self._header_or_404(appointment_id)
         created = await self.activities.create(
             {
@@ -486,6 +505,11 @@ class DeviceSessionService:
         existing = await self.scales.get(header["device_session_record_id"], protocol_scale_id)
         if not existing:
             raise NotFoundError("No scale row for this protocol_scale_id on this session", code="SESSION_SCALE_NOT_FOUND")
+        if existing["status"] == "frozen":
+            raise BusinessRuleError(
+                "This assessment is no longer open — the protocol it belonged to has since been amended",
+                code="SESSION_SCALE_FROZEN",
+            )
         return await self.scales.upsert(
             header["device_session_record_id"],
             protocol_scale_id,
@@ -507,6 +531,11 @@ class DeviceSessionService:
         existing = await self.scales.get(header["device_session_record_id"], protocol_scale_id)
         if not existing:
             raise NotFoundError("No scale row for this protocol_scale_id on this session", code="SESSION_SCALE_NOT_FOUND")
+        if existing["status"] == "frozen":
+            raise BusinessRuleError(
+                "This assessment is no longer open — the protocol it belonged to has since been amended",
+                code="SESSION_SCALE_FROZEN",
+            )
         # update_existing, not upsert — a patient's RLS role can UPDATE this
         # row but not INSERT, and upsert()'s ON CONFLICT still requires the
         # INSERT policy to pass. The row is already confirmed to exist above.

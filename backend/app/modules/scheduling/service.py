@@ -758,18 +758,23 @@ class AppointmentService:
         if status in _ATTENDANCE_STATUSES:
             # WHO may start and finish a visit depends on what kind it is.
             #
-            # A device_session is administered by a clinical assistant on a
-            # device and has NO treating doctor (doctor_id is NULL by design).
-            # Requiring the doctor here — as this rule used to, unconditionally —
-            # made it impossible for the assistant to start the session they are
-            # standing in front of, and impossible for anyone else either.
+            # A device_session is administered by a clinical assistant OR a
+            # doctor, on a device, and has NO treating doctor of record
+            # (doctor_id is NULL by design) — whoever executes it is captured
+            # in ca_id/executor_role instead, late-bound below. Requiring the
+            # doctor here — as this rule used to, unconditionally — made it
+            # impossible for whoever is standing in front of the device to
+            # start the session. Deliberately NOT cross-checked against this
+            # person's own doctor_id appointments: device-session scheduling
+            # stays independent of a doctor's consultation calendar, even
+            # when that doctor is the one running the session.
             if appt["appointment_type"] == TYPE_DEVICE_SESSION:
-                if ctx.role not in ("clinical_assistant", "super_admin"):
+                if ctx.role not in ("clinical_assistant", "doctor", "super_admin"):
                     raise PermissionError_(
-                        "Only the clinical assistant running the session can perform this action",
-                        code="CLINICAL_ASSISTANT_ONLY_ACTION",
+                        "Only the staff member running this session can perform this action",
+                        code="SESSION_EXECUTOR_ONLY_ACTION",
                     )
-                # An assistant already running another session at this time is
+                # Whoever's already running another session at this time is
                 # caught by excl_ca_overlap when ca_id is written, not here.
                 return
             if ctx.role == "doctor" and str(appt["doctor_id"]) != ctx.user_id:
@@ -794,13 +799,16 @@ class AppointmentService:
             raise BusinessRuleError("A cancellation reason is required", code="CANCELLATION_REASON_REQUIRED")
         self._authorize_transition(appt, status=status, ctx=ctx)
 
-        # Late binding: an assistant is never reserved in advance. Whoever is
-        # free takes the patient, and their identity is captured here — the
-        # moment they start the session — not at booking time. Only for a
-        # device session; a consultation's doctor was booked with the slot.
+        # Late binding: whoever executes a device session is never reserved
+        # in advance. Whoever is free (a CA or, now, a doctor) takes the
+        # patient, and their identity + role are captured here — the moment
+        # they start the session — not at booking time. Only for a device
+        # session; a consultation's doctor was booked with the slot.
         ca_id = None
-        if status == "in_progress" and appt["appointment_type"] == TYPE_DEVICE_SESSION and ctx.role == "clinical_assistant":
+        executor_role = None
+        if status == "in_progress" and appt["appointment_type"] == TYPE_DEVICE_SESSION and ctx.role in ("clinical_assistant", "doctor"):
             ca_id = changed_by
+            executor_role = ctx.role
 
         try:
             await self.repo.update_status(
@@ -809,14 +817,15 @@ class AppointmentService:
                 cancelled_by=changed_by if status == "cancelled" else None,
                 cancellation_reason=cancellation_reason,
                 ca_id=ca_id,
+                executor_role=executor_role,
             )
         except IntegrityError as exc:
             # excl_ca_overlap fires here rather than at booking, because ca_id
-            # is NULL until this moment. The assistant tapping "start" is the
-            # one who needs to read this message.
+            # is NULL until this moment. Whoever tapped "start" is the one who
+            # needs to read this message.
             raise ConflictError(
                 "You are already running another session at this time",
-                code="CLINICAL_ASSISTANT_OVERLAP",
+                code="SESSION_EXECUTOR_OVERLAP",
             ) from exc
         await self._write_audit(
             appointment_id,

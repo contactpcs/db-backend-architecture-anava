@@ -209,6 +209,10 @@ class AppointmentRead(BaseModel):
     responsible_doctor_id: UUID | None = None
     responsible_doctor_name: str | None = None
     ca_id: UUID | None
+    # Role of whoever is in ca_id — 'doctor' or 'clinical_assistant' (or
+    # 'super_admin' covering for either) — snapshotted at session start, not
+    # a live join to profiles.role. NULL until a device_session starts.
+    executor_role: str | None = None
     instance_id: UUID | None = None
     protocol_id: UUID | None = None
     # Which protocol_plan version this session belongs to — display as

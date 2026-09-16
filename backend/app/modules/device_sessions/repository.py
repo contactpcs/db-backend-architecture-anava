@@ -361,6 +361,7 @@ class DeviceSessionScaleRepository:
                         "WHERE ss.protocol_scale_id = ps.protocol_scale_id "
                         "AND ss.device_session_record_id = :sid "
                         "AND ps.prs_scale_id = ANY(:scale_ids) "
+                        "AND ss.status <> 'frozen' "
                         "RETURNING ss.*"
                     ),
                     {"instance_id": prs_instance_id, "sid": str(device_session_record_id), "scale_ids": scale_ids},
@@ -391,6 +392,65 @@ class DeviceSessionScaleRepository:
             .all()
         )
         return [dict(r) for r in rows]
+
+    async def any_frozen_for_session(self, device_session_record_id: UUID) -> bool:
+        """True if this session has at least one scale row already frozen
+        (its protocol was superseded before the patient answered) — the
+        submission-time hard-reject record_device_session checks before
+        accepting a late PRS response, so freezing actually blocks a write
+        instead of being a cosmetic label."""
+        row = (
+            await self.session.execute(
+                text(
+                    "SELECT 1 FROM device_session_scales "
+                    "WHERE device_session_record_id = :sid AND status = 'frozen' LIMIT 1"
+                ),
+                {"sid": str(device_session_record_id)},
+            )
+        ).first()
+        return row is not None
+
+    async def freeze_pending_for_protocol(self, protocol_id: UUID) -> int:
+        """Amendment-time sweep: flips every still-'pending' scale row on an
+        ALREADY-COMPLETED device session under this protocol to 'frozen'.
+        Deliberately scoped to completed sessions only — a session still
+        claimed/in-progress at the moment of amendment is left alone (it
+        will finish under the old protocol regardless, per relink_planned_
+        matching/cancel_planned's own "rows already claimed are left alone"
+        rule) and gets its own freeze check at ITS completion instead, via
+        freeze_pending_for_session below. Called from ProtocolService inside
+        the same transaction as the supersede, so there is no window where a
+        late submission could land between amendment and freeze."""
+        result = await self.session.execute(
+            text(
+                "UPDATE device_session_scales ss SET status = 'frozen', updated_at = NOW() "
+                "FROM device_sessions ds JOIN appointments a ON a.appointment_id = ds.appointment_id "
+                "WHERE ss.device_session_record_id = ds.device_session_record_id "
+                "AND ds.protocol_id = :protocol_id AND a.status = 'completed' AND ss.status = 'pending'"
+            ),
+            {"protocol_id": str(protocol_id)},
+        )
+        return result.rowcount or 0  # type: ignore[attr-defined]
+
+    async def freeze_pending_for_session(self, device_session_record_id: UUID) -> int:
+        """Completion-time hook for the edge case freeze_pending_for_protocol
+        can't catch: a session still claimed/in-progress at the exact moment
+        its protocol was amended completes normally afterward, under the now-
+        superseded protocol. Called from DeviceSessionService.complete()/stop()
+        right after the appointment is marked completed — freezes any of
+        THIS session's still-pending scales if its own protocol has since
+        moved to 'superseded'. A no-op (0 rows) for the ordinary case where
+        the protocol is still active."""
+        result = await self.session.execute(
+            text(
+                "UPDATE device_session_scales ss SET status = 'frozen', updated_at = NOW() "
+                "FROM device_sessions ds JOIN protocol_plan pp ON pp.protocol_id = ds.protocol_id "
+                "WHERE ss.device_session_record_id = ds.device_session_record_id "
+                "AND ds.device_session_record_id = :sid AND pp.status = 'superseded' AND ss.status = 'pending'"
+            ),
+            {"sid": str(device_session_record_id)},
+        )
+        return result.rowcount or 0  # type: ignore[attr-defined]
 
 
 class DeviceSessionFeedbackRepository:

@@ -350,7 +350,7 @@ class AppointmentRepository:
         return [dict(r) for r in rows]
 
     async def update_status(
-        self, appointment_id: UUID, *, status: str, cancelled_by=None, cancellation_reason=None, ca_id=None
+        self, appointment_id: UUID, *, status: str, cancelled_by=None, cancellation_reason=None, ca_id=None, executor_role=None
     ) -> dict | None:
         # hold_expires_at is coupled to status by chk_appointments_hold (31 §1):
         # exactly the 'selected' rows carry an expiry and nothing else may. Any
@@ -375,6 +375,9 @@ class AppointmentRepository:
             if ca_id is not None:
                 extra_cols += ", ca_id = :ca_id"
                 params["ca_id"] = str(ca_id)
+            if executor_role is not None:
+                extra_cols += ", executor_role = :executor_role"
+                params["executor_role"] = executor_role
         elif status == "completed":
             extra_cols += ", completed_at = NOW()"
         return await fetch_optional(
