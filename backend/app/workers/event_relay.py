@@ -235,6 +235,7 @@ _STATUS_TITLES = {
     # PatientBookingService.reschedule_own, which now accepts a no_show
     # source) — that's the reason this needs to reach them at all.
     "no_show": "Your appointment was marked as a no-show — you can reschedule it",
+    "missed": "Your prescribed session's date passed without a slot ever being claimed — you can reschedule it",
 }
 
 

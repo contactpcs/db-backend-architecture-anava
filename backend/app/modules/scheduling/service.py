@@ -63,6 +63,7 @@ _LEGACY_APPOINTMENT_TYPES = PATIENT_BOOKABLE_TYPES | PROTOCOL_BORN_TYPES
 STATUS_PLANNED = "planned"
 STATUS_SELECTED = "selected"
 STATUS_PAID = "paid"
+STATUS_MISSED = "missed"
 
 # Statuses that occupy a slot. Matches the predicate on
 # idx_appointments_device_capacity and the capacity count in the repository —
@@ -73,11 +74,11 @@ ACTIVE_STATUSES = {STATUS_PLANNED, STATUS_SELECTED, STATUS_PAID, "checked_in", "
 
 # AppointmentService.reschedule (the shared engine both staff and
 # PatientBookingService.reschedule_own route through) accepts every active
-# status, plus no_show — a missed slot should be reschedulable without
-# waiting on a staff member to notice and flip it back to something "active"
-# first (see no_show_sweeper.py, which is what actually gets a row INTO
-# no_show without a human involved at all).
-RESCHEDULE_FROM_STATUSES = ACTIVE_STATUSES | {"no_show"}
+# status, plus no_show and missed — neither should require a staff member to
+# notice and flip the row back to something "active" first (see
+# no_show_sweeper.py, which is what actually gets a row INTO no_show or
+# missed without a human involved at all).
+RESCHEDULE_FROM_STATUSES = ACTIVE_STATUSES | {"no_show", STATUS_MISSED}
 
 # reschedule_own's own, narrower pre-check: a patient may only move a booked
 # appointment they haven't shown up for yet (selected/paid) or one just
@@ -882,6 +883,19 @@ class AppointmentService:
             raise BusinessRuleError("Only an active (or no-show) appointment can be rescheduled", code="APPOINTMENT_NOT_ACTIVE")
         await assert_clinic_scope(ctx, self.session, old["clinic_id"])
 
+        if old["appointment_type"] in PROTOCOL_BORN_TYPES:
+            # A protocol-born row (device_session/protocol_followup) carries
+            # protocol_id + session_number, and a protocol_device_sessions/
+            # protocol_followup side-table row FKs to this exact
+            # appointment_id — see uq_appointments_protocol_session. The
+            # cancel-old-create-new path below is for plain rows with no such
+            # links: create() never sets protocol_id, so a new row would fail
+            # chk_appointments_device_session_has_protocol (device_session) or
+            # silently orphan the side table (protocol_followup). Move THIS
+            # row's date/time in place instead — same fix reschedule_own
+            # already forces patients toward via claim_slot.
+            return await self._reschedule_protocol_born(old, data, changed_by=changed_by, changed_by_role=changed_by_role)
+
         # Flip the OLD row out of its active status FIRST, before creating
         # its replacement. uq_one_active_initial_per_patient (one active
         # 'initial' per patient) matches on status IN (selected/paid/
@@ -961,6 +975,83 @@ class AppointmentService:
             },
         )
         return await self.get(new_appointment["appointment_id"])
+
+    async def _reschedule_protocol_born(self, old: dict, data: dict, *, changed_by: UUID, changed_by_role: str) -> dict:
+        """Move a device_session/protocol_followup row's date/time in place.
+
+        Same slot-availability rules as claim_slot (device capacity vs. doctor
+        calendar per type), but starting from an already-claimed status
+        (selected/checked_in/in_progress/missed/no_show/paid) rather than
+        'planned'.
+        """
+        appointment_id = old["appointment_id"]
+        on_date = data["appointment_date"]
+        start_time = data["start_time"]
+        _reject_if_past(on_date, start_time)
+        await _assert_clinic_operational(self.session, old["clinic_id"])
+
+        if old["appointment_type"] == TYPE_DEVICE_SESSION:
+            duration = await DeviceCapacityService(self.session).reserve(old, on_date, start_time)
+        else:
+            is_available, duration = await AvailabilityService(self.session).check_slot(UUID(str(old["doctor_id"])), on_date, start_time)
+            if not is_available:
+                raise ConflictError("That slot is not available on the doctor's schedule", code="APPOINTMENT_SLOT_UNAVAILABLE")
+        end_time = (dt.datetime.combine(on_date, start_time) + dt.timedelta(minutes=duration)).time()
+
+        # Same payment-carry-forward rule as the plain-appointment path above:
+        # 'paid'/'no_show' already has a captured payment, so land straight on
+        # 'paid' instead of asking to pay again. Everything else (selected/
+        # checked_in/in_progress/missed) runs through the ordinary payment
+        # seam, same as a fresh claim_slot — 'missed' in particular never had
+        # a payment captured, so it must not skip straight to 'paid'.
+        if old["status"] in (STATUS_PAID, "no_show"):
+            new_status, hold = STATUS_PAID, None
+        else:
+            new_status, hold = _initial_status_and_hold(self.settings)
+
+        if on_date != old["appointment_date"]:
+            await self.repo.update_fields(appointment_id, {"appointment_date": on_date})
+        try:
+            await self.repo.claim_slot(
+                appointment_id,
+                start_time=start_time,
+                end_time=end_time,
+                hold_expires_at=hold,
+                status=new_status,
+            )
+        except IntegrityError as exc:
+            raise ConflictError("That slot was just taken — please pick another", code="APPOINTMENT_SLOT_TAKEN") from exc
+
+        if old["status"] in (STATUS_PAID, "no_show"):
+            from app.modules.payments.repository import PaymentRepository
+
+            old_payment = await PaymentRepository(self.session).get_for_appointment(appointment_id)
+            if old_payment:
+                await PaymentRepository(self.session).relink_appointment(old_payment["payment_id"], new_appointment_id=appointment_id)
+
+        await self._write_audit(
+            appointment_id,
+            changed_by=changed_by,
+            changed_by_role=changed_by_role,
+            previous_status=old["status"],
+            new_status=new_status,
+            previous_date=old["appointment_date"],
+            new_date=on_date,
+            previous_time=old["start_time"],
+            new_time=start_time,
+            change_reason=data.get("change_reason"),
+        )
+        await emit_event(
+            self.session,
+            aggregate_type="appointment",
+            aggregate_id=appointment_id,
+            event_type="appointment_rescheduled",
+            payload={
+                "old_appointment_id": str(appointment_id),
+                "new_appointment_id": str(appointment_id),
+            },
+        )
+        return await self.get(appointment_id)
 
     async def audit_log(self, appointment_id: UUID) -> builtins.list[dict]:
         return await self.audit.list_for_appointment(appointment_id)

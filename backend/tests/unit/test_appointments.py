@@ -424,11 +424,15 @@ def test_default_slot_length_is_thirty_minutes():
 
 
 def test_reschedule_accepts_no_show_on_top_of_every_active_status():
-    """A missed slot must be reschedulable without a staff member first
+    """An unattended slot must be reschedulable without a staff member first
     flipping it back to something 'active' — that flip is exactly what
-    nothing used to do automatically (see no_show_sweeper.py)."""
-    assert RESCHEDULE_FROM_STATUSES == ACTIVE_STATUSES | {"no_show"}
+    nothing used to do automatically (see no_show_sweeper.py). Covers both
+    unattended branches: no_show (a claimed slot that passed unattended) and
+    missed (a protocol-born row whose date passed before any slot was ever
+    claimed)."""
+    assert RESCHEDULE_FROM_STATUSES == ACTIVE_STATUSES | {"no_show", "missed"}
     assert "no_show" in RESCHEDULE_FROM_STATUSES
+    assert "missed" in RESCHEDULE_FROM_STATUSES
 
 
 def test_reschedule_still_refuses_a_completed_or_cancelled_appointment():
