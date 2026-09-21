@@ -401,10 +401,7 @@ class DeviceSessionScaleRepository:
         instead of being a cosmetic label."""
         row = (
             await self.session.execute(
-                text(
-                    "SELECT 1 FROM device_session_scales "
-                    "WHERE device_session_record_id = :sid AND status = 'frozen' LIMIT 1"
-                ),
+                text("SELECT 1 FROM device_session_scales WHERE device_session_record_id = :sid AND status = 'frozen' LIMIT 1"),
                 {"sid": str(device_session_record_id)},
             )
         ).first()
