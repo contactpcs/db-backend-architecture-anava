@@ -3,7 +3,7 @@ name: Build and push backend image to ECR
 on:
   workflow_run:
     workflows: ["CI"]
-    branches: [main]
+    branches: [main, device_session_newflow]
     types: [completed]
   workflow_dispatch:
 

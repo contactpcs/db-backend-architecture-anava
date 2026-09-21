@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, device_session_newflow]
   pull_request:
     branches: [main]
 
