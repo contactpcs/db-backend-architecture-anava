@@ -7,6 +7,11 @@ on:
   # never fired this workflow and no image was pushed. Triggering on push
   # directly works from any branch, since GitHub evaluates push triggers
   # from the workflow file as it exists on the branch being pushed.
+  #
+  # That alone would race CI though: push fires both workflows at once, not
+  # one after the other. So this workflow now calls CI as a reusable
+  # workflow (jobs.ci below) and build-and-push `needs` it — real gate, not
+  # two independent triggers that happen to run close together.
   push:
     branches: [main, device_session_newflow]
   workflow_dispatch:
@@ -26,7 +31,12 @@ env:
   ECS_SERVICE: anava-backend-lb
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
   build-and-push:
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - name: Checkout the pushed commit

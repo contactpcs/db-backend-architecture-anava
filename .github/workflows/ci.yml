@@ -5,6 +5,7 @@ on:
     branches: [main, device_session_newflow]
   pull_request:
     branches: [main]
+  workflow_call:
 
 defaults:
   run:
