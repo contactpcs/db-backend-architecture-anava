@@ -1,10 +1,14 @@
 name: Build and push backend image to ECR
 
 on:
-  workflow_run:
-    workflows: ["CI"]
+  # workflow_run only reads its trigger config from the default branch
+  # (main) copy of this file — a device_session_newflow-only edit to the
+  # branches list here never takes effect, so CI completing on that branch
+  # never fired this workflow and no image was pushed. Triggering on push
+  # directly works from any branch, since GitHub evaluates push triggers
+  # from the workflow file as it exists on the branch being pushed.
+  push:
     branches: [main, device_session_newflow]
-    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -24,14 +28,11 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    # Only proceed if CI actually passed (or this was a manual dispatch,
-    # which has no triggering workflow_run to check).
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
-      - name: Checkout the exact commit CI ran against
+      - name: Checkout the pushed commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
