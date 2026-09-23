@@ -245,6 +245,42 @@ async def _load_profile_and_scope(cognito_sub: str, *, request_id: str, ip_addre
             if scope and scope.primary_clinic_id:
                 clinic_id = str(scope.primary_clinic_id)
 
+        # Clinic-closed / region-inactive lockout. super_admin/regional_admin
+        # are exempt so someone can still log in to reopen/reactivate — same
+        # reasoning as the pending_closure<->active revert path in
+        # admin/service.py's clinic FSM. Checked via clinic_id's own region
+        # (not admins.region_id directly) so clinic_admin/doctor/CA/
+        # receptionist/patient are all covered through the one clinic_id they
+        # already resolve to above.
+        #
+        # rls_clinics_select only admits a row when status NOT IN
+        # (pending_closure, closed) OR clinic_id = rls_clinic_id() (and
+        # rls_regions_select mirrors this with is_active = true OR region_id =
+        # rls_region_id()) — app.current_clinic_id/current_region_id aren't
+        # set yet at this point in the request (that happens later via
+        # set_request_context), so a closed clinic / inactive region would
+        # otherwise be invisible to its own query and this check would never
+        # fire for the exact rows it exists to catch. Same self-lookup trap
+        # as SQL/31_fix_profile_bootstrap_lookup_rls.sql — fixed the same way:
+        # set the GUC to the specific row being checked, immediately before
+        # checking it.
+        if role not in ("super_admin", "regional_admin") and clinic_id:
+            await conn.execute(text("SELECT set_config('app.current_clinic_id', :cid, true)"), {"cid": clinic_id})
+            clinic_row = (
+                await conn.execute(text("SELECT status, region_id FROM clinics WHERE clinic_id = :cid"), {"cid": clinic_id})
+            ).first()
+            if clinic_row:
+                if clinic_row.status == "closed":
+                    raise PermissionError_("This clinic is closed", code="CLINIC_CLOSED")
+                if clinic_row.region_id:
+                    region_id_str = str(clinic_row.region_id)
+                    await conn.execute(text("SELECT set_config('app.current_region_id', :rid, true)"), {"rid": region_id_str})
+                    region_row = (
+                        await conn.execute(text("SELECT is_active FROM regions WHERE region_id = :rid"), {"rid": region_id_str})
+                    ).first()
+                    if region_row and not region_row.is_active:
+                        raise PermissionError_("This region is inactive", code="REGION_INACTIVE")
+
     return RequestContext(
         user_id=profile_id,
         role=role,
