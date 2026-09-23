@@ -84,7 +84,7 @@ RESCHEDULE_FROM_STATUSES = ACTIVE_STATUSES | {"no_show", STATUS_MISSED}
 # appointment they haven't shown up for yet (selected/paid) or one just
 # auto/staff-marked no_show — never a 'planned' row (no time to move yet) or
 # one already checked_in/in_progress (they're already there).
-PATIENT_RESCHEDULE_FROM_STATUSES = {STATUS_SELECTED, STATUS_PAID, "no_show"}
+PATIENT_RESCHEDULE_FROM_STATUSES = {STATUS_SELECTED, STATUS_PAID, "no_show", STATUS_MISSED}
 
 RESCHEDULE_MIN_HOURS = 24
 DEFAULT_SLOT_MINUTES = 30
@@ -1520,12 +1520,18 @@ class PatientBookingService:
         appt = await self.appointments.get(appointment_id)
         assert_owns_profile(ctx, appt["patient_id"])
 
-        if appt["appointment_type"] in PROTOCOL_BORN_TYPES:
-            # A protocol row is never "rescheduled" into a new row — releasing
-            # the slot and claiming another keeps one folder per prescribed
-            # session, which uq_appointments_protocol_session requires anyway.
+        if appt["appointment_type"] in PROTOCOL_BORN_TYPES and appt["status"] == STATUS_PLANNED:
+            # A 'planned' protocol row has no time on it yet — there is
+            # nothing to move, only a first slot to claim. Every OTHER
+            # status (selected/paid/no_show/missed) falls through to the
+            # ordinary reschedule() call below, which moves this same row
+            # in place for a protocol-born type (AppointmentService.
+            # _reschedule_protocol_born) instead of cancelling and creating
+            # a new one — that in-place engine is exactly what keeps
+            # protocol_id/session_number and uq_appointments_protocol_session
+            # intact, so this no longer needs to be blocked past 'planned'.
             raise BusinessRuleError(
-                "Release this session and claim a new slot instead",
+                "This session has no time yet — claim a slot first",
                 code="USE_CLAIM_SLOT_INSTEAD",
             )
         if appt["status"] not in PATIENT_RESCHEDULE_FROM_STATUSES:

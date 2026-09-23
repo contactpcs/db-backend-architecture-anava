@@ -28,6 +28,7 @@ from app.modules.scheduling.service import (
     PROTOCOL_BORN_TYPES,
     RESCHEDULE_FROM_STATUSES,
     SLOT_OCCUPYING_STATUSES,
+    STATUS_MISSED,
     STATUS_PAID,
     STATUS_PLANNED,
     STATUS_SELECTED,
@@ -443,8 +444,11 @@ def test_reschedule_still_refuses_a_completed_or_cancelled_appointment():
 def test_patient_can_only_reschedule_booked_or_no_show():
     """Narrower than the shared engine's set on purpose: a patient may not
     reschedule a 'planned' row (no time on it yet — claim_slot is that path)
-    or one already checked_in/in_progress (they are already there)."""
-    assert PATIENT_RESCHEDULE_FROM_STATUSES == {STATUS_SELECTED, STATUS_PAID, "no_show"}
+    or one already checked_in/in_progress (they are already there). 'missed'
+    is included: it's the protocol-born analogue of 'no_show' (a session
+    that came and went with no slot ever claimed), and a patient can move it
+    themselves the same way, via the same in-place engine staff use."""
+    assert PATIENT_RESCHEDULE_FROM_STATUSES == {STATUS_SELECTED, STATUS_PAID, "no_show", STATUS_MISSED}
     assert STATUS_PLANNED not in PATIENT_RESCHEDULE_FROM_STATUSES
     assert "checked_in" not in PATIENT_RESCHEDULE_FROM_STATUSES
     assert "in_progress" not in PATIENT_RESCHEDULE_FROM_STATUSES
