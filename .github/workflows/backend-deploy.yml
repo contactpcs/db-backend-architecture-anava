@@ -1,10 +1,19 @@
 name: Build and push backend image to ECR
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    branches: [main]
-    types: [completed]
+  # workflow_run only reads its trigger config from the default branch
+  # (main) copy of this file — a device_session_newflow-only edit to the
+  # branches list here never takes effect, so CI completing on that branch
+  # never fired this workflow and no image was pushed. Triggering on push
+  # directly works from any branch, since GitHub evaluates push triggers
+  # from the workflow file as it exists on the branch being pushed.
+  #
+  # That alone would race CI though: push fires both workflows at once, not
+  # one after the other. So this workflow now calls CI as a reusable
+  # workflow (jobs.ci below) and build-and-push `needs` it — real gate, not
+  # two independent triggers that happen to run close together.
+  push:
+    branches: [main, device_session_newflow]
   workflow_dispatch:
 
 permissions:
@@ -22,16 +31,18 @@ env:
   ECS_SERVICE: anava-backend-lb
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
   build-and-push:
+    needs: ci
     runs-on: ubuntu-latest
-    # Only proceed if CI actually passed (or this was a manual dispatch,
-    # which has no triggering workflow_run to check).
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
-      - name: Checkout the exact commit CI ran against
+      - name: Checkout the pushed commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
