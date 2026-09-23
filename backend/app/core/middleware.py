@@ -71,7 +71,15 @@ PATIENT_SELF_REGISTRATION_PATH_PREFIXES = (
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        # AuthContextMiddleware runs OUTSIDE this one (added before it in
+        # main.py, and Starlette executes middleware last-added-first) — for
+        # an authenticated request it has already resolved this same id and
+        # stashed it on request.state so the audit trigger's app.request_id
+        # and this log line's request_id are the same value, not two
+        # independently generated UUIDs for one request. Only a public-path
+        # request (which AuthContextMiddleware skips entirely) falls through
+        # to generating one here.
+        request_id = getattr(request.state, "request_id", None) or request.headers.get("X-Request-ID", str(uuid.uuid4()))
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=request_id)
 
@@ -90,7 +98,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         return response
 
 
-async def _load_profile_and_scope(cognito_sub: str) -> RequestContext:
+async def _load_profile_and_scope(cognito_sub: str, *, request_id: str, ip_address: str | None) -> RequestContext:
     """Resolves the caller's profile + tenant scope. Deliberately minimal
     (raw parameterized SQL, not an ORM model) — the `profiles`/`admins`/
     `clinic_staff_assignments`/`patients` tables already exist in the schema
@@ -244,6 +252,8 @@ async def _load_profile_and_scope(cognito_sub: str) -> RequestContext:
         region_id=region_id,
         is_active=is_active,
         consent_signed=consent_signed,
+        request_id=request_id,
+        ip_address=ip_address,
     )
 
 
@@ -253,6 +263,13 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
     that core/db.py's get_db() dependency applies via SET LOCAL for RLS."""
 
     async def dispatch(self, request: Request, call_next):
+        # Resolved here (not left to RequestIDMiddleware, which runs after
+        # this one) so it's available below for the RequestContext that
+        # feeds the DB audit trigger — see RequestIDMiddleware's own comment.
+        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        request.state.request_id = request_id
+        client_ip = request.client.host if request.client else None
+
         if request.url.path in PUBLIC_PATHS:
             return await call_next(request)
 
@@ -273,7 +290,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
 
         try:
             claims = await verify_token(token)
-            ctx = await _load_profile_and_scope(claims["sub"])
+            ctx = await _load_profile_and_scope(claims["sub"], request_id=request_id, ip_address=client_ip)
         except AnavaException as exc:
             return JSONResponse(
                 status_code=exc.status_code,

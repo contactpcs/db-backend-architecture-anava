@@ -65,6 +65,8 @@ class RequestContext:
     region_id: str | None
     is_active: bool = True
     consent_signed: bool = True
+    request_id: str | None = None
+    ip_address: str | None = None
 
 
 _request_context: ContextVar[RequestContext | None] = ContextVar("_request_context", default=None)
@@ -88,6 +90,10 @@ async def _apply_rls_context(session: AsyncSession) -> None:
         await session.execute(text_set_local("app.current_clinic_id", ctx.clinic_id))
     if ctx.region_id:
         await session.execute(text_set_local("app.current_region_id", ctx.region_id))
+    if ctx.request_id:
+        await session.execute(text_set_local("app.request_id", ctx.request_id))
+    if ctx.ip_address:
+        await session.execute(text_set_local("app.client_ip", ctx.ip_address))
 
 
 def text_set_local(setting_name: str, value: str):
