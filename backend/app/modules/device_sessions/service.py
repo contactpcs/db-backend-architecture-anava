@@ -43,6 +43,7 @@ from app.modules.device_sessions.repository import (
     DeviceSessionScaleRepository,
     DeviceSessionSosEventRepository,
     DeviceSessionSymptomRepository,
+    DeviceSessionTvnsSettingsRepository,
 )
 from app.modules.scheduling.repository import AppointmentRepository
 
@@ -86,6 +87,7 @@ class DeviceSessionService:
         self.activities = DeviceSessionActivityRepository(session)
         self.scales = DeviceSessionScaleRepository(session)
         self.feedback = DeviceSessionFeedbackRepository(session)
+        self.tvns_settings = DeviceSessionTvnsSettingsRepository(session)
         self.media = DeviceSessionMediaRepository(session)
         self.events = DeviceSessionEventRepository(session)
         self.sos_events = DeviceSessionSosEventRepository(session)
@@ -136,6 +138,7 @@ class DeviceSessionService:
         detail["activities"] = await self.activities.list_for_session(sid)
         detail["scales"] = await self.scales.list_for_session(sid)
         detail["feedback"] = await self.feedback.get_for_session(sid)
+        detail["tvns_settings"] = await self.tvns_settings.get_for_session(sid)
         detail["media"] = await self.media.list_for_session(sid)
         detail["events"] = await self.events.list_for_session(sid)
         detail["sos_events"] = await self.sos_events.list_for_session(sid)
@@ -469,6 +472,16 @@ class DeviceSessionService:
 
     # -- scales -------------------------------------------------------------
 
+    async def list_pending_for_caller(self, ctx: RequestContext) -> builtins.list[dict]:
+        """Every patient_app scale still open across all of the caller's own
+        device sessions — powers the patient dashboard's "scales sent to
+        you" widget, so they don't have to already be on a specific
+        device-sessions/{id} page to find one. RLS on device_session_scales
+        already scopes this to the caller's own appointments; no separate
+        clinic-scope check is needed the way appointment-scoped endpoints
+        need _resolve_scoped_appointment."""
+        return await self.scales.list_pending_for_patient(ctx.user_id)
+
     async def list_scales_due(self, appointment_id: UUID, ctx: RequestContext) -> builtins.list[dict]:
         """Seeds device_session_scales from the protocol's protocol_scales on
         first read, so the CA screen always shows every scale due this visit
@@ -562,6 +575,27 @@ class DeviceSessionService:
         except IntegrityError as exc:
             # uq_dsf_device_session — one feedback row per session.
             raise ConflictError("Feedback has already been recorded for this session", code="FEEDBACK_ALREADY_RECORDED") from exc
+        return created
+
+    # -- tVNS session settings --------------------------------------------------
+
+    async def record_tvns_settings(self, appointment_id: UUID, fields: dict, ctx: RequestContext) -> dict:
+        """Records the device settings (wavelength/pattern/strength/frequency/
+        pulse width/duration) actually dialled in for this session. CA-entered
+        at session setup, same access tier as the device-fit checklist — not
+        a patient write, unlike feedback."""
+        await self._resolve_scoped_appointment(appointment_id, ctx)
+        header = await self._header_or_404(appointment_id)
+        try:
+            created = await self.tvns_settings.create(
+                {
+                    "device_session_record_id": str(header["device_session_record_id"]),
+                    **fields,
+                }
+            )
+        except IntegrityError as exc:
+            # uq_tvns_session_settings_session — one settings row per session.
+            raise ConflictError("tVNS settings have already been recorded for this session", code="TVNS_SETTINGS_ALREADY_RECORDED") from exc
         return created
 
     # -- media / consent ------------------------------------------------------

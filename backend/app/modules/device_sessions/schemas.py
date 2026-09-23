@@ -10,12 +10,12 @@ the database would reject it.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # --------------------------------------------------------------------------
 # Fixed vocabularies — copied from 53's CHECK constraints
@@ -47,6 +47,18 @@ MediaType = Literal["photo", "video"]
 
 # chk_dsse_sos_type
 SosType = Literal["discomfort", "unwell", "other", "emergency"]
+
+# chk_tvns_session_settings_wavelength / _pattern (90_tvns_device.sql)
+Wavelength = Literal["alternant", "biphasic"]
+StimPattern = Literal["continuous", "modulation", "intermittent"]
+
+# tVNS device dial steps, enforced here rather than as a SQL CHECK because
+# the step size changes partway through the range (see
+# 90_tvns_device.sql's column comments) — a single allow-list next to the
+# UI copy that renders it is clearer than an IN-list with ~40 values.
+TVNS_FREQUENCY_HZ_HZ = tuple(range(1, 100)) + tuple(range(100, 1001, 100))
+TVNS_PULSE_WIDTH_US = tuple(range(50, 300, 10)) + tuple(range(300, 501, 50))
+TVNS_DURATION_MIN = (5, 10, 15, 20, 30, 40, 50, 60) + tuple(range(70, 241, 10))
 
 
 # --------------------------------------------------------------------------
@@ -109,6 +121,54 @@ class NextSessionConfirmation(BaseModel):
     requested_date: str | None = None
     requested_slot: str | None = None
     note: str | None = None
+
+
+class TvnsSessionSettingsCreate(BaseModel):
+    """tVNS device settings for one session (core.tvns_session_settings).
+    Frequency/pulse-width/duration are each a fixed step list rather than a
+    free range — see TVNS_FREQUENCY_HZ_HZ / TVNS_PULSE_WIDTH_US /
+    TVNS_DURATION_MIN above for why the step size isn't uniform."""
+
+    wavelength: Wavelength
+    pattern: StimPattern
+    strength_pct: int = Field(ge=0, le=100)
+    frequency_hz: int
+    pulse_width_us: int
+    duration_min: int
+
+    @field_validator("frequency_hz")
+    @classmethod
+    def _validate_frequency(cls, v: int) -> int:
+        if v not in TVNS_FREQUENCY_HZ_HZ:
+            raise ValueError(f"frequency_hz must be one of the device's allowed steps, got {v}")
+        return v
+
+    @field_validator("pulse_width_us")
+    @classmethod
+    def _validate_pulse_width(cls, v: int) -> int:
+        if v not in TVNS_PULSE_WIDTH_US:
+            raise ValueError(f"pulse_width_us must be one of the device's allowed steps, got {v}")
+        return v
+
+    @field_validator("duration_min")
+    @classmethod
+    def _validate_duration(cls, v: int) -> int:
+        if v not in TVNS_DURATION_MIN:
+            raise ValueError(f"duration_min must be one of the device's allowed presets, got {v}")
+        return v
+
+
+class TvnsSessionSettingsRead(BaseModel):
+    tvns_session_setting_id: UUID
+    device_session_record_id: UUID
+    wavelength: str
+    pattern: str
+    strength_pct: int
+    frequency_hz: Decimal
+    pulse_width_us: int
+    duration_min: Decimal
+    created_at: datetime
+    updated_at: datetime
 
 
 class DeviceInfo(BaseModel):
@@ -184,6 +244,7 @@ class DeviceSessionDetail(DeviceSessionRead):
     media: list[MediaRead] = Field(default_factory=list)
     events: list[EventRead] = Field(default_factory=list)
     sos_events: list[SosEventRead] = Field(default_factory=list)
+    tvns_settings: TvnsSessionSettingsRead | None = None
 
 
 # --------------------------------------------------------------------------
@@ -293,6 +354,25 @@ class SessionScaleRead(BaseModel):
     # Hydrated from core.protocol_scales for display
     scale_code: str | None = None
     scale_name: str | None = None
+    # protocol_scales.prs_scale_id — the PRS questionnaire engine's own
+    # scale identity (reference.prs_scales.scale_id, TEXT), NOT
+    # protocol_scales.scale_id (a different, UUID-keyed catalogue,
+    # reference.neuromod_scales). This is what prs_scale_results.scale_id
+    # matches, so it's what a caller needs to filter a disease-scoped
+    # instance's results down to just this one scale. Null when the
+    # protocol's scale isn't PRS-backed.
+    scale_id: str | None = None
+
+
+class PendingPatientScaleRead(SessionScaleRead):
+    """One row from list_pending_for_patient — same shape as SessionScaleRead
+    plus enough appointment context (GET /me/device-session-scales, patient
+    dashboard) for a patient to see and route to it without already knowing
+    which appointment it belongs to."""
+
+    appointment_id: UUID
+    appointment_date: date
+    session_number: int | None = None
 
 
 # --------------------------------------------------------------------------

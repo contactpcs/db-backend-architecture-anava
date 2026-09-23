@@ -22,14 +22,14 @@ from pydantic import BaseModel, Field, model_validator
 # per-device tables (tdcs_placements, rtms_dosing, ...) are keyed off this
 # exact vocabulary, so it lives in one place rather than being re-spelled
 # in every query.
-MODALITIES = ("tDCS", "HD-tDCS", "taVNS", "TPS", "rTMS", "other")
+MODALITIES = ("tDCS", "HD-tDCS", "tVNS", "TPS", "rTMS", "other")
 
 # reference.neuromod_devices.modality -> the table-name stem for that
 # device's placement/dosing tables and the FK column on protocol_plan.
 MODALITY_SLUG = {
     "tDCS": "tdcs",
     "HD-tDCS": "hd_tdcs",
-    "taVNS": "tavns",
+    "tVNS": "tvns",
     "TPS": "tps",
     "rTMS": "rtms",
     "other": "other",
@@ -219,7 +219,7 @@ class PlacementRead(BaseModel):
     anode_site: str | None = None
     cathode_site: str | None = None
     return_sites: list[str] | None = None
-    # taVNS
+    # tVNS
     ear_side: str | None = None
     auricular_site: str | None = None
     # TPS / rTMS
@@ -279,11 +279,12 @@ class DosingRead(BaseModel):
     # shared
     session_duration_min: int | None = None
     sessions_per_day: int | None = None
-    # taVNS
-    intensity_ma: Decimal | None = None
+    # tVNS
+    wavelength: str | None = None
+    pattern: str | None = None
+    strength_pct_min: int | None = None
+    strength_pct_max: int | None = None
     pulse_width_us: int | None = None
-    duty_cycle_on_sec: int | None = None
-    duty_cycle_off_sec: int | None = None
     # TPS
     energy_mj: Decimal | None = None
     pulses_per_session: int | None = None
@@ -754,6 +755,13 @@ class DeviceSessionPrsCreate(BaseModel):
     appointment_id: UUID
     instance_id: str
     session_number: int = Field(ge=1)
+    # protocol_scales.prs_scale_id for the ONE scale this device session
+    # administered. instance_id alone is disease-scoped and can carry
+    # prs_scale_results for sibling scales answered elsewhere under the same
+    # disease/patient — without this, _complete_due_scales swept every
+    # scored scale on the instance and could mark an unanswered sibling
+    # scale "completed" on this session too.
+    scale_id: str
 
 
 class FollowUpPrsCreate(BaseModel):

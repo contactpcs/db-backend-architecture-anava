@@ -40,6 +40,18 @@ _ACTIVITY_WRITERS = (*_CA_WRITERS, "patient")  # activities: staff-logged during
 # --------------------------------------------------------------------------
 
 
+@router.get("/me/device-session-scales", response_model=list[s.PendingPatientScaleRead])
+async def list_my_pending_device_session_scales(
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("patient")),
+):
+    """Every patient_app scale still open across ALL of the caller's device
+    sessions — the dashboard's "scales sent to you" widget, so a patient can
+    find one without already being on its specific device-sessions/{id}
+    page. Patient-only: this is the caller's own inbox, not a staff view."""
+    return await DeviceSessionService(db).list_pending_for_caller(ctx)
+
+
 @router.get("/device-sessions/{appointment_id}", response_model=s.DeviceSessionDetail)
 async def get_device_session(
     appointment_id: UUID,
@@ -309,6 +321,24 @@ async def record_feedback(
     """Patient, or CA on the patient's behalf. One row per session
     (uq_dsf_device_session) — a repeat call 409s."""
     return await DeviceSessionService(db).record_feedback(appointment_id, body.answers.model_dump(), body.quote, ctx)
+
+
+# --------------------------------------------------------------------------
+# tVNS session settings
+# --------------------------------------------------------------------------
+
+
+@router.post("/device-sessions/{appointment_id}/tvns-settings", response_model=s.TvnsSessionSettingsRead, status_code=201)
+async def record_tvns_settings(
+    appointment_id: UUID,
+    body: s.TvnsSessionSettingsCreate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_CA_WRITERS)),
+):
+    """Device settings dialled in for this session — wavelength, pattern,
+    strength, frequency, pulse width, duration. One row per session
+    (uq_tvns_session_settings_session) — a repeat call 409s."""
+    return await DeviceSessionService(db).record_tvns_settings(appointment_id, body.model_dump(), ctx)
 
 
 # --------------------------------------------------------------------------

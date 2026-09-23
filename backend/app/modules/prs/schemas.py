@@ -150,6 +150,13 @@ class AssessmentStartRead(BaseModel):
 
     instance_id: str
     is_resumed: bool
+    # True when this is a completed, standalone (no appointment_id)
+    # instance returned read-only because this (patient, disease, stage)
+    # was already completed once via the dashboard's disease-level flow —
+    # every scale here is is_completed=True and submit_responses refuses to
+    # re-finalize any of them. Always False for a device-session-originated
+    # start() call (protocol_scales.cadence means those legitimately repeat).
+    is_readonly_completed: bool = False
     scales: list[AssessmentStartScaleRead]
 
 

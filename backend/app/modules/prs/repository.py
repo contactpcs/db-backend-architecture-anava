@@ -360,6 +360,58 @@ class AssessmentInstanceRepository:
             {"pid": str(patient_id), "disease_id": disease_id, "stage": assessment_stage},
         )
 
+    async def find_for_appointment(
+        self, *, patient_id: UUID, disease_id: str | None, assessment_stage: str, appointment_id: UUID
+    ) -> dict | None:
+        """The most recent instance (any status) for this (patient, disease,
+        stage) under THIS SAME appointment. A device-session visit can push
+        several scales under one disease over the course of the visit
+        (device_session_scales seeds one row per due scale, delivered
+        one-by-one), and each "administer this scale" call re-invokes
+        start() — find_in_progress alone missed the case where an earlier
+        scale under this same appointment had already been finalized,
+        flipping the instance to 'completed' (recalculate_final_result only
+        fires once every assigned scale is scored, but a scale answered
+        standalone-of-the-rest — e.g. the disease composite completing
+        early — can trip it before the visit is actually done). Without
+        this, start() minted a brand-new, disconnected instance for the
+        next scale in the same visit, which could never complete on its own
+        (see 90's sibling issue) and left the disease permanently
+        'in_progress' on the dashboard even though the original instance
+        genuinely finished. Scoped to appointment_id = :appointment_id, not
+        just appointment_id IS NOT NULL, so a LATER separate device-session
+        appointment (a real cadence re-administration) still gets its own
+        fresh instance rather than resuming this one."""
+        return await fetch_optional(
+            self.session,
+            text(
+                "SELECT * FROM prs_assessment_instances WHERE patient_id = :pid AND disease_id IS NOT DISTINCT FROM :disease_id "
+                "AND assessment_stage = :stage AND appointment_id = :appointment_id ORDER BY started_at DESC LIMIT 1"
+            ),
+            {"pid": str(patient_id), "disease_id": disease_id, "stage": assessment_stage, "appointment_id": str(appointment_id)},
+        )
+
+    async def find_completed_standalone(self, *, patient_id: UUID, disease_id: str | None, assessment_stage: str) -> dict | None:
+        """The most recent COMPLETED, standalone (appointment_id IS NULL)
+        instance for this (patient, disease, stage), if any. start() checks
+        this when find_in_progress comes back empty — the dashboard's
+        disease-level flow is one-and-done: reopening it should return the
+        same completed instance read-only, not mint a blank new one that
+        can never actually complete again (a scale can't be re-finalized
+        under it — see PrsAssessmentService.submit_responses). Scoped to
+        appointment_id IS NULL for the same reason completed_scale_ids_for_
+        standalone_patient is: a device-session-originated completion is a
+        real, cadence-driven re-administration, never a terminal one."""
+        return await fetch_optional(
+            self.session,
+            text(
+                "SELECT * FROM prs_assessment_instances WHERE patient_id = :pid AND disease_id IS NOT DISTINCT FROM :disease_id "
+                "AND assessment_stage = :stage AND status = 'completed' AND appointment_id IS NULL "
+                "ORDER BY started_at DESC LIMIT 1"
+            ),
+            {"pid": str(patient_id), "disease_id": disease_id, "stage": assessment_stage},
+        )
+
     async def list_for_patient(self, patient_profile_id: UUID, *, assessment_stage: str | None = None) -> list[dict]:
         clauses, params = ["patient_id = :pid"], {"pid": str(patient_profile_id)}
         if assessment_stage:
@@ -563,6 +615,40 @@ class PrsScaleResultRepository:
             .all()
         )
         return [dict(r) for r in rows]
+
+    async def completed_scale_ids_for_standalone_patient(
+        self, patient_id, assessment_stage: str, exclude_instance_id: str | None = None
+    ) -> set[str]:
+        """Every scale_id this patient has completed under a STANDALONE
+        instance (appointment_id IS NULL) for this assessment_stage — i.e.
+        the disease-level dashboard flow, not one tied to a specific device
+        session. Scoped to appointment_id IS NULL deliberately:
+        protocol_scales.cadence (weekly/fortnightly/...) means the SAME
+        scale is legitimately re-administered across separate device-session
+        appointments over a treatment course — those completions carry a
+        real appointment_id and must never block a later one. Only the
+        disease-level "answer this once from your dashboard" flow (no
+        appointment_id at all) has no such repeat concept, and is what this
+        guards against re-completing.
+
+        start() creates a brand-new instance whenever no in-progress one
+        exists (find_in_progress only matches status='in_progress'), so a
+        completed standalone instance's results are otherwise invisible to a
+        freshly-started one: every scale would show is_completed=False and
+        be answerable again. exclude_instance_id lets a resumed in-progress
+        instance's own not-yet-finalized scales stay excluded from
+        "already completed elsewhere"."""
+        params: dict = {"patient_id": str(patient_id), "stage": assessment_stage}
+        sql = (
+            "SELECT DISTINCT sr.scale_id FROM prs_scale_results sr "
+            "JOIN prs_assessment_instances i ON i.instance_id = sr.instance_id "
+            "WHERE i.patient_id = :patient_id AND i.assessment_stage = :stage AND i.appointment_id IS NULL"
+        )
+        if exclude_instance_id:
+            sql += " AND sr.instance_id != :exclude_id"
+            params["exclude_id"] = exclude_instance_id
+        rows = (await self.session.execute(text(sql), params)).mappings().all()
+        return {r["scale_id"] for r in rows}
 
     async def final_result(self, instance_id: str) -> dict | None:
         return await fetch_optional(self.session, text("SELECT * FROM prs_final_results WHERE instance_id = :id"), {"id": instance_id})

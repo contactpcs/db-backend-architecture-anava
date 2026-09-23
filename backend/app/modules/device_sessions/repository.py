@@ -251,7 +251,7 @@ class DeviceSessionActivityRepository:
 
 
 _SESSION_SCALE_SELECT = (
-    "SELECT ss.*, ps.scale_id AS protocol_scale_scale_id, "
+    "SELECT ss.*, ps.scale_id AS protocol_scale_scale_id, ps.prs_scale_id AS scale_id, "
     "  COALESCE(pr.scale_code, ns.scale_code) AS scale_code, "
     "  COALESCE(pr.scale_name, ns.scale_name) AS scale_name "
     "FROM device_session_scales ss "
@@ -393,6 +393,42 @@ class DeviceSessionScaleRepository:
         )
         return [dict(r) for r in rows]
 
+    async def list_pending_for_patient(self, patient_id: UUID) -> builtins.list[dict]:
+        """Every patient_app scale still open (pending/in_progress) across
+        ALL of this patient's device sessions — the dashboard's "scales sent
+        to you" widget. RLS on device_session_scales already allows a
+        patient to read any row reachable via appointments.patient_id
+        (56_device_session_records.sql's rls_device_session_scales_select),
+        so this is one query, not the appointment-by-appointment N+1 the CA
+        screens use — those need a specific session's full due-list
+        (including non-patient_app rows), this needs the opposite slice."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT ss.*, ps.scale_id AS protocol_scale_scale_id, ps.prs_scale_id AS scale_id, "
+                        "  COALESCE(pr.scale_code, ns.scale_code) AS scale_code, "
+                        "  COALESCE(pr.scale_name, ns.scale_name) AS scale_name, "
+                        "  ds.appointment_id, a.appointment_date, a.session_number "
+                        "FROM device_session_scales ss "
+                        "JOIN protocol_scales ps ON ps.protocol_scale_id = ss.protocol_scale_id "
+                        "LEFT JOIN reference.prs_scales pr ON pr.scale_id = ps.prs_scale_id "
+                        "LEFT JOIN reference.neuromod_scales ns ON ns.scale_id = ps.scale_id "
+                        "JOIN device_sessions ds ON ds.device_session_record_id = ss.device_session_record_id "
+                        "JOIN appointments a ON a.appointment_id = ds.appointment_id "
+                        "WHERE a.patient_id = :patient_id "
+                        "AND ss.delivery_mode = 'patient_app' "
+                        "AND ss.status IN ('pending', 'in_progress') "
+                        "ORDER BY a.appointment_date DESC, ps.display_order"
+                    ),
+                    {"patient_id": str(patient_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
     async def any_frozen_for_session(self, device_session_record_id: UUID) -> bool:
         """True if this session has at least one scale row already frozen
         (its protocol was superseded before the patient answered) — the
@@ -464,6 +500,25 @@ class DeviceSessionFeedbackRepository:
         return await fetch_optional(
             self.session,
             text("SELECT * FROM device_session_feedback WHERE device_session_record_id = :id"),
+            {"id": str(device_session_record_id)},
+        )
+
+
+class DeviceSessionTvnsSettingsRepository:
+    """core.tvns_session_settings — one row per session (uq_tvns_session_settings_session),
+    only meaningful when the session's protocol device is modality tVNS."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create(self, data: dict) -> dict:
+        sql, params = insert_returning("tvns_session_settings", data)
+        return await fetch_one(self.session, sql, params)
+
+    async def get_for_session(self, device_session_record_id: UUID) -> dict | None:
+        return await fetch_optional(
+            self.session,
+            text("SELECT * FROM tvns_session_settings WHERE device_session_record_id = :id"),
             {"id": str(device_session_record_id)},
         )
 

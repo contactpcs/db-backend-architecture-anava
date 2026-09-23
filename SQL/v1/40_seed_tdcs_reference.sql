@@ -429,6 +429,6 @@ COMMIT;
 --   3. prs_scale_id on any scale. See section 3 — an invented identifier
 --      queues a questionnaire that does not exist.
 --
---   4. Anything for taVNS, TPS, rTMS or 'other'. No devices of those
---      modalities are registered.
+--   4. Anything for tVNS (taVNS as-was, renamed 90), TPS, rTMS or 'other'.
+--      No devices of those modalities are registered.
 -- ###########################################################################
