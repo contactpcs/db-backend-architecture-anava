@@ -256,6 +256,11 @@ class DoctorService:
     async def update(self, doctor_id: UUID, fields: dict, *, updated_by: UUID) -> dict:
         doctor = await self.get(doctor_id)
         profile_fields, role_fields = _split_profile_fields(fields)
+        # doctors has no is_active column (unlike CA/receptionist, which
+        # mirror it) — _split_profile_fields already copied it into
+        # profile_fields, so drop it here before it hits self.repo.update()
+        # or that UPDATE errors on an unknown column.
+        role_fields.pop("is_active", None)
         if profile_fields:
             await _apply_profile_update(self.session, doctor["profile_id"], profile_fields)
         if role_fields:

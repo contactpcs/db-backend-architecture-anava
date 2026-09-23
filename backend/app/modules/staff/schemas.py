@@ -66,6 +66,11 @@ class DoctorUpdate(StaffProfileUpdate):
     max_patient_count: int | None = None
     availability_status: str | None = Field(default=None, pattern="^(available|at_capacity|on_leave|inactive)$")
     years_of_experience: int | None = Field(default=None, ge=0, le=60)
+    # doctors has no is_active column of its own (availability_status is a
+    # separate scheduling concept) — this is the real login gate,
+    # profiles.is_active, accepted here so it can be deactivated at all.
+    # DoctorService.update() strips it before writing to the doctors table.
+    is_active: bool | None = None
 
 
 class DoctorRead(BaseModel):
