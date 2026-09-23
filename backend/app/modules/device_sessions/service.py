@@ -480,7 +480,7 @@ class DeviceSessionService:
         already scopes this to the caller's own appointments; no separate
         clinic-scope check is needed the way appointment-scoped endpoints
         need _resolve_scoped_appointment."""
-        return await self.scales.list_pending_for_patient(ctx.user_id)
+        return await self.scales.list_pending_for_patient(UUID(ctx.user_id))
 
     async def list_scales_due(self, appointment_id: UUID, ctx: RequestContext) -> builtins.list[dict]:
         """Seeds device_session_scales from the protocol's protocol_scales on
