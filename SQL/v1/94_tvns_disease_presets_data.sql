@@ -40,8 +40,21 @@ BEGIN
     SELECT condition_id INTO v_anxiety          FROM reference.neuromod_conditions WHERE condition_name = 'Anxiety Disorders';
     SELECT condition_id INTO v_insomnia         FROM reference.neuromod_conditions WHERE condition_name = 'Insomnia / Sleep Disorder';
 
-    -- Depression already has a placement (d86560b9-b5c3-4bf3-b3ac-12e700a638ed).
+    -- Depression already has a placement on prod (d86560b9-b5c3-4bf3-b3ac-
+    -- 12e700a638ed) but a fresh DB (CI, new environment) has none - that
+    -- placement was hand-inserted outside any tracked migration, same root
+    -- cause as 93_5_tvns_device_seed.sql. Self-heal here too instead of
+    -- assuming it exists.
     SELECT tvns_placement_id INTO v_pl_depression FROM reference.tvns_placements WHERE condition_id = v_depression LIMIT 1;
+    IF v_pl_depression IS NULL THEN
+        INSERT INTO reference.tvns_placements (condition_id, device_id, montage_label, ear_side, auricular_site)
+        VALUES (v_depression, v_device_id, 'Standard — Left Cymba Conchae', 'left', 'cymba_conchae')
+        ON CONFLICT (condition_id, device_id, montage_label) DO NOTHING
+        RETURNING tvns_placement_id INTO v_pl_depression;
+        IF v_pl_depression IS NULL THEN
+            SELECT tvns_placement_id INTO v_pl_depression FROM reference.tvns_placements WHERE condition_id = v_depression AND device_id = v_device_id LIMIT 1;
+        END IF;
+    END IF;
 
     -- One dummy placement per new condition.
     INSERT INTO reference.tvns_placements (condition_id, device_id, montage_label, ear_side, auricular_site)
