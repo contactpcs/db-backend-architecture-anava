@@ -58,7 +58,18 @@ _APPT_SELECT = (
     # for its own sessions. Denormalised here since patient_id-scoped
     # appointment reads are the one endpoint patients can already call.
     "tp.version_major AS protocol_version_major, "
-    "tp.version_minor AS protocol_version_minor "
+    "tp.version_minor AS protocol_version_minor, "
+    # What a protocol-born row is FOR, so a patient running several protocols
+    # side by side (90) can tell their sessions apart: device, the conditions
+    # it treats, which course it belongs to, and the prescribing doctor (a
+    # device_session has no doctor_id of its own). All NULL for consultations.
+    "dev.device_name, dev.modality, tp.session_count, "
+    "pi.instance_number, "
+    "ipd.first_name || ' ' || ipd.last_name AS prescribing_doctor_name, "
+    "(SELECT array_agg(COALESCE(nc.condition_name, pc.other_text) ORDER BY pc.created_at) "
+    " FROM protocol_conditions pc "
+    " LEFT JOIN reference.neuromod_conditions nc ON nc.condition_id = pc.condition_id "
+    " WHERE pc.protocol_id = a.protocol_id) AS condition_names "
     "FROM appointments a "
     "JOIN profiles pp ON pp.id = a.patient_id "
     "LEFT JOIN profiles dp ON dp.id = a.doctor_id "
@@ -66,6 +77,9 @@ _APPT_SELECT = (
     "LEFT JOIN patients pt ON pt.profile_id = a.patient_id "
     "LEFT JOIN appointments prev ON prev.appointment_id = a.rescheduled_from "
     "LEFT JOIN protocol_plan tp ON tp.protocol_id = a.protocol_id "
+    "LEFT JOIN reference.neuromod_devices dev ON dev.device_id = tp.device_id "
+    "LEFT JOIN protocol_instances pi ON pi.instance_id = tp.instance_id "
+    "LEFT JOIN profiles ipd ON ipd.id = pi.doctor_id "
 )
 
 

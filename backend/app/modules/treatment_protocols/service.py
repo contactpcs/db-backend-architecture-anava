@@ -1064,17 +1064,9 @@ class ProtocolInstanceService:
         doctor_profile_id = await _resolve_doctor_profile_id(self.session, body.doctor_id)
         await assert_clinic_scope(ctx, self.session, body.clinic_id)
 
-        # uq_protocol_instances_one_active enforces this too; checking first
-        # turns a 23505 into a message naming the instance already open, which
-        # is what the caller should reuse rather than duplicate.
-        existing = await self.repo.get_open_for_patient(patient_profile_id)
-        if existing:
-            raise ConflictError(
-                f"This patient already has an open episode of care (instance {existing['instance_number']}). "
-                "Complete or cancel it before opening another.",
-                code="INSTANCE_ALREADY_OPEN",
-            )
-
+        # A patient may hold several open instances at once (90 dropped
+        # uq_protocol_instances_one_active); their device sessions are kept
+        # apart by excl_patient_device_session_overlap instead.
         number = await self.repo.next_instance_number(patient_profile_id)
         try:
             created = await self.repo.create(
@@ -1091,7 +1083,12 @@ class ProtocolInstanceService:
                 }
             )
         except IntegrityError as exc:
-            raise ConflictError("An open episode of care already exists for this patient", code="INSTANCE_ALREADY_OPEN") from exc
+            # uq_protocol_instances_patient_number: two creates for the same
+            # patient read the same next_instance_number and raced.
+            raise ConflictError(
+                "Another protocol instance was opened for this patient at the same moment — please retry",
+                code="INSTANCE_NUMBER_CONFLICT",
+            ) from exc
 
         await emit_event(
             self.session,

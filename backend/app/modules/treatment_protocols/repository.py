@@ -806,19 +806,27 @@ class ProtocolInstanceRepository:
         )
         return int(row["n"]) if row else 1
 
-    async def get_open_for_patient(self, patient_id: UUID) -> dict | None:
-        """The live instance for a patient, if any.
+    async def list_open_for_patient(self, patient_id: UUID) -> builtins.list[dict]:
+        """Every live (draft/active) instance for a patient, newest first.
 
-        uq_protocol_instances_one_active (45, repointed to patient_id by 58)
-        allows at most one row in draft or active per patient, so this
-        returns zero or one — the check the service makes before opening
-        another episode.
+        A list, not one row: 90 dropped uq_protocol_instances_one_active, so a
+        patient may run several instances side by side. Callers that act on
+        "the patient's episode" (transfer, exit, visit bundle) must act on all
+        of them.
         """
-        return await fetch_optional(
-            self.session,
-            text("SELECT * FROM protocol_instances WHERE patient_id = :p AND status IN ('draft', 'active') LIMIT 1"),
-            {"p": str(patient_id)},
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT * FROM protocol_instances WHERE patient_id = :p AND status IN ('draft', 'active') ORDER BY created_at DESC"
+                    ),
+                    {"p": str(patient_id)},
+                )
+            )
+            .mappings()
+            .all()
         )
+        return [dict(r) for r in rows]
 
     async def set_status(self, instance_id: UUID, status: str) -> dict | None:
         return await fetch_optional(
