@@ -286,6 +286,10 @@ class DosingRead(BaseModel):
     strength_pct_min: int | None = None
     strength_pct_max: int | None = None
     pulse_width_us: int | None = None
+    frequency_hz_min: Decimal | None = None
+    frequency_hz_max: Decimal | None = None
+    pulse_width_us_min: int | None = None
+    pulse_width_us_max: int | None = None
     # TPS
     energy_mj: Decimal | None = None
     pulses_per_session: int | None = None
