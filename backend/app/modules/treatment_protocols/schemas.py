@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
@@ -515,6 +516,29 @@ class ProtocolCreate(BaseModel):
     prescribed_current_ma: Decimal | None = Field(default=None, ge=0, le=2)
     prescribed_duration_min: int | None = Field(default=None, ge=10, le=45)
     ramp_seconds: int = Field(default=30, ge=0, le=120)
+    # tVNS's own prescription — the exact equivalent of the tDCS fields
+    # above (plain columns on protocol_plan, freely typed by the doctor
+    # within range, no catalogue FK gate) but shaped for wavelength/pattern/
+    # strength/frequency/pulse-width instead of current/duration. Optional
+    # at create for the same reason prescribed_current_ma is: a half-
+    # finished draft can be saved, fn_check_protocol_prescription_complete
+    # (91) refuses activation without them when the device is tVNS.
+    prescribed_tvns_wavelength: Literal["alternant", "biphasic"] | None = None
+    prescribed_tvns_pattern: Literal["continuous", "modulation", "intermittent"] | None = None
+    prescribed_tvns_strength_pct: int | None = Field(default=None, ge=0, le=100)
+    prescribed_tvns_frequency_hz: Decimal | None = Field(default=None, ge=1, le=1000)
+    prescribed_tvns_pulse_width_us: int | None = Field(default=None, ge=50, le=500)
+    # Own column, not a reuse of prescribed_duration_min — that one's capped
+    # at 120 min (chk_protocol_plan_duration_min) but the tVNS duration list
+    # goes up to 4h (240 min).
+    prescribed_tvns_duration_min: Decimal | None = Field(default=None, gt=0, le=240)
+    # Only meaningful for prescribed_tvns_pattern="intermittent" (the device
+    # ramps into/out of each on-burst) — validated below rather than left to
+    # the client, since a stray ramp value on a continuous/modulation
+    # prescription would silently carry through to the CA's session screen
+    # with no pattern context to explain it.
+    prescribed_tvns_ramp_up_sec: int | None = Field(default=None, ge=0, le=120)
+    prescribed_tvns_ramp_down_sec: int | None = Field(default=None, ge=0, le=120)
     # Per-patient deviations from the catalogue dose (reduced current for
     # tolerability, etc). The catalogue row stays the prescribed protocol;
     # this records the deviation from it.
@@ -550,6 +574,14 @@ class ProtocolCreate(BaseModel):
             raise ValueError("dosing_id is required with placement_id, and not allowed with custom_montage_id")
         return self
 
+    @model_validator(mode="after")
+    def _tvns_ramp_requires_intermittent(self):
+        if self.prescribed_tvns_pattern != "intermittent" and (
+            self.prescribed_tvns_ramp_up_sec is not None or self.prescribed_tvns_ramp_down_sec is not None
+        ):
+            raise ValueError("prescribed_tvns_ramp_up_sec/prescribed_tvns_ramp_down_sec only apply to pattern='intermittent'")
+        return self
+
 
 class ProtocolUpdate(BaseModel):
     """Draft-only edits. Once a protocol is active its clinical parameters
@@ -565,6 +597,14 @@ class ProtocolUpdate(BaseModel):
     prescribed_current_ma: Decimal | None = Field(default=None, ge=0, le=2)
     prescribed_duration_min: int | None = Field(default=None, ge=10, le=45)
     ramp_seconds: int | None = Field(default=None, ge=0, le=120)
+    prescribed_tvns_wavelength: Literal["alternant", "biphasic"] | None = None
+    prescribed_tvns_pattern: Literal["continuous", "modulation", "intermittent"] | None = None
+    prescribed_tvns_strength_pct: int | None = Field(default=None, ge=0, le=100)
+    prescribed_tvns_frequency_hz: Decimal | None = Field(default=None, ge=1, le=1000)
+    prescribed_tvns_pulse_width_us: int | None = Field(default=None, ge=50, le=500)
+    prescribed_tvns_duration_min: Decimal | None = Field(default=None, gt=0, le=240)
+    prescribed_tvns_ramp_up_sec: int | None = Field(default=None, ge=0, le=120)
+    prescribed_tvns_ramp_down_sec: int | None = Field(default=None, ge=0, le=120)
     sessions_per_week: int | None = None
     device_settings: dict | None = None
     notes: str | None = None
@@ -573,6 +613,16 @@ class ProtocolUpdate(BaseModel):
     def _cadence_is_storable(self):
         if self.sessions_per_week is not None and self.sessions_per_week not in (1, 2, 3, 5, 7):
             raise ValueError("sessions_per_week must be one of 1, 2, 3, 5, 7 (1x/2x/3x/5x/Daily)")
+        return self
+
+    @model_validator(mode="after")
+    def _tvns_ramp_requires_intermittent(self):
+        if (
+            self.prescribed_tvns_pattern is not None
+            and self.prescribed_tvns_pattern != "intermittent"
+            and (self.prescribed_tvns_ramp_up_sec is not None or self.prescribed_tvns_ramp_down_sec is not None)
+        ):
+            raise ValueError("prescribed_tvns_ramp_up_sec/prescribed_tvns_ramp_down_sec only apply to pattern='intermittent'")
         return self
 
 
@@ -595,6 +645,14 @@ class ProtocolRead(BaseModel):
     prescribed_current_ma: Decimal | None = None
     prescribed_duration_min: int | None = None
     ramp_seconds: int | None = None
+    prescribed_tvns_wavelength: str | None = None
+    prescribed_tvns_pattern: str | None = None
+    prescribed_tvns_strength_pct: int | None = None
+    prescribed_tvns_frequency_hz: Decimal | None = None
+    prescribed_tvns_pulse_width_us: int | None = None
+    prescribed_tvns_duration_min: Decimal | None = None
+    prescribed_tvns_ramp_up_sec: int | None = None
+    prescribed_tvns_ramp_down_sec: int | None = None
     sessions_per_week: int | None = None
     supersedes_protocol_id: UUID | None = None
     version_major: int = 1

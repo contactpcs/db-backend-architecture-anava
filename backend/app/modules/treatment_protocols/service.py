@@ -604,6 +604,14 @@ class ProtocolService:
             "prescribed_current_ma": body.prescribed_current_ma,
             "prescribed_duration_min": body.prescribed_duration_min,
             "ramp_seconds": body.ramp_seconds,
+            "prescribed_tvns_wavelength": body.prescribed_tvns_wavelength,
+            "prescribed_tvns_pattern": body.prescribed_tvns_pattern,
+            "prescribed_tvns_strength_pct": body.prescribed_tvns_strength_pct,
+            "prescribed_tvns_frequency_hz": body.prescribed_tvns_frequency_hz,
+            "prescribed_tvns_pulse_width_us": body.prescribed_tvns_pulse_width_us,
+            "prescribed_tvns_duration_min": body.prescribed_tvns_duration_min,
+            "prescribed_tvns_ramp_up_sec": body.prescribed_tvns_ramp_up_sec,
+            "prescribed_tvns_ramp_down_sec": body.prescribed_tvns_ramp_down_sec,
             "sessions_per_week": body.sessions_per_week,
             "supersedes_protocol_id": (str(body.supersedes_protocol_id) if body.supersedes_protocol_id else None),
             "version_major": version_major,
@@ -942,23 +950,31 @@ class ProtocolService:
             )
 
         # fn_check_protocol_prescription_complete (39, modality-aware since
-        # 91) refuses this transition if the dose is incomplete. Checking
+        # 91/92) refuses this transition if the dose is incomplete. Checking
         # here first names the missing fields as a 422 the UI can map back
         # onto step 5, instead of a raised PL/pgSQL exception surfacing as a
-        # 500. Must mirror the trigger's modality split exactly: tDCS/HD-
-        # tDCS prescribe via the shared mA/duration columns; every other
-        # modality (tVNS, TPS, rTMS, other) prescribes via its own dosing_id
-        # FK — those don't have a "current_ma" concept at all, so requiring
-        # it unconditionally here 400'd every non-tDCS activation even after
-        # the DB-side trigger was fixed to accept them (this Python
-        # pre-check duplicates that trigger's OLD logic and was never
-        # updated alongside it).
+        # 500. Must mirror the trigger's modality split exactly: tDCS/HD-tDCS
+        # and tVNS both prescribe via their own plain, freely-typed columns
+        # (prescribed_current_ma/... for tDCS, prescribed_tvns_.../ for tVNS
+        # — 92, tVNS has no "current_ma" concept so it needed its own set);
+        # TPS/rTMS/other still prescribe via their catalogue dosing_id FK.
         missing: list[str] = []
         if row["modality"] in ("tDCS", "HD-tDCS"):
             if row.get("prescribed_current_ma") is None:
                 missing.append("prescribed_current_ma")
             if row.get("prescribed_duration_min") is None:
                 missing.append("prescribed_duration_min")
+        elif row["modality"] == "tVNS":
+            for field in (
+                "prescribed_tvns_wavelength",
+                "prescribed_tvns_pattern",
+                "prescribed_tvns_strength_pct",
+                "prescribed_tvns_frequency_hz",
+                "prescribed_tvns_pulse_width_us",
+                "prescribed_tvns_duration_min",
+            ):
+                if row.get(field) is None:
+                    missing.append(field)
         elif not row.get("custom_montage_id"):
             slug = _slug_for_modality(row["modality"])
             if not row.get(f"{slug}_dosing_id"):

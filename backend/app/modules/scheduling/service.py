@@ -1088,48 +1088,25 @@ class DeviceCapacityService:
         fallback for a device_session with no protocol_id, which the current
         design shouldn't produce, but isn't worth hard-failing on.
 
-        prescribed_duration_min is tDCS/HD-tDCS-shaped — 91_prescription_
-        complete_per_modality.sql made protocol activation itself modality-
-        aware precisely because every other modality (tVNS, TPS, rTMS,
-        other) prescribes via its own catalogue dosing_id FK, not that
-        shared column, so it stays NULL for them. This resolver has the same
-        gap: a tVNS protocol has a real, doctor-selected duration sitting on
-        reference.tvns_dosing.session_duration_min (via protocol_plan.
-        tvns_dosing_id), but this fell straight through to the billable_
-        items fallback and 400'd as "no configured duration" for every
-        non-tDCS device session, even ones with a genuine catalogued dose."""
+        prescribed_duration_min is tDCS/HD-tDCS-shaped. tVNS has its own
+        plain column, prescribed_tvns_duration_min (92_tvns_manual_
+        prescription.sql) — freely typed by the doctor within range, the
+        exact same tier as prescribed_duration_min itself, required before
+        a tVNS protocol can activate (fn_check_protocol_prescription_
+        complete). TPS/rTMS/other still have no plain-column or catalogue
+        duration source at all, so they fall through to the billable_items
+        fallback below unchanged."""
         if appt.get("protocol_id"):
             prescribed = (
                 await self.session.execute(
-                    text("SELECT prescribed_duration_min FROM protocol_plan WHERE protocol_id = :pid"),
-                    {"pid": str(appt["protocol_id"])},
-                )
-            ).scalar_one_or_none()
-            if prescribed:
-                return prescribed
-
-            # Only tDCS/HD-tDCS/tVNS dosing tables carry a session_duration_min
-            # column at all — TPS doses in pulses/energy, rTMS in trains/%
-            # motor threshold, neither has a duration concept in the
-            # catalogue (confirmed against the live schema: no such column
-            # on reference.tps_dosing or reference.rtms_dosing). Those two
-            # (and 'other') fall through to the billable_items fallback
-            # below unchanged.
-            catalogue_duration = (
-                await self.session.execute(
                     text(
-                        "SELECT COALESCE(td.session_duration_min, hd.session_duration_min, tv.session_duration_min) "
-                        "FROM protocol_plan pp "
-                        "LEFT JOIN reference.tdcs_dosing td ON td.tdcs_dosing_id = pp.tdcs_dosing_id "
-                        "LEFT JOIN reference.hd_tdcs_dosing hd ON hd.hd_tdcs_dosing_id = pp.hd_tdcs_dosing_id "
-                        "LEFT JOIN reference.tvns_dosing tv ON tv.tvns_dosing_id = pp.tvns_dosing_id "
-                        "WHERE pp.protocol_id = :pid"
+                        "SELECT COALESCE(prescribed_duration_min, prescribed_tvns_duration_min) FROM protocol_plan WHERE protocol_id = :pid"
                     ),
                     {"pid": str(appt["protocol_id"])},
                 )
             ).scalar_one_or_none()
-            if catalogue_duration:
-                return catalogue_duration
+            if prescribed:
+                return round(prescribed)
 
         from app.modules.admin.repository import BillableItemRepository
 
