@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
@@ -13,6 +14,11 @@ from app.modules.anamnesis.repository import (
     AnamnesisResponseRepository,
 )
 from app.modules.scheduling.repository import AppointmentRepository
+
+# Consultations carry an anamnesis; device sessions do not.
+CONSULTATION_TYPES = {"initial", "follow_up", "protocol_followup"}
+# Once the doctor marks the consultation completed, its anamnesis is frozen.
+LOCKED_APPOINTMENT_STATUSES = {"completed"}
 
 
 class AnamnesisCatalogService:
@@ -38,22 +44,64 @@ class AnamnesisService:
         assessment_stage: str = "registration",
         appointment_id: UUID | None = None,
     ) -> dict:
+        """Get-or-create — never a new version (91).
+
+        registration: the patient's one intake anamnesis.
+        main: one per consultation (initial / follow_up / protocol_followup
+        appointment); a new one starts pre-filled with the patient's previous
+        consultation's answers, since most history doesn't change visit to
+        visit.
+        """
         profile_id = await _resolve_profile_id(self.session, patient_id)
-        if appointment_id is not None:
+
+        if assessment_stage == "main":
+            if appointment_id is None:
+                raise ValidationError("A consultation anamnesis needs its appointment_id", code="ANAMNESIS_APPOINTMENT_REQUIRED")
             appt = await AppointmentRepository(self.session).get(appointment_id)
             if not appt:
                 raise NotFoundError("Appointment not found", code="APPOINTMENT_NOT_FOUND")
             if str(appt["patient_id"]) != str(profile_id):
                 raise ValidationError("Appointment belongs to a different patient", code="APPOINTMENT_PATIENT_MISMATCH")
-        next_version = await self.assessments.latest_version(profile_id) + 1
-        assessment = await self.assessments.create(
-            patient_id=profile_id,
-            submitted_by=submitted_by,
-            taken_by=taken_by,
-            version=next_version,
-            assessment_stage=assessment_stage,
-            appointment_id=appointment_id,
-        )
+            if appt["appointment_type"] not in CONSULTATION_TYPES:
+                raise ValidationError("Anamnesis is only recorded for consultations", code="ANAMNESIS_NOT_A_CONSULTATION")
+            existing = await self.assessments.get_by_appointment(appointment_id)
+            if existing:
+                return existing
+            if appt["status"] in LOCKED_APPOINTMENT_STATUSES:
+                raise BusinessRuleError("This consultation is completed — its anamnesis can no longer be changed", code="ANAMNESIS_LOCKED")
+        else:
+            appointment_id = None
+            existing = await self.assessments.get_registration(profile_id)
+            if existing:
+                return existing
+
+        try:
+            # Savepoint: losing the race on uq_anamnesis_one_per_appointment /
+            # uq_anamnesis_one_registration_per_patient must not abort the
+            # request's transaction — the winner's row is simply returned.
+            async with self.session.begin_nested():
+                assessment = await self.assessments.create(
+                    patient_id=profile_id,
+                    submitted_by=submitted_by,
+                    taken_by=taken_by,
+                    assessment_stage=assessment_stage,
+                    appointment_id=appointment_id,
+                )
+        except IntegrityError:
+            winner = (
+                await self.assessments.get_by_appointment(appointment_id)
+                if appointment_id
+                else await self.assessments.get_registration(profile_id)
+            )
+            if winner:
+                return winner
+            raise
+
+        if assessment_stage == "main":
+            previous = await self.assessments.get_previous_consultation(profile_id, exclude_id=assessment["anamnesis_id"])
+            if previous:
+                await self.responses.copy_from(source_id=previous["anamnesis_id"], target_id=assessment["anamnesis_id"])
+
         await emit_event(
             self.session,
             aggregate_type="anamnesis_assessment",
@@ -64,20 +112,13 @@ class AnamnesisService:
         return assessment
 
     async def get_current(self, patient_id: UUID, assessment_stage: str | None = None) -> dict:
+        """The patient's latest anamnesis (of this stage) — the registration
+        intake, or their most recent consultation's."""
         profile_id = await _resolve_profile_id(self.session, patient_id)
         assessment = await self.assessments.get_latest_for_patient(profile_id, assessment_stage)
         if not assessment:
             raise NotFoundError("No anamnesis assessment found for this patient", code="ANAMNESIS_NOT_FOUND")
         return assessment
-
-    async def list_versions(self, patient_id: UUID, assessment_stage: str | None = None) -> list[dict]:
-        """Every version ever started for this patient — start()/edit
-        (doctor's handleStartOnBehalf) always creates a NEW row rather than
-        overwriting the one being edited, so a prior version is never lost,
-        just no longer the one get_current() returns. This is what lets the
-        UI show past versions instead of only ever the latest."""
-        profile_id = await _resolve_profile_id(self.session, patient_id)
-        return await self.assessments.list_for_patient(profile_id, assessment_stage)
 
     async def get_by_id(self, anamnesis_id: str) -> dict:
         """Used by the router to resolve the owning profile_id for
@@ -95,6 +136,14 @@ class AnamnesisService:
         assessment = await self.assessments.get(anamnesis_id)
         if not assessment:
             raise NotFoundError("Anamnesis assessment not found", code="ANAMNESIS_NOT_FOUND")
+        # Edited in place until its consultation is completed — the server
+        # enforces the lock, not the browser.
+        if assessment["status"] == "superseded":
+            raise BusinessRuleError("This is an old anamnesis version and cannot be changed", code="ANAMNESIS_SUPERSEDED")
+        if assessment["appointment_id"] and (
+            await self.assessments.appointment_status(assessment["appointment_id"]) in LOCKED_APPOINTMENT_STATUSES
+        ):
+            raise BusinessRuleError("This consultation is completed — its anamnesis can no longer be changed", code="ANAMNESIS_LOCKED")
 
         for item in items:
             await self.responses.upsert(

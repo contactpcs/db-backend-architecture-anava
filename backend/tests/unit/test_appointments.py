@@ -459,3 +459,20 @@ def test_no_show_is_reachable_only_from_paid_or_checked_in():
     appointment nobody checked in for, or a checked-in one nobody ever
     started/finished."""
     assert _ALLOWED_FROM["no_show"] == {STATUS_PAID, "checked_in"}
+
+
+def test_slot_write_conflict_names_the_patients_own_overlap():
+    """excl_patient_device_session_overlap (90) gets its own 409 so a patient
+    booking two protocols' sessions is told to go before/after the other one;
+    every other IntegrityError keeps the old "slot was just taken" meaning."""
+    from sqlalchemy.exc import IntegrityError
+
+    from app.modules.scheduling.service import _slot_write_conflict
+
+    def err(msg: str) -> IntegrityError:
+        return IntegrityError("UPDATE appointments ...", {}, Exception(msg))
+
+    own = _slot_write_conflict(err('conflicting key value violates exclusion constraint "excl_patient_device_session_overlap"'))
+    assert own.code == "PATIENT_SESSION_OVERLAP"
+    other = _slot_write_conflict(err('conflicting key value violates exclusion constraint "excl_ca_overlap"'))
+    assert other.code == "APPOINTMENT_SLOT_TAKEN"

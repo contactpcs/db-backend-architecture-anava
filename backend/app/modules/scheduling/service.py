@@ -175,6 +175,23 @@ def _reject_if_past(on_date: dt.date, start_time: dt.time) -> None:
         raise BusinessRuleError("Cannot book a slot in the past", code="SLOT_IN_PAST")
 
 
+def _slot_write_conflict(exc: IntegrityError) -> ConflictError:
+    """IntegrityError from claiming a device-session/protocol slot -> 409.
+
+    excl_patient_device_session_overlap (90) means the patient's own other
+    device session (typically from another protocol instance) sits on this
+    time — picking a slot before or after it fixes it. Anything else keeps
+    the existing "slot was just taken" meaning. The constraint name is read
+    from the message; see profile_conflict_error for why exc.orig's
+    attributes can't be used."""
+    if "excl_patient_device_session_overlap" in str(getattr(exc, "orig", exc)):
+        return ConflictError(
+            "The patient already has another device session at this time — pick a slot before or after it",
+            code="PATIENT_SESSION_OVERLAP",
+        )
+    return ConflictError("That slot was just taken — please pick another", code="APPOINTMENT_SLOT_TAKEN")
+
+
 async def _assert_clinic_operational(session: AsyncSession, clinic_id) -> None:
     """65_clinic_hours_and_operational_status.sql's is_operational toggle —
     a clinic_admin flips this off (maintenance, holiday, closure) and every
@@ -1020,7 +1037,7 @@ class AppointmentService:
                 status=new_status,
             )
         except IntegrityError as exc:
-            raise ConflictError("That slot was just taken — please pick another", code="APPOINTMENT_SLOT_TAKEN") from exc
+            raise _slot_write_conflict(exc) from exc
 
         if old["status"] in (STATUS_PAID, "no_show"):
             from app.modules.payments.repository import PaymentRepository
@@ -1466,7 +1483,7 @@ class PatientBookingService:
         try:
             await self.repo.claim_slot(appointment_id, start_time=start_time, end_time=end_time, hold_expires_at=hold, status=status)
         except IntegrityError as exc:
-            raise ConflictError("That slot was just taken — please pick another", code="APPOINTMENT_SLOT_TAKEN") from exc
+            raise _slot_write_conflict(exc) from exc
 
         await self.appointments._write_audit(
             appointment_id,
