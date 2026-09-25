@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import uuid
 from uuid import UUID
 
 from sqlalchemy import text
@@ -41,21 +42,12 @@ class AnamnesisQuestionRepository:
 
 
 class AnamnesisAssessmentRepository:
+    """One live row per consultation (appointment_id) and one registration row
+    per patient, edited in place (91). Rows marked 'superseded' are leftovers
+    from the versioned era — every reader here skips them."""
+
     def __init__(self, session: AsyncSession):
         self.session = session
-
-    async def latest_version(self, patient_id: UUID) -> int:
-        row = (
-            (
-                await self.session.execute(
-                    text("SELECT COALESCE(MAX(version), 0) AS v FROM anamnesis_assessments WHERE patient_id = :pid"),
-                    {"pid": str(patient_id)},
-                )
-            )
-            .mappings()
-            .one()
-        )
-        return row["v"]
 
     async def create(
         self,
@@ -63,27 +55,25 @@ class AnamnesisAssessmentRepository:
         patient_id: UUID,
         submitted_by: UUID,
         taken_by: str,
-        version: int,
         assessment_stage: str,
         appointment_id: UUID | None = None,
     ) -> dict:
         # '-' not '/' — this ID is used as a URL path parameter
         # (GET/PATCH /anamnesis/{anamnesis_id}); '/' is a path separator and
         # breaks routing (a real bug hit and fixed during Stage 5 testing).
-        anamnesis_id = f"ANA-{str(patient_id)[:8]}-{version:03d}"
+        anamnesis_id = f"ANA-{str(patient_id)[:8]}-{uuid.uuid4().hex[:12]}"
         return await fetch_one(
             self.session,
             text(
                 "INSERT INTO anamnesis_assessments "
-                "(anamnesis_id, patient_id, submitted_by, taken_by, version, assessment_stage, appointment_id) "
-                "VALUES (:id, :patient_id, :submitted_by, :taken_by, :version, :assessment_stage, :appointment_id) RETURNING *"
+                "(anamnesis_id, patient_id, submitted_by, taken_by, assessment_stage, appointment_id) "
+                "VALUES (:id, :patient_id, :submitted_by, :taken_by, :assessment_stage, :appointment_id) RETURNING *"
             ),
             {
                 "id": anamnesis_id,
                 "patient_id": str(patient_id),
                 "submitted_by": str(submitted_by),
                 "taken_by": taken_by,
-                "version": version,
                 "assessment_stage": assessment_stage,
                 "appointment_id": str(appointment_id) if appointment_id else None,
             },
@@ -96,49 +86,51 @@ class AnamnesisAssessmentRepository:
             {"id": anamnesis_id},
         )
 
-    async def get_by_version(self, patient_id: UUID, version: int) -> dict | None:
-        return await fetch_optional(
-            self.session,
-            text("SELECT * FROM anamnesis_assessments WHERE patient_id = :pid AND version = :v"),
-            {"pid": str(patient_id), "v": version},
-        )
-
     async def get_latest_for_patient(self, patient_id: UUID, assessment_stage: str | None = None) -> dict | None:
-        if assessment_stage:
-            return await fetch_optional(
-                self.session,
-                text(
-                    "SELECT * FROM anamnesis_assessments WHERE patient_id = :pid AND assessment_stage = :stage "
-                    "ORDER BY version DESC LIMIT 1"
-                ),
-                {"pid": str(patient_id), "stage": assessment_stage},
-            )
-        return await fetch_optional(
-            self.session,
-            text("SELECT * FROM anamnesis_assessments WHERE patient_id = :pid ORDER BY version DESC LIMIT 1"),
-            {"pid": str(patient_id)},
-        )
-
-    async def list_for_patient(self, patient_id: UUID, assessment_stage: str | None = None) -> builtins.list[dict]:
-        """Every version ever started for this patient (this assessment_stage
-        if given), newest first — the version picker's data source. get()/
-        get_latest_for_patient() only ever return one row; this is the one
-        place all of them are visible at once."""
-        query = "SELECT * FROM anamnesis_assessments WHERE patient_id = :pid"
+        query = "SELECT * FROM anamnesis_assessments WHERE patient_id = :pid AND status <> 'superseded'"
         params: dict = {"pid": str(patient_id)}
         if assessment_stage:
             query += " AND assessment_stage = :stage"
             params["stage"] = assessment_stage
-        query += " ORDER BY version DESC"
-        rows = (await self.session.execute(text(query), params)).mappings().all()
-        return [dict(r) for r in rows]
+        return await fetch_optional(self.session, text(query + " ORDER BY created_at DESC LIMIT 1"), params)
 
     async def get_by_appointment(self, appointment_id: UUID) -> dict | None:
         return await fetch_optional(
             self.session,
-            text("SELECT * FROM anamnesis_assessments WHERE appointment_id = :aid ORDER BY version DESC LIMIT 1"),
+            text("SELECT * FROM anamnesis_assessments WHERE appointment_id = :aid AND status <> 'superseded'"),
             {"aid": str(appointment_id)},
         )
+
+    async def get_registration(self, patient_id: UUID) -> dict | None:
+        return await fetch_optional(
+            self.session,
+            text(
+                "SELECT * FROM anamnesis_assessments "
+                "WHERE patient_id = :pid AND assessment_stage = 'registration' AND status <> 'superseded'"
+            ),
+            {"pid": str(patient_id)},
+        )
+
+    async def get_previous_consultation(self, patient_id: UUID, *, exclude_id: str) -> dict | None:
+        """The patient's most recent other consultation anamnesis — the
+        starting point a new follow-up's answers are copied from."""
+        return await fetch_optional(
+            self.session,
+            text(
+                "SELECT * FROM anamnesis_assessments "
+                "WHERE patient_id = :pid AND assessment_stage = 'main' AND status <> 'superseded' "
+                "AND anamnesis_id <> :ex ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"pid": str(patient_id), "ex": exclude_id},
+        )
+
+    async def appointment_status(self, appointment_id: UUID) -> str | None:
+        row = await fetch_optional(
+            self.session,
+            text("SELECT status FROM appointments WHERE appointment_id = :aid"),
+            {"aid": str(appointment_id)},
+        )
+        return row["status"] if row else None
 
     async def mark_complete(self, anamnesis_id: str) -> dict | None:
         return await fetch_optional(
@@ -169,6 +161,20 @@ class AnamnesisResponseRepository:
                 "value": response_value,
                 "values": response_values,
             },
+        )
+
+    async def copy_from(self, *, source_id: str, target_id: str) -> None:
+        """Pre-fill a new consultation's anamnesis with another one's answers.
+        response_id is "{anamnesis_id}|{question_id}" (see upsert), so the
+        copies get the target's own ids."""
+        await self.session.execute(
+            text(
+                "INSERT INTO anamnesis_responses (response_id, anamnesis_id, question_id, response_value, response_values) "
+                "SELECT :tgt || '|' || question_id, :tgt, question_id, response_value, response_values "
+                "FROM anamnesis_responses WHERE anamnesis_id = :src "
+                "ON CONFLICT (response_id) DO NOTHING"
+            ),
+            {"src": source_id, "tgt": target_id},
         )
 
     async def list_for_assessment(self, anamnesis_id: str) -> list[dict]:
