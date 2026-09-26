@@ -17,6 +17,7 @@ covering all ~30 event types in the catalog now.
 
 import asyncio
 import json
+import time
 from typing import Any
 
 import asyncpg
@@ -33,6 +34,20 @@ logger = structlog.get_logger()
 settings = get_settings()
 
 POLL_INTERVAL_SECONDS = 5.0
+HEARTBEAT_SECONDS = 300.0
+
+# Live counters for the heartbeat log and GET /api/v1/health/live — the only
+# way to tell from outside whether the relay is idle because there is nothing
+# to do, or because it cannot see or write what it should.
+RELAY_STATE: dict[str, Any] = {
+    "started_at": None,
+    "last_drain_at": None,
+    "last_event_at": None,
+    "processed_total": 0,
+    "handler_failures_total": 0,
+    "live_push_failures_total": 0,
+    "last_error": None,
+}
 
 # rls_notif_insert requires rls_user_role() to be a real staff role — set by
 # AuthContextMiddleware inside an HTTP request. This worker has no request
@@ -235,6 +250,7 @@ _STATUS_TITLES = {
     # PatientBookingService.reschedule_own, which now accepts a no_show
     # source) — that's the reason this needs to reach them at all.
     "no_show": "Your appointment was marked as a no-show — you can reschedule it",
+    "missed": "Your prescribed session's date passed without a slot ever being claimed — you can reschedule it",
 }
 
 
@@ -444,8 +460,22 @@ async def _handle_patient_registration_decided(session, payload: dict[str, Any])
     ]
 
 
+async def _handle_device_session_ended(session, payload: dict[str, Any]) -> list[dict]:
+    """device_session.completed / .stopped: the device-session service moves
+    the appointment to 'completed' through the repository directly, so no
+    appointment_status_changed event is emitted for it — this is that event."""
+    if not payload.get("appointment_id"):
+        return []
+    return await _handle_appointment_status_changed(session, {"appointment_id": payload["appointment_id"], "status": "completed"})
+
+
 EVENT_HANDLERS = {
     "appointment_booked": _handle_appointment_booked,
+    # A patient claiming a slot on a doctor-prescribed (planned) session is
+    # the same news as a booking: the slot is now held/confirmed.
+    "appointment_slot_claimed": _handle_appointment_booked,
+    "device_session.completed": _handle_device_session_ended,
+    "device_session.stopped": _handle_device_session_ended,
     "appointment_paid": _handle_appointment_paid,
     "appointment_cancelled": _handle_appointment_cancelled,
     "appointment_status_changed": _handle_appointment_status_changed,
@@ -468,66 +498,123 @@ async def _process_event(session, event: dict) -> None:
     repo = NotificationRepository(session)
     for note in notifications:
         record = await repo.create(note)
-        await publish_to_user(
-            note["recipient_id"],
-            json.dumps(
-                {
-                    "type": record["type"],
-                    "title": record["title"],
-                    "body": record["body"],
-                    "notification_id": str(record["notification_id"]),
-                }
-            ),
-        )
+        # The notifications row is the durable record; the Redis push only
+        # makes it appear live. Redis being down must not roll the row back
+        # (the event is marked published either way, so it would be lost).
+        try:
+            await publish_to_user(
+                note["recipient_id"],
+                json.dumps(
+                    {
+                        "type": record["type"],
+                        "title": record["title"],
+                        "body": record["body"],
+                        "notification_id": str(record["notification_id"]),
+                    }
+                ),
+            )
+        except Exception as exc:
+            RELAY_STATE["live_push_failures_total"] += 1
+            logger.warning("event_relay_live_push_failed", recipient_id=str(note["recipient_id"]), error=repr(exc))
 
 
-async def drain_outbox() -> int:
-    """Processes all currently-unpublished events once. Returns count processed.
+async def drain_outbox(limit: int = 100) -> int:
+    """Processes up to `limit` unpublished events. Returns count processed.
     Exposed separately from run_forever() so tests/scripts can drain
     synchronously without starting the long-running listener.
 
-    Each row gets its own transaction, and a handler failure is caught and
-    logged rather than left to propagate — one bad notification (e.g. a
-    handler using a type value the notifications table's CHECK constraint
-    rejects) must never take down every future notification with it, which
-    is exactly what letting one shared transaction/loop crash used to do."""
-    async with _relay_session_factory() as session:
-        async with session.begin():
-            outbox_rows = (
-                (await session.execute(text("SELECT * FROM outbox_events WHERE published_at IS NULL ORDER BY created_at LIMIT 100")))
-                .mappings()
-                .all()
-            )
-            rows = [dict(r) for r in outbox_rows]
-
+    One transaction per event, claimed with FOR UPDATE SKIP LOCKED: every API
+    instance runs this relay (app/main.py lifespan), and SKIP LOCKED is what
+    stops two of them sending the same notification twice. A handler failure
+    rolls back to a savepoint and is logged — the event is still marked
+    published, so one bad notification never blocks the queue behind it."""
     processed = 0
-    for row in rows:
+    while processed < limit:
         async with _relay_session_factory() as session:
-            try:
-                async with session.begin():
-                    await _process_event(session, row)
-                    await session.execute(
-                        text("UPDATE outbox_events SET published_at = NOW() WHERE outbox_id = :id"),
-                        {"id": row["outbox_id"]},
-                    )
-            except Exception:
-                logger.exception("event_relay_handler_failed", outbox_id=str(row["outbox_id"]), event_type=row["event_type"])
-                async with _relay_session_factory() as cleanup_session:
-                    async with cleanup_session.begin():
-                        await cleanup_session.execute(
-                            text("UPDATE outbox_events SET published_at = NOW() WHERE outbox_id = :id"),
-                            {"id": row["outbox_id"]},
+            async with session.begin():
+                # RLS role 'system' (SQL/v1/93): the relay acts for the platform,
+                # not a person. Without it, under the ordinary app login it saw
+                # zero events and could neither mark them sent nor write
+                # notifications — silently. Harmless under the master login.
+                await session.execute(text("SELECT set_config('app.current_user_role', 'system', true)"))
+                row = (
+                    (
+                        await session.execute(
+                            text(
+                                "SELECT * FROM outbox_events WHERE published_at IS NULL ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED"
+                            )
                         )
+                    )
+                    .mappings()
+                    .first()
+                )
+                if row is None:
+                    break
+                event = dict(row)
+                try:
+                    async with session.begin_nested():
+                        await _process_event(session, event)
+                except Exception as exc:
+                    RELAY_STATE["handler_failures_total"] += 1
+                    RELAY_STATE["last_error"] = f"{event['event_type']}: {exc!r}"[:500]
+                    logger.exception("event_relay_handler_failed", outbox_id=str(event["outbox_id"]), event_type=event["event_type"])
+                await session.execute(
+                    text("UPDATE outbox_events SET published_at = NOW() WHERE outbox_id = :id"),
+                    {"id": event["outbox_id"]},
+                )
         processed += 1
+        RELAY_STATE["processed_total"] += 1
+        RELAY_STATE["last_event_at"] = time.time()
+    RELAY_STATE["last_drain_at"] = time.time()
     return processed
 
 
-async def run_forever() -> None:
+async def relay_backlog() -> dict[str, Any]:
+    """Undelivered outbox events as the relay itself sees them (same engine,
+    same 'system' role) — 0 while events are clearly being created means the
+    relay can't see them (RLS/login), a growing number means it isn't
+    draining."""
+    async with _relay_session_factory() as session:
+        async with session.begin():
+            await session.execute(text("SELECT set_config('app.current_user_role', 'system', true)"))
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT count(*) AS n, EXTRACT(EPOCH FROM now() - min(created_at)) AS oldest_s, current_user AS db_login "
+                            "FROM outbox_events WHERE published_at IS NULL"
+                        )
+                    )
+                )
+                .mappings()
+                .one()
+            )
+    return {"undelivered": int(row["n"]), "oldest_undelivered_seconds": row["oldest_s"], "db_login": row["db_login"]}
+
+
+async def _heartbeat_forever() -> None:
+    """One INFO line every 5 minutes, so the relay is visible in the logs even
+    when nothing goes wrong (failures alone used to be the only trace)."""
+    while True:
+        await asyncio.sleep(HEARTBEAT_SECONDS)
+        try:
+            backlog = await relay_backlog()
+        except Exception as exc:
+            backlog = {"error": repr(exc)}
+        logger.info(
+            "event_relay_heartbeat",
+            processed_total=RELAY_STATE["processed_total"],
+            handler_failures_total=RELAY_STATE["handler_failures_total"],
+            live_push_failures_total=RELAY_STATE["live_push_failures_total"],
+            **backlog,
+        )
+
+
+async def _listen_and_drain() -> None:
     dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     conn = await asyncpg.connect(dsn)
     wake = asyncio.Event()
     await conn.add_listener("outbox_new_event", lambda *_: wake.set())
-    logger.info("event_relay_started")
     try:
         while True:
             n = await drain_outbox()
@@ -540,6 +627,27 @@ async def run_forever() -> None:
                 pass
     finally:
         await conn.close()
+
+
+async def run_forever() -> None:
+    """Background loop started from the FastAPI lifespan (app/main.py). A DB
+    blip (dropped LISTEN connection, failed drain) restarts the listener
+    after a pause instead of silently ending notifications for good."""
+    logger.info("event_relay_started")
+    RELAY_STATE["started_at"] = time.time()
+    heartbeat = asyncio.create_task(_heartbeat_forever())
+    try:
+        while True:
+            try:
+                await _listen_and_drain()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                RELAY_STATE["last_error"] = repr(exc)[:500]
+                logger.exception("event_relay_crashed_restarting", error=str(exc))
+                await asyncio.sleep(POLL_INTERVAL_SECONDS)
+    finally:
+        heartbeat.cancel()
         await _relay_engine.dispose()
 
 

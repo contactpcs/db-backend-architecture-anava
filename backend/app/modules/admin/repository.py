@@ -385,13 +385,13 @@ class ClinicRepository:
         """Active staff assignments + patients — anything that would orphan
         on delete. `patients` isn't owned by this module but is read-only
         here purely for the delete-safety count."""
-        staff = (
+        staff: int = (
             await self.session.execute(
                 text("SELECT count(*) FROM clinic_staff_assignments WHERE clinic_id = :id AND is_active = TRUE"),
                 {"id": str(clinic_id)},
             )
         ).scalar_one()
-        patients = (
+        patients: int = (
             await self.session.execute(text("SELECT count(*) FROM patients WHERE primary_clinic_id = :id"), {"id": str(clinic_id)})
         ).scalar_one()
         return staff + patients

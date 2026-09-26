@@ -32,6 +32,7 @@ from app.modules.scheduling.router import router as scheduling_router
 from app.modules.staff.router import router as staff_router
 from app.modules.store.router import router as store_router
 from app.modules.treatment_protocols.router import router as treatment_protocols_router
+from app.workers.event_relay import run_forever as run_event_relay_forever
 from app.workers.hold_sweeper import run_hold_sweeper_forever
 from app.workers.no_show_sweeper import run_no_show_sweeper_forever
 from app.workers.retention_purge import run_partition_maintenance_forever
@@ -46,6 +47,23 @@ structlog.configure(
         structlog.processors.JSONRenderer(),
     ]
 )
+logger = structlog.get_logger()
+
+
+async def _log_redis_connectivity() -> None:
+    """One log line at startup saying whether Redis (live popups, logout
+    denylist, stream tickets) is reachable — otherwise a working Redis logs
+    nothing at all and an unreachable one only shows up as later warnings."""
+    import time as _time
+
+    from app.core.pubsub import get_redis
+
+    try:
+        t = _time.monotonic()
+        await asyncio.wait_for(get_redis().ping(), timeout=5)
+        logger.info("redis_connectivity_ok", ping_ms=round((_time.monotonic() - t) * 1000, 1))
+    except Exception as exc:
+        logger.error("redis_connectivity_failed", error=repr(exc), hint="live popups disabled; see GET /api/v1/health/live")
 
 
 @asynccontextmanager
@@ -70,6 +88,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                            instead of leaving it stuck at 'paid'/'checked_in'
                            forever with nobody noticing (app/workers/
                            no_show_sweeper.py).
+
+    event relay            turns outbox events into notifications + live SSE
+                           pushes. Claims each event with FOR UPDATE SKIP
+                           LOCKED instead of an advisory lock, so several
+                           instances share the queue without double-sending.
     """
     tasks: list[asyncio.Task] = []
     if settings.partition_maintenance_enabled:
@@ -78,6 +101,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         tasks.append(asyncio.create_task(run_hold_sweeper_forever()))
     if settings.appointment_no_show_sweeper_enabled:
         tasks.append(asyncio.create_task(run_no_show_sweeper_forever()))
+    tasks.append(asyncio.create_task(_log_redis_connectivity()))
+    if settings.event_relay_enabled:
+        tasks.append(asyncio.create_task(run_event_relay_forever()))
     yield
     for task in tasks:
         task.cancel()

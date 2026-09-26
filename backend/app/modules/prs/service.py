@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
-from app.core.exceptions import NotFoundError, ValidationError
+from app.core.exceptions import BusinessRuleError, NotFoundError, ValidationError
 from app.core.resolve import resolve_patient_profile_id as _resolve_profile_id
 from app.modules.prs.disease_scoring import compute_disease_composite
 from app.modules.prs.repository import (
@@ -243,7 +243,24 @@ class PrsAssessmentService:
             scale_ids = [s["scale_id"] for s in catalog_scales]
 
         scale_meta = {s["scale_id"]: s for s in await self.catalog.scales_by_ids(scale_ids)}
-        completed_scale_ids = {r["scale_id"] for r in await self.scale_results.list_for_instance(instance["instance_id"])}
+        # Every scale this patient has completed under a STANDALONE instance
+        # (no appointment_id) for this stage — not just this instance's own
+        # results. A freshly-created instance (start() mints a new one
+        # whenever no in-progress instance exists, even if a completed one
+        # does) has no results of its own yet, so scoping to instance_id
+        # alone always reported every scale as unanswered even when the
+        # patient had already completed it via the dashboard's disease-level
+        # flow. That let a finished standalone assessment render as blank
+        # and answerable again. Deliberately excludes device-session-
+        # originated completions (real appointment_id) — protocol_scales.
+        # cadence means the same scale is legitimately re-administered
+        # across separate appointments over a treatment course, and only
+        # the device-session assessment page reads its own device_session_
+        # scales status for that, never this is_completed field (checked:
+        # only the standalone [permissionId] page consumes it).
+        completed_scale_ids = await self.scale_results.completed_scale_ids_for_standalone_patient(
+            instance["patient_id"], instance["assessment_stage"]
+        )
 
         scales = []
         for scale_id in scale_ids:
@@ -302,10 +319,50 @@ class PrsAssessmentService:
             if str(appt["patient_id"]) != str(profile_id):
                 raise ValidationError("Appointment belongs to a different patient", code="APPOINTMENT_PATIENT_MISMATCH")
 
-        existing = await self.instances.find_in_progress(patient_id=profile_id, disease_id=disease_id, assessment_stage=assessment_stage)
+        # A device-session visit administers several scales under one
+        # disease one at a time, each re-invoking start() — resuming by
+        # status='in_progress' alone (find_in_progress) missed the case
+        # where an earlier scale under THIS SAME appointment already
+        # flipped the instance to 'completed' (recalculate_final_result
+        # fires as soon as every scale assigned AT THAT MOMENT is scored,
+        # which can happen before the visit is actually done if scales get
+        # answered out of order). The next scale then minted a brand-new,
+        # disconnected instance that could never complete on its own,
+        # leaving the disease stuck 'in_progress' on the dashboard forever
+        # even though the original instance for this visit genuinely
+        # finished. find_for_appointment resumes ANY status instance tied
+        # to this exact appointment_id before falling through to
+        # find_in_progress's status-only check.
+        existing = (
+            await self.instances.find_for_appointment(
+                patient_id=profile_id, disease_id=disease_id, assessment_stage=assessment_stage, appointment_id=appointment_id
+            )
+            if appointment_id is not None
+            else await self.instances.find_in_progress(patient_id=profile_id, disease_id=disease_id, assessment_stage=assessment_stage)
+        )
         is_resumed = existing is not None
+        is_readonly_completed = False
         if existing:
             instance = existing
+        elif appointment_id is None and (
+            completed := await self.instances.find_completed_standalone(
+                patient_id=profile_id, disease_id=disease_id, assessment_stage=assessment_stage
+            )
+        ):
+            # One-and-done: the dashboard's disease-level flow already
+            # completed this (patient, disease, stage) once, standalone
+            # (no appointment_id). Returning that same completed instance
+            # instead of minting a fresh one means every scale in it reads
+            # is_completed=True (via completed_scale_ids_for_standalone_
+            # patient) and submit_responses refuses to re-finalize any of
+            # them — the caller gets back a read-only assessment, not a
+            # blank one, without a separate endpoint or response shape.
+            # appointment_id IS NULL guard: a device-session start() call
+            # must never be redirected onto an old standalone instance —
+            # protocol_scales.cadence means it needs its own fresh instance.
+            instance = completed
+            is_resumed = True
+            is_readonly_completed = True
         else:
             instance = await self.instances.create(
                 disease_id=disease_id,
@@ -328,7 +385,12 @@ class PrsAssessmentService:
         # Resumed instance keeps whatever language it was already set to
         # (the patient picks language via set_language(), not by re-starting).
         scales = await self._compose_scales(instance, language_code=instance["language_code"])
-        return {"instance_id": instance["instance_id"], "is_resumed": is_resumed, "scales": scales}
+        return {
+            "instance_id": instance["instance_id"],
+            "is_resumed": is_resumed,
+            "is_readonly_completed": is_readonly_completed,
+            "scales": scales,
+        }
 
     async def get(self, instance_id: str) -> dict:
         instance = await self.instances.get(instance_id)
@@ -350,6 +412,32 @@ class PrsAssessmentService:
             )
 
         if finalize_scale_id:
+            # A completed STANDALONE instance (no appointment_id — the
+            # dashboard's disease-level flow) for this (patient, stage)
+            # doesn't block start() from minting a brand-new one
+            # (find_in_progress only matches status='in_progress'), so this
+            # is the actual enforcement point — without it, a stale client,
+            # a replayed request, or a deep link to an old start() response
+            # could still finalize (and _finalize_scale.upsert would happily
+            # insert a second, independent prs_scale_results row for) a
+            # scale this patient already completed via that same standalone
+            # flow. Only checked when THIS instance is itself standalone
+            # (appointment_id IS NULL) — a device-session instance finalizing
+            # a scale is a real, cadence-driven re-administration
+            # (protocol_scales.cadence: weekly/fortnightly/...) across
+            # separate appointments, never a resubmission, and must never be
+            # blocked by this. Excludes this instance's own prior finalize
+            # of the SAME scale_id, which is a legitimate re-save/idempotent
+            # retry, not a resubmission.
+            if instance["appointment_id"] is None:
+                already_completed = await self.scale_results.completed_scale_ids_for_standalone_patient(
+                    instance["patient_id"], instance["assessment_stage"], exclude_instance_id=instance_id
+                )
+                if finalize_scale_id in already_completed:
+                    raise BusinessRuleError(
+                        "This scale has already been completed and cannot be answered again",
+                        code="SCALE_ALREADY_COMPLETED",
+                    )
             await self._finalize_scale(instance_id, finalize_scale_id)
             await emit_event(
                 self.session,

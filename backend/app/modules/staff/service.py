@@ -7,6 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth_session import sign_out_profile
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, profile_conflict_error
 from app.core.profile_completion import (
@@ -159,6 +160,10 @@ async def _apply_profile_update(session: AsyncSession, profile_id, profile_field
         await update_profile(session, profile_id, profile_fields)
     except IntegrityError as exc:
         raise profile_conflict_error(exc, email=profile_fields.get("email"), phone=profile_fields.get("phone")) from exc
+    if profile_fields.get("is_active") is False:
+        # Deactivated: profiles.is_active already blocks the next request;
+        # this stops the account minting new tokens from its refresh token.
+        await sign_out_profile(session, profile_id)
 
 
 async def _resolve_staff_request(session: AsyncSession, staff_request_id, *, expected_role: str, clinic_id) -> dict | None:
@@ -256,6 +261,11 @@ class DoctorService:
     async def update(self, doctor_id: UUID, fields: dict, *, updated_by: UUID) -> dict:
         doctor = await self.get(doctor_id)
         profile_fields, role_fields = _split_profile_fields(fields)
+        # doctors has no is_active column (unlike CA/receptionist, which
+        # mirror it) — _split_profile_fields already copied it into
+        # profile_fields, so drop it here before it hits self.repo.update()
+        # or that UPDATE errors on an unknown column.
+        role_fields.pop("is_active", None)
         if profile_fields:
             await _apply_profile_update(self.session, doctor["profile_id"], profile_fields)
         if role_fields:

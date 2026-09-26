@@ -28,6 +28,7 @@ from app.modules.scheduling.service import (
     PROTOCOL_BORN_TYPES,
     RESCHEDULE_FROM_STATUSES,
     SLOT_OCCUPYING_STATUSES,
+    STATUS_MISSED,
     STATUS_PAID,
     STATUS_PLANNED,
     STATUS_SELECTED,
@@ -424,11 +425,15 @@ def test_default_slot_length_is_thirty_minutes():
 
 
 def test_reschedule_accepts_no_show_on_top_of_every_active_status():
-    """A missed slot must be reschedulable without a staff member first
+    """An unattended slot must be reschedulable without a staff member first
     flipping it back to something 'active' — that flip is exactly what
-    nothing used to do automatically (see no_show_sweeper.py)."""
-    assert RESCHEDULE_FROM_STATUSES == ACTIVE_STATUSES | {"no_show"}
+    nothing used to do automatically (see no_show_sweeper.py). Covers both
+    unattended branches: no_show (a claimed slot that passed unattended) and
+    missed (a protocol-born row whose date passed before any slot was ever
+    claimed)."""
+    assert RESCHEDULE_FROM_STATUSES == ACTIVE_STATUSES | {"no_show", "missed"}
     assert "no_show" in RESCHEDULE_FROM_STATUSES
+    assert "missed" in RESCHEDULE_FROM_STATUSES
 
 
 def test_reschedule_still_refuses_a_completed_or_cancelled_appointment():
@@ -439,8 +444,11 @@ def test_reschedule_still_refuses_a_completed_or_cancelled_appointment():
 def test_patient_can_only_reschedule_booked_or_no_show():
     """Narrower than the shared engine's set on purpose: a patient may not
     reschedule a 'planned' row (no time on it yet — claim_slot is that path)
-    or one already checked_in/in_progress (they are already there)."""
-    assert PATIENT_RESCHEDULE_FROM_STATUSES == {STATUS_SELECTED, STATUS_PAID, "no_show"}
+    or one already checked_in/in_progress (they are already there). 'missed'
+    is included: it's the protocol-born analogue of 'no_show' (a session
+    that came and went with no slot ever claimed), and a patient can move it
+    themselves the same way, via the same in-place engine staff use."""
+    assert PATIENT_RESCHEDULE_FROM_STATUSES == {STATUS_SELECTED, STATUS_PAID, "no_show", STATUS_MISSED}
     assert STATUS_PLANNED not in PATIENT_RESCHEDULE_FROM_STATUSES
     assert "checked_in" not in PATIENT_RESCHEDULE_FROM_STATUSES
     assert "in_progress" not in PATIENT_RESCHEDULE_FROM_STATUSES
@@ -451,3 +459,48 @@ def test_no_show_is_reachable_only_from_paid_or_checked_in():
     appointment nobody checked in for, or a checked-in one nobody ever
     started/finished."""
     assert _ALLOWED_FROM["no_show"] == {STATUS_PAID, "checked_in"}
+
+
+def test_slot_write_conflict_names_the_patients_own_overlap():
+    """excl_patient_device_session_overlap (90) gets its own 409 so a patient
+    booking two protocols' sessions is told to go before/after the other one;
+    every other IntegrityError keeps the old "slot was just taken" meaning."""
+    from sqlalchemy.exc import IntegrityError
+
+    from app.modules.scheduling.service import _slot_write_conflict
+
+    def err(msg: str) -> IntegrityError:
+        return IntegrityError("UPDATE appointments ...", {}, Exception(msg))
+
+    own = _slot_write_conflict(err('conflicting key value violates exclusion constraint "excl_patient_device_session_overlap"'))
+    assert own.code == "PATIENT_SESSION_OVERLAP"
+    other = _slot_write_conflict(err('conflicting key value violates exclusion constraint "excl_ca_overlap"'))
+    assert other.code == "APPOINTMENT_SLOT_TAKEN"
+
+
+def test_starting_a_paid_visit_says_check_in_first():
+    """Check-in stays mandatory (decision 2026-09-26); starting straight from
+    'paid' names the missing step instead of a generic transition error."""
+    from app.core.db import RequestContext
+    from app.core.exceptions import BusinessRuleError
+    from app.modules.scheduling.service import AppointmentService
+
+    svc = AppointmentService.__new__(AppointmentService)
+    ctx = RequestContext(user_id="d1", role="doctor", clinic_id="c1", region_id=None)
+    appt = {"status": STATUS_PAID, "appointment_type": "initial", "doctor_id": "d1", "patient_id": "p1"}
+    with pytest.raises(BusinessRuleError) as err:
+        svc._authorize_transition(appt, status="in_progress", ctx=ctx)
+    assert err.value.code == "CHECK_IN_REQUIRED"
+
+
+def test_booking_conflict_names_the_duplicate_initial():
+    from sqlalchemy.exc import IntegrityError
+
+    from app.core.exceptions import ConflictError
+    from app.modules.scheduling.service import _booking_conflict
+
+    fallback = ConflictError("slot taken", code="APPOINTMENT_SLOT_TAKEN")
+    dup = IntegrityError("INSERT ...", {}, Exception('duplicate key value violates unique constraint "uq_one_active_initial_per_patient"'))
+    overlap = IntegrityError("INSERT ...", {}, Exception('conflicting key value violates exclusion constraint "excl_doctor_overlap"'))
+    assert _booking_conflict(dup, fallback=fallback).code == "INITIAL_APPOINTMENT_EXISTS"
+    assert _booking_conflict(overlap, fallback=fallback) is fallback

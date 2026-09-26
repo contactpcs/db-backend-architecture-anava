@@ -63,6 +63,7 @@ _LEGACY_APPOINTMENT_TYPES = PATIENT_BOOKABLE_TYPES | PROTOCOL_BORN_TYPES
 STATUS_PLANNED = "planned"
 STATUS_SELECTED = "selected"
 STATUS_PAID = "paid"
+STATUS_MISSED = "missed"
 
 # Statuses that occupy a slot. Matches the predicate on
 # idx_appointments_device_capacity and the capacity count in the repository —
@@ -73,17 +74,17 @@ ACTIVE_STATUSES = {STATUS_PLANNED, STATUS_SELECTED, STATUS_PAID, "checked_in", "
 
 # AppointmentService.reschedule (the shared engine both staff and
 # PatientBookingService.reschedule_own route through) accepts every active
-# status, plus no_show — a missed slot should be reschedulable without
-# waiting on a staff member to notice and flip it back to something "active"
-# first (see no_show_sweeper.py, which is what actually gets a row INTO
-# no_show without a human involved at all).
-RESCHEDULE_FROM_STATUSES = ACTIVE_STATUSES | {"no_show"}
+# status, plus no_show and missed — neither should require a staff member to
+# notice and flip the row back to something "active" first (see
+# no_show_sweeper.py, which is what actually gets a row INTO no_show or
+# missed without a human involved at all).
+RESCHEDULE_FROM_STATUSES = ACTIVE_STATUSES | {"no_show", STATUS_MISSED}
 
 # reschedule_own's own, narrower pre-check: a patient may only move a booked
 # appointment they haven't shown up for yet (selected/paid) or one just
 # auto/staff-marked no_show — never a 'planned' row (no time to move yet) or
 # one already checked_in/in_progress (they're already there).
-PATIENT_RESCHEDULE_FROM_STATUSES = {STATUS_SELECTED, STATUS_PAID, "no_show"}
+PATIENT_RESCHEDULE_FROM_STATUSES = {STATUS_SELECTED, STATUS_PAID, "no_show", STATUS_MISSED}
 
 RESCHEDULE_MIN_HOURS = 24
 DEFAULT_SLOT_MINUTES = 30
@@ -172,6 +173,34 @@ def _is_past(on_date: dt.date, start_time: dt.time) -> bool:
 def _reject_if_past(on_date: dt.date, start_time: dt.time) -> None:
     if _is_past(on_date, start_time):
         raise BusinessRuleError("Cannot book a slot in the past", code="SLOT_IN_PAST")
+
+
+def _booking_conflict(exc: IntegrityError, *, fallback: ConflictError) -> ConflictError:
+    """IntegrityError from inserting a consultation -> the 409 that names the
+    rule that actually fired. uq_one_active_initial_per_patient used to be
+    reported as a doctor-calendar overlap, sending staff looking for a clash
+    that didn't exist."""
+    msg = str(getattr(exc, "orig", exc))
+    if "uq_one_active_initial_per_patient" in msg:
+        return ConflictError("This patient already has an active initial appointment", code="INITIAL_APPOINTMENT_EXISTS")
+    return fallback
+
+
+def _slot_write_conflict(exc: IntegrityError) -> ConflictError:
+    """IntegrityError from claiming a device-session/protocol slot -> 409.
+
+    excl_patient_device_session_overlap (90) means the patient's own other
+    device session (typically from another protocol instance) sits on this
+    time — picking a slot before or after it fixes it. Anything else keeps
+    the existing "slot was just taken" meaning. The constraint name is read
+    from the message; see profile_conflict_error for why exc.orig's
+    attributes can't be used."""
+    if "excl_patient_device_session_overlap" in str(getattr(exc, "orig", exc)):
+        return ConflictError(
+            "The patient already has another device session at this time — pick a slot before or after it",
+            code="PATIENT_SESSION_OVERLAP",
+        )
+    return ConflictError("That slot was just taken — please pick another", code="APPOINTMENT_SLOT_TAKEN")
 
 
 async def _assert_clinic_operational(session: AsyncSession, clinic_id) -> None:
@@ -579,6 +608,14 @@ class AppointmentService:
 
         _reject_if_past(data["appointment_date"], data["start_time"])
 
+        # Same gate the patient app enforces (book_follow_up): a follow-up
+        # needs a completed initial to follow up on — staff included.
+        if appointment_type == TYPE_FOLLOW_UP and not await self.repo.has_completed_initial(patient_profile_id):
+            raise BusinessRuleError(
+                "This patient has no completed initial consultation to follow up on",
+                code="NO_COMPLETED_INITIAL",
+            )
+
         is_available, duration = await AvailabilityService(self.session).check_slot(
             doctor_profile_id, data["appointment_date"], data["start_time"]
         )
@@ -620,7 +657,10 @@ class AppointmentService:
         try:
             appointment = await self.repo.create(payload)
         except IntegrityError as exc:
-            raise ConflictError("This doctor already has an appointment overlapping this time slot", code="APPOINTMENT_OVERLAP") from exc
+            raise _booking_conflict(
+                exc,
+                fallback=ConflictError("This doctor already has an appointment overlapping this time slot", code="APPOINTMENT_OVERLAP"),
+            ) from exc
         await emit_event(
             self.session,
             aggregate_type="appointment",
@@ -734,6 +774,10 @@ class AppointmentService:
         if allowed_from is None:
             raise BusinessRuleError(f"Unknown status transition to {status!r}", code="INVALID_STATUS_TRANSITION")
         if appt["status"] not in allowed_from:
+            # The most common miss on the visit day: starting before reception
+            # checked the patient in. Check-in stays mandatory; say so plainly.
+            if status == "in_progress" and appt["status"] == STATUS_PAID:
+                raise BusinessRuleError("Check the patient in before starting the visit", code="CHECK_IN_REQUIRED")
             raise BusinessRuleError(f"Cannot move an appointment from '{appt['status']}' to '{status}'", code="INVALID_STATUS_TRANSITION")
 
         if ctx.role == "patient":
@@ -758,18 +802,23 @@ class AppointmentService:
         if status in _ATTENDANCE_STATUSES:
             # WHO may start and finish a visit depends on what kind it is.
             #
-            # A device_session is administered by a clinical assistant on a
-            # device and has NO treating doctor (doctor_id is NULL by design).
-            # Requiring the doctor here — as this rule used to, unconditionally —
-            # made it impossible for the assistant to start the session they are
-            # standing in front of, and impossible for anyone else either.
+            # A device_session is administered by a clinical assistant OR a
+            # doctor, on a device, and has NO treating doctor of record
+            # (doctor_id is NULL by design) — whoever executes it is captured
+            # in ca_id/executor_role instead, late-bound below. Requiring the
+            # doctor here — as this rule used to, unconditionally — made it
+            # impossible for whoever is standing in front of the device to
+            # start the session. Deliberately NOT cross-checked against this
+            # person's own doctor_id appointments: device-session scheduling
+            # stays independent of a doctor's consultation calendar, even
+            # when that doctor is the one running the session.
             if appt["appointment_type"] == TYPE_DEVICE_SESSION:
-                if ctx.role not in ("clinical_assistant", "super_admin"):
+                if ctx.role not in ("clinical_assistant", "doctor", "super_admin"):
                     raise PermissionError_(
-                        "Only the clinical assistant running the session can perform this action",
-                        code="CLINICAL_ASSISTANT_ONLY_ACTION",
+                        "Only the staff member running this session can perform this action",
+                        code="SESSION_EXECUTOR_ONLY_ACTION",
                     )
-                # An assistant already running another session at this time is
+                # Whoever's already running another session at this time is
                 # caught by excl_ca_overlap when ca_id is written, not here.
                 return
             if ctx.role == "doctor" and str(appt["doctor_id"]) != ctx.user_id:
@@ -794,13 +843,16 @@ class AppointmentService:
             raise BusinessRuleError("A cancellation reason is required", code="CANCELLATION_REASON_REQUIRED")
         self._authorize_transition(appt, status=status, ctx=ctx)
 
-        # Late binding: an assistant is never reserved in advance. Whoever is
-        # free takes the patient, and their identity is captured here — the
-        # moment they start the session — not at booking time. Only for a
-        # device session; a consultation's doctor was booked with the slot.
+        # Late binding: whoever executes a device session is never reserved
+        # in advance. Whoever is free (a CA or, now, a doctor) takes the
+        # patient, and their identity + role are captured here — the moment
+        # they start the session — not at booking time. Only for a device
+        # session; a consultation's doctor was booked with the slot.
         ca_id = None
-        if status == "in_progress" and appt["appointment_type"] == TYPE_DEVICE_SESSION and ctx.role == "clinical_assistant":
+        executor_role = None
+        if status == "in_progress" and appt["appointment_type"] == TYPE_DEVICE_SESSION and ctx.role in ("clinical_assistant", "doctor"):
             ca_id = changed_by
+            executor_role = ctx.role
 
         try:
             await self.repo.update_status(
@@ -809,14 +861,15 @@ class AppointmentService:
                 cancelled_by=changed_by if status == "cancelled" else None,
                 cancellation_reason=cancellation_reason,
                 ca_id=ca_id,
+                executor_role=executor_role,
             )
         except IntegrityError as exc:
             # excl_ca_overlap fires here rather than at booking, because ca_id
-            # is NULL until this moment. The assistant tapping "start" is the
-            # one who needs to read this message.
+            # is NULL until this moment. Whoever tapped "start" is the one who
+            # needs to read this message.
             raise ConflictError(
                 "You are already running another session at this time",
-                code="CLINICAL_ASSISTANT_OVERLAP",
+                code="SESSION_EXECUTOR_OVERLAP",
             ) from exc
         await self._write_audit(
             appointment_id,
@@ -872,6 +925,19 @@ class AppointmentService:
         if old["status"] not in RESCHEDULE_FROM_STATUSES:
             raise BusinessRuleError("Only an active (or no-show) appointment can be rescheduled", code="APPOINTMENT_NOT_ACTIVE")
         await assert_clinic_scope(ctx, self.session, old["clinic_id"])
+
+        if old["appointment_type"] in PROTOCOL_BORN_TYPES:
+            # A protocol-born row (device_session/protocol_followup) carries
+            # protocol_id + session_number, and a protocol_device_sessions/
+            # protocol_followup side-table row FKs to this exact
+            # appointment_id — see uq_appointments_protocol_session. The
+            # cancel-old-create-new path below is for plain rows with no such
+            # links: create() never sets protocol_id, so a new row would fail
+            # chk_appointments_device_session_has_protocol (device_session) or
+            # silently orphan the side table (protocol_followup). Move THIS
+            # row's date/time in place instead — same fix reschedule_own
+            # already forces patients toward via claim_slot.
+            return await self._reschedule_protocol_born(old, data, changed_by=changed_by, changed_by_role=changed_by_role)
 
         # Flip the OLD row out of its active status FIRST, before creating
         # its replacement. uq_one_active_initial_per_patient (one active
@@ -953,6 +1019,83 @@ class AppointmentService:
         )
         return await self.get(new_appointment["appointment_id"])
 
+    async def _reschedule_protocol_born(self, old: dict, data: dict, *, changed_by: UUID, changed_by_role: str) -> dict:
+        """Move a device_session/protocol_followup row's date/time in place.
+
+        Same slot-availability rules as claim_slot (device capacity vs. doctor
+        calendar per type), but starting from an already-claimed status
+        (selected/checked_in/in_progress/missed/no_show/paid) rather than
+        'planned'.
+        """
+        appointment_id = old["appointment_id"]
+        on_date = data["appointment_date"]
+        start_time = data["start_time"]
+        _reject_if_past(on_date, start_time)
+        await _assert_clinic_operational(self.session, old["clinic_id"])
+
+        if old["appointment_type"] == TYPE_DEVICE_SESSION:
+            duration = await DeviceCapacityService(self.session).reserve(old, on_date, start_time)
+        else:
+            is_available, duration = await AvailabilityService(self.session).check_slot(UUID(str(old["doctor_id"])), on_date, start_time)
+            if not is_available:
+                raise ConflictError("That slot is not available on the doctor's schedule", code="APPOINTMENT_SLOT_UNAVAILABLE")
+        end_time = (dt.datetime.combine(on_date, start_time) + dt.timedelta(minutes=duration)).time()
+
+        # Same payment-carry-forward rule as the plain-appointment path above:
+        # 'paid'/'no_show' already has a captured payment, so land straight on
+        # 'paid' instead of asking to pay again. Everything else (selected/
+        # checked_in/in_progress/missed) runs through the ordinary payment
+        # seam, same as a fresh claim_slot — 'missed' in particular never had
+        # a payment captured, so it must not skip straight to 'paid'.
+        if old["status"] in (STATUS_PAID, "no_show"):
+            new_status, hold = STATUS_PAID, None
+        else:
+            new_status, hold = _initial_status_and_hold(self.settings)
+
+        if on_date != old["appointment_date"]:
+            await self.repo.update_fields(appointment_id, {"appointment_date": on_date})
+        try:
+            await self.repo.claim_slot(
+                appointment_id,
+                start_time=start_time,
+                end_time=end_time,
+                hold_expires_at=hold,
+                status=new_status,
+            )
+        except IntegrityError as exc:
+            raise _slot_write_conflict(exc) from exc
+
+        if old["status"] in (STATUS_PAID, "no_show"):
+            from app.modules.payments.repository import PaymentRepository
+
+            old_payment = await PaymentRepository(self.session).get_for_appointment(appointment_id)
+            if old_payment:
+                await PaymentRepository(self.session).relink_appointment(old_payment["payment_id"], new_appointment_id=appointment_id)
+
+        await self._write_audit(
+            appointment_id,
+            changed_by=changed_by,
+            changed_by_role=changed_by_role,
+            previous_status=old["status"],
+            new_status=new_status,
+            previous_date=old["appointment_date"],
+            new_date=on_date,
+            previous_time=old["start_time"],
+            new_time=start_time,
+            change_reason=data.get("change_reason"),
+        )
+        await emit_event(
+            self.session,
+            aggregate_type="appointment",
+            aggregate_id=appointment_id,
+            event_type="appointment_rescheduled",
+            payload={
+                "old_appointment_id": str(appointment_id),
+                "new_appointment_id": str(appointment_id),
+            },
+        )
+        return await self.get(appointment_id)
+
     async def audit_log(self, appointment_id: UUID) -> builtins.list[dict]:
         return await self.audit.list_for_appointment(appointment_id)
 
@@ -986,16 +1129,27 @@ class DeviceCapacityService:
         durations; billable_items.duration_minutes cannot express that (one
         row per device per clinic, shared by everyone) — kept only as a
         fallback for a device_session with no protocol_id, which the current
-        design shouldn't produce, but isn't worth hard-failing on."""
+        design shouldn't produce, but isn't worth hard-failing on.
+
+        prescribed_duration_min is tDCS/HD-tDCS-shaped. tVNS has its own
+        plain column, prescribed_tvns_duration_min (92_tvns_manual_
+        prescription.sql) — freely typed by the doctor within range, the
+        exact same tier as prescribed_duration_min itself, required before
+        a tVNS protocol can activate (fn_check_protocol_prescription_
+        complete). TPS/rTMS/other still have no plain-column or catalogue
+        duration source at all, so they fall through to the billable_items
+        fallback below unchanged."""
         if appt.get("protocol_id"):
             prescribed = (
                 await self.session.execute(
-                    text("SELECT prescribed_duration_min FROM protocol_plan WHERE protocol_id = :pid"),
+                    text(
+                        "SELECT COALESCE(prescribed_duration_min, prescribed_tvns_duration_min) FROM protocol_plan WHERE protocol_id = :pid"
+                    ),
                     {"pid": str(appt["protocol_id"])},
                 )
             ).scalar_one_or_none()
             if prescribed:
-                return prescribed
+                return round(prescribed)
 
         from app.modules.admin.repository import BillableItemRepository
 
@@ -1261,6 +1415,9 @@ class PatientBookingService:
         clinic_id = patient["primary_clinic_id"]
         if not clinic_id:
             raise BusinessRuleError("You are not registered at a clinic", code="CLINIC_REQUIRED")
+        # Same gate as staff booking and claim_slot — a paused/closed clinic
+        # takes no new bookings from any path.
+        await _assert_clinic_operational(self.session, clinic_id)
 
         is_available, duration = await self.availability.check_slot(doctor_profile_id, data["appointment_date"], data["start_time"])
         if not is_available:
@@ -1288,10 +1445,12 @@ class PatientBookingService:
         try:
             created = await self.repo.create(payload)
         except IntegrityError as exc:
-            # Either excl_doctor_overlap (someone took the slot between the
-            # check above and this insert) or uq_one_active_initial_per_patient
-            # (two taps racing). Both mean the same thing to the patient.
-            raise ConflictError("That slot was just taken — please pick another", code="APPOINTMENT_SLOT_TAKEN") from exc
+            # excl_doctor_overlap (someone took the slot between the check
+            # above and this insert) or uq_one_active_initial_per_patient
+            # (two taps racing) — told apart so the message is true.
+            raise _booking_conflict(
+                exc, fallback=ConflictError("That slot was just taken — please pick another", code="APPOINTMENT_SLOT_TAKEN")
+            ) from exc
 
         await emit_event(
             self.session,
@@ -1355,7 +1514,7 @@ class PatientBookingService:
         try:
             await self.repo.claim_slot(appointment_id, start_time=start_time, end_time=end_time, hold_expires_at=hold, status=status)
         except IntegrityError as exc:
-            raise ConflictError("That slot was just taken — please pick another", code="APPOINTMENT_SLOT_TAKEN") from exc
+            raise _slot_write_conflict(exc) from exc
 
         await self.appointments._write_audit(
             appointment_id,
@@ -1420,12 +1579,18 @@ class PatientBookingService:
         appt = await self.appointments.get(appointment_id)
         assert_owns_profile(ctx, appt["patient_id"])
 
-        if appt["appointment_type"] in PROTOCOL_BORN_TYPES:
-            # A protocol row is never "rescheduled" into a new row — releasing
-            # the slot and claiming another keeps one folder per prescribed
-            # session, which uq_appointments_protocol_session requires anyway.
+        if appt["appointment_type"] in PROTOCOL_BORN_TYPES and appt["status"] == STATUS_PLANNED:
+            # A 'planned' protocol row has no time on it yet — there is
+            # nothing to move, only a first slot to claim. Every OTHER
+            # status (selected/paid/no_show/missed) falls through to the
+            # ordinary reschedule() call below, which moves this same row
+            # in place for a protocol-born type (AppointmentService.
+            # _reschedule_protocol_born) instead of cancelling and creating
+            # a new one — that in-place engine is exactly what keeps
+            # protocol_id/session_number and uq_appointments_protocol_session
+            # intact, so this no longer needs to be blocked past 'planned'.
             raise BusinessRuleError(
-                "Release this session and claim a new slot instead",
+                "This session has no time yet — claim a slot first",
                 code="USE_CLAIM_SLOT_INSTEAD",
             )
         if appt["status"] not in PATIENT_RESCHEDULE_FROM_STATUSES:

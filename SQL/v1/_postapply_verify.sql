@@ -34,9 +34,9 @@ UNION ALL SELECT 'A inventory', 5, 'protocol module tables (32)', '21',
        (SELECT count(*)::text FROM pg_class c
         WHERE c.relname IN ('device_companies','neuromod_devices','neuromod_conditions',
               'neuromod_diagnoses','neuromod_scales','neuromod_condition_scales',
-              'tdcs_placements','hd_tdcs_placements','tavns_placements','tps_placements',
+              'tdcs_placements','hd_tdcs_placements','tvns_placements','tps_placements',
               'rtms_placements','other_placements','tdcs_dosing','hd_tdcs_dosing',
-              'tavns_dosing','tps_dosing','rtms_dosing','other_dosing',
+              'tvns_dosing','tps_dosing','rtms_dosing','other_dosing',
               'treatment_protocols','device_session_prs_responses','followup_prs_responses'))
 UNION ALL SELECT 'A inventory', 6, 'core.appointments columns', '30',
        (SELECT count(*)::text FROM information_schema.columns
@@ -122,9 +122,9 @@ UNION ALL SELECT 'D security', 51, 'protocol catalogue policies (18 tables x 3)'
        (SELECT count(*)::text FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
         WHERE c.relname IN ('device_companies','neuromod_devices','neuromod_conditions',
               'neuromod_diagnoses','neuromod_scales','neuromod_condition_scales',
-              'tdcs_placements','hd_tdcs_placements','tavns_placements','tps_placements',
+              'tdcs_placements','hd_tdcs_placements','tvns_placements','tps_placements',
               'rtms_placements','other_placements','tdcs_dosing','hd_tdcs_dosing',
-              'tavns_dosing','tps_dosing','rtms_dosing','other_dosing'))
+              'tvns_dosing','tps_dosing','rtms_dosing','other_dosing'))
 UNION ALL SELECT 'D security', 52, 'appointments policies (incl. DELETE)', '4',
        (SELECT count(*)::text FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
         WHERE c.relname='appointments')

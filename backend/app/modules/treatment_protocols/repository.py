@@ -31,7 +31,7 @@ _ALLOWED_SLUGS = frozenset(MODALITY_SLUG.values())
 _PLACEMENT_COLS = {
     "tdcs": ("anode_site", "cathode_site"),
     "hd_tdcs": ("anode_site", "return_sites"),
-    "tavns": ("ear_side", "auricular_site"),
+    "tvns": ("ear_side", "auricular_site"),
     "tps": ("target_region", "hemisphere"),
     "rtms": ("coil_target", "coil_type", "hemisphere"),
     "other": ("placement_details",),
@@ -40,12 +40,17 @@ _PLACEMENT_COLS = {
 _DOSING_COLS = {
     "tdcs": ("current_ma_min", "current_ma_max", "session_duration_min", "sessions_per_day"),
     "hd_tdcs": ("total_current_ma", "per_return_current_ma", "session_duration_min", "sessions_per_day"),
-    "tavns": (
-        "intensity_ma",
-        "pulse_width_us",
+    "tvns": (
+        "wavelength",
+        "pattern",
+        "strength_pct_min",
+        "strength_pct_max",
         "frequency_hz",
-        "duty_cycle_on_sec",
-        "duty_cycle_off_sec",
+        "frequency_hz_min",
+        "frequency_hz_max",
+        "pulse_width_us",
+        "pulse_width_us_min",
+        "pulse_width_us_max",
         "session_duration_min",
     ),
     "tps": ("energy_mj", "pulses_per_session", "pulse_rate_hz"),
@@ -171,18 +176,31 @@ class CatalogueRepository:
     async def list_conditions(self, *, device_id: UUID | None = None, active_only: bool = True) -> builtins.list[dict]:
         """Conditions with their diagnosis count and best available evidence.
 
-        When device_id is given, evidence is restricted to that device's own
-        dosing rows - a condition can be evidence A on tDCS and C on rTMS,
-        and the wizard shows the chip for the device actually selected.
+        When device_id is given, results are restricted to conditions THIS
+        device actually has a catalogued dose for — evidence_level was
+        already scoped this way (a condition can be evidence A on tDCS and C
+        on rTMS, and the wizard shows the chip for the device actually
+        selected), but the condition ROW ITSELF was never filtered: every
+        device showed all 5 catalogue conditions regardless of whether it
+        had any placement/dosing data for them (e.g. tVNS, seeded with only
+        one Depression dose, still listed ADHD/Anxiety/Autism/Chronic Pain
+        too, exactly like tDCS did). The INNER JOIN below is the same
+        per-device dosing union already built for the evidence subquery,
+        just also used to gate which conditions appear at all.
         """
         slug_union = " UNION ALL ".join(
             f"SELECT condition_id, device_id, evidence_level FROM {dosing_table(s)} WHERE is_active = TRUE" for s in sorted(_ALLOWED_SLUGS)
         )
         params: dict[str, Any] = {}
         dev_filter = ""
+        device_join = ""
         if device_id:
             dev_filter = "AND ev.device_id = :device_id"
             params["device_id"] = str(device_id)
+            device_join = (
+                "JOIN (SELECT DISTINCT condition_id FROM (" + slug_union + ") d "
+                "WHERE d.device_id = :device_id) has_dose ON has_dose.condition_id = c.condition_id "
+            )
         where = "WHERE c.is_active = TRUE" if active_only else ""
         rows = (
             (
@@ -196,6 +214,7 @@ class CatalogueRepository:
                         "  ORDER BY CASE ev.evidence_level WHEN 'A' THEN 3 WHEN 'B' THEN 2 ELSE 1 END DESC LIMIT 1) "
                         "  AS evidence_level "
                         "FROM reference.neuromod_conditions c "
+                        f"{device_join}"
                         f"{where} ORDER BY c.display_order, c.condition_name"
                     ),
                     params,
@@ -787,19 +806,27 @@ class ProtocolInstanceRepository:
         )
         return int(row["n"]) if row else 1
 
-    async def get_open_for_patient(self, patient_id: UUID) -> dict | None:
-        """The live instance for a patient, if any.
+    async def list_open_for_patient(self, patient_id: UUID) -> builtins.list[dict]:
+        """Every live (draft/active) instance for a patient, newest first.
 
-        uq_protocol_instances_one_active (45, repointed to patient_id by 58)
-        allows at most one row in draft or active per patient, so this
-        returns zero or one — the check the service makes before opening
-        another episode.
+        A list, not one row: 90 dropped uq_protocol_instances_one_active, so a
+        patient may run several instances side by side. Callers that act on
+        "the patient's episode" (transfer, exit, visit bundle) must act on all
+        of them.
         """
-        return await fetch_optional(
-            self.session,
-            text("SELECT * FROM protocol_instances WHERE patient_id = :p AND status IN ('draft', 'active') LIMIT 1"),
-            {"p": str(patient_id)},
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT * FROM protocol_instances WHERE patient_id = :p AND status IN ('draft', 'active') ORDER BY created_at DESC"
+                    ),
+                    {"p": str(patient_id)},
+                )
+            )
+            .mappings()
+            .all()
         )
+        return [dict(r) for r in rows]
 
     async def set_status(self, instance_id: UUID, status: str) -> dict | None:
         return await fetch_optional(

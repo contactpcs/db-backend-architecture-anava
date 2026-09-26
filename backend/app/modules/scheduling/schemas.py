@@ -209,6 +209,10 @@ class AppointmentRead(BaseModel):
     responsible_doctor_id: UUID | None = None
     responsible_doctor_name: str | None = None
     ca_id: UUID | None
+    # Role of whoever is in ca_id — 'doctor' or 'clinical_assistant' (or
+    # 'super_admin' covering for either) — snapshotted at session start, not
+    # a live join to profiles.role. NULL until a device_session starts.
+    executor_role: str | None = None
     instance_id: UUID | None = None
     protocol_id: UUID | None = None
     # Which protocol_plan version this session belongs to — display as
@@ -218,6 +222,16 @@ class AppointmentRead(BaseModel):
     # have no other endpoint that surfaces this.
     protocol_version_major: int | None = None
     protocol_version_minor: int | None = None
+    # What a protocol-born row is for — lets a patient running several
+    # protocols (90) tell their sessions apart. NULL for consultations.
+    device_name: str | None = None
+    modality: str | None = None
+    condition_names: list[str] | None = None
+    instance_number: int | None = None
+    session_count: int | None = None
+    # The protocol instance's doctor. A device_session has no doctor_id (a CA
+    # runs it), so this is the doctor to show on one.
+    prescribing_doctor_name: str | None = None
     # Set only for appointment_type = device_session — which of the clinic's
     # devices this session runs on and books capacity against.
     clinic_device_id: UUID | None = None

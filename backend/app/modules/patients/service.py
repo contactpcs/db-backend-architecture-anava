@@ -382,8 +382,8 @@ class PatientService:
 class FollowUpService:
     """Master Doc Section 6.6 — a follow-up opens a new protocol_instances
     episode (instance_type='followup'), reusing ProtocolInstanceService
-    directly rather than duplicating its create/one-active-episode logic.
-    Requires the patient's previous episode to be closed out."""
+    directly rather than duplicating its create logic. Other open episodes
+    may run alongside it (90)."""
 
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -456,7 +456,10 @@ class PatientTransferService:
 
         from app.modules.treatment_protocols.repository import ProtocolInstanceRepository
 
-        active_instance = await ProtocolInstanceRepository(self.session).get_open_for_patient(patient["profile_id"])
+        # Newest open instance, recorded for reference only — complete()
+        # repoints every open instance, not just this one.
+        open_instances = await ProtocolInstanceRepository(self.session).list_open_for_patient(patient["profile_id"])
+        active_instance = open_instances[0] if open_instances else None
 
         payload = {
             "patient_id": str(patient["profile_id"]),
@@ -513,14 +516,24 @@ class PatientTransferService:
             {"clinic_id": transfer["to_clinic_id"], "doctor_id": doctor["profile_id"], "pid": transfer["patient_id"]},
         )
 
-        if transfer["active_instance_id"]:
-            # Active episode carries over WITHOUT restart — same
-            # protocol_instances row, just repointed to the new clinic/doctor
-            # (Master Doc: "Block resumes from current session. NO RESTART.").
-            await self.session.execute(
-                _text("UPDATE protocol_instances SET clinic_id = :clinic_id, doctor_id = :doctor_id WHERE instance_id = :instance_id"),
-                {"clinic_id": transfer["to_clinic_id"], "doctor_id": doctor["profile_id"], "instance_id": transfer["active_instance_id"]},
-            )
+        # Active episodes carry over WITHOUT restart — same protocol_instances
+        # rows, just repointed to the new clinic/doctor (Master Doc: "Block
+        # resumes from current session. NO RESTART."). Every open instance
+        # moves, since a patient may run several (90); the one recorded at
+        # initiate() is included explicitly so it still moves even if it
+        # closed in between, as it always did.
+        await self.session.execute(
+            _text(
+                "UPDATE protocol_instances SET clinic_id = :clinic_id, doctor_id = :doctor_id "
+                "WHERE patient_id = :pid AND (status IN ('draft', 'active') OR instance_id = :instance_id)"
+            ),
+            {
+                "clinic_id": transfer["to_clinic_id"],
+                "doctor_id": doctor["profile_id"],
+                "pid": transfer["patient_id"],
+                "instance_id": transfer["active_instance_id"],
+            },
+        )
 
         updated = await self.repo.set_status(pct_id, status="completed", to_doctor_id=doctor["profile_id"], consent_id=consent_id)
         await emit_event(
@@ -562,9 +575,8 @@ class PatientExitService:
         from app.modules.treatment_protocols.repository import ProtocolInstanceRepository
 
         instance_repo = ProtocolInstanceRepository(self.session)
-        active_instance = await instance_repo.get_open_for_patient(patient["profile_id"])
-        if active_instance:
-            await instance_repo.set_status(active_instance["instance_id"], "completed")
+        for open_instance in await instance_repo.list_open_for_patient(patient["profile_id"]):
+            await instance_repo.set_status(open_instance["instance_id"], "completed")
 
         await emit_event(
             self.session,
@@ -639,10 +651,11 @@ class PatientVisitService:
         protocol_rows = await protocol_repo.list(authored_in_appointment_id=appointment_id, limit=50)
         inherited_protocol = not protocol_rows
         if inherited_protocol:
-            instance = await ProtocolInstanceRepository(self.session).get_open_for_patient(profile_id)
-            if instance:
+            protocol_rows = []
+            for instance in await ProtocolInstanceRepository(self.session).list_open_for_patient(profile_id):
                 latest = await protocol_repo.get_latest_as_of(instance["instance_id"], cutoff)
-                protocol_rows = [latest] if latest else []
+                if latest:
+                    protocol_rows.append(latest)
         protocols = []
         for row in protocol_rows:
             lineage: list[dict] = []

@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     # is racing a 15-minute window; this one is racing multi-hour windows.
     appointment_no_show_sweep_interval_seconds: int = 900
     appointment_no_show_sweeper_enabled: bool = True
+    # Outbox relay (app/workers/event_relay.py): turns outbox events into
+    # notifications rows + live SSE pushes. Off = nobody is ever notified.
+    event_relay_enabled: bool = True
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
@@ -124,6 +127,21 @@ class Settings(BaseSettings):
     # Razorpay dashboard's webhook config) — NOT the same value as
     # razorpay_key_secret, which only signs API requests.
     razorpay_webhook_secret: str | None = None
+
+    # Session cookie (app/core/session_cookie.py) — the long-lived Cognito
+    # refresh token lives here, httpOnly, so page scripts can never read it.
+    # secure=None means "on everywhere except environment=local" (plain-http
+    # localhost). samesite must be "none" (which browsers only honour with
+    # secure) when the web app and the API sit on different registrable
+    # domains; "lax" is right when they share one (app.x.com / api.x.com).
+    auth_cookie_secure: bool | None = None
+    auth_cookie_samesite: str = "lax"
+    auth_cookie_domain: str | None = None
+    refresh_cookie_max_age_days: int = 30
+    # One-time ticket that lets the browser's EventSource (which cannot send
+    # an Authorization header) open the live-notification stream without the
+    # access token ever appearing in a URL.
+    stream_ticket_ttl_seconds: int = 30
 
     # CORS
     cors_allowed_origins: list[str] = [

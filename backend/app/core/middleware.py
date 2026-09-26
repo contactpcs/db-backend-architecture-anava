@@ -7,8 +7,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app.core.auth_session import consume_stream_ticket, is_access_token_revoked
 from app.core.db import RequestContext, engine, set_request_context
-from app.core.exceptions import AnavaException, PermissionError_
+from app.core.exceptions import AnavaException, AuthenticationError, PermissionError_
 from app.core.security import verify_token
 
 logger = structlog.get_logger()
@@ -24,6 +25,11 @@ PUBLIC_PATHS = {
     "/api/v1/auth/login",
     "/api/v1/auth/login/new-password",  # completes NEW_PASSWORD_REQUIRED — no session yet either
     "/api/v1/auth/local-login",  # dev-only (Stage 13 removes this route entirely)
+    # Authenticated by the httpOnly refresh cookie, not a bearer token: refresh
+    # runs precisely when the access token has expired, and logout must work
+    # (and clear the cookie) even with one that already has.
+    "/api/v1/auth/refresh",
+    "/api/v1/auth/logout",
     "/api/v1/auth/register",  # public patient self-registration — see patients module
     "/api/v1/auth/clinics",  # public clinic picker for the self-registration form
     "/api/v1/auth/config",  # public — tells the frontend which auth endpoints to call
@@ -66,12 +72,21 @@ PATIENT_SELF_REGISTRATION_PATH_PREFIXES = (
     # this an inactive mid-registration patient's EventSource 403s on every
     # single page of the registration wizard, not just once.
     "/api/v1/events/stream",
+    "/api/v1/events/ticket",  # the one-time ticket the stream is opened with
 )
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        # AuthContextMiddleware runs OUTSIDE this one (added before it in
+        # main.py, and Starlette executes middleware last-added-first) — for
+        # an authenticated request it has already resolved this same id and
+        # stashed it on request.state so the audit trigger's app.request_id
+        # and this log line's request_id are the same value, not two
+        # independently generated UUIDs for one request. Only a public-path
+        # request (which AuthContextMiddleware skips entirely) falls through
+        # to generating one here.
+        request_id = getattr(request.state, "request_id", None) or request.headers.get("X-Request-ID", str(uuid.uuid4()))
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=request_id)
 
@@ -90,7 +105,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         return response
 
 
-async def _load_profile_and_scope(cognito_sub: str) -> RequestContext:
+async def _load_profile_and_scope(cognito_sub: str, *, request_id: str, ip_address: str | None) -> RequestContext:
     """Resolves the caller's profile + tenant scope. Deliberately minimal
     (raw parameterized SQL, not an ORM model) — the `profiles`/`admins`/
     `clinic_staff_assignments`/`patients` tables already exist in the schema
@@ -237,6 +252,42 @@ async def _load_profile_and_scope(cognito_sub: str) -> RequestContext:
             if scope and scope.primary_clinic_id:
                 clinic_id = str(scope.primary_clinic_id)
 
+        # Clinic-closed / region-inactive lockout. super_admin/regional_admin
+        # are exempt so someone can still log in to reopen/reactivate — same
+        # reasoning as the pending_closure<->active revert path in
+        # admin/service.py's clinic FSM. Checked via clinic_id's own region
+        # (not admins.region_id directly) so clinic_admin/doctor/CA/
+        # receptionist/patient are all covered through the one clinic_id they
+        # already resolve to above.
+        #
+        # rls_clinics_select only admits a row when status NOT IN
+        # (pending_closure, closed) OR clinic_id = rls_clinic_id() (and
+        # rls_regions_select mirrors this with is_active = true OR region_id =
+        # rls_region_id()) — app.current_clinic_id/current_region_id aren't
+        # set yet at this point in the request (that happens later via
+        # set_request_context), so a closed clinic / inactive region would
+        # otherwise be invisible to its own query and this check would never
+        # fire for the exact rows it exists to catch. Same self-lookup trap
+        # as SQL/31_fix_profile_bootstrap_lookup_rls.sql — fixed the same way:
+        # set the GUC to the specific row being checked, immediately before
+        # checking it.
+        if role not in ("super_admin", "regional_admin") and clinic_id:
+            await conn.execute(text("SELECT set_config('app.current_clinic_id', :cid, true)"), {"cid": clinic_id})
+            clinic_row = (
+                await conn.execute(text("SELECT status, region_id FROM clinics WHERE clinic_id = :cid"), {"cid": clinic_id})
+            ).first()
+            if clinic_row:
+                if clinic_row.status == "closed":
+                    raise PermissionError_("This clinic is closed", code="CLINIC_CLOSED")
+                if clinic_row.region_id:
+                    region_id_str = str(clinic_row.region_id)
+                    await conn.execute(text("SELECT set_config('app.current_region_id', :rid, true)"), {"rid": region_id_str})
+                    region_row = (
+                        await conn.execute(text("SELECT is_active FROM regions WHERE region_id = :rid"), {"rid": region_id_str})
+                    ).first()
+                    if region_row and not region_row.is_active:
+                        raise PermissionError_("This region is inactive", code="REGION_INACTIVE")
+
     return RequestContext(
         user_id=profile_id,
         role=role,
@@ -244,6 +295,8 @@ async def _load_profile_and_scope(cognito_sub: str) -> RequestContext:
         region_id=region_id,
         is_active=is_active,
         consent_signed=consent_signed,
+        request_id=request_id,
+        ip_address=ip_address,
     )
 
 
@@ -253,18 +306,29 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
     that core/db.py's get_db() dependency applies via SET LOCAL for RLS."""
 
     async def dispatch(self, request: Request, call_next):
+        # Resolved here (not left to RequestIDMiddleware, which runs after
+        # this one) so it's available below for the RequestContext that
+        # feeds the DB audit trigger — see RequestIDMiddleware's own comment.
+        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        request.state.request_id = request_id
+        client_ip = request.client.host if request.client else None
+
         if request.url.path in PUBLIC_PATHS:
             return await call_next(request)
 
         auth_header = request.headers.get("Authorization", "")
+        ticket: str | None = None
+        token: str | None = None
         if auth_header.startswith("Bearer "):
             token = auth_header.removeprefix("Bearer ").strip()
-        elif request.url.path == "/api/v1/events/stream" and request.query_params.get("token"):
-            # Browser EventSource can't set custom headers — SSE is the one
-            # endpoint that accepts the token as a query param instead. Not
-            # opened up generally: query-param tokens are more exposure-prone
-            # (logs, browser history), so this stays scoped to just this path.
-            token = request.query_params["token"]
+        elif request.url.path == "/api/v1/events/stream" and request.query_params.get("ticket"):
+            # Browser EventSource can't set custom headers, so the live stream
+            # is opened with a one-time, 30-second ticket minted by
+            # POST /events/ticket (an authenticated call) instead of the
+            # access token — which therefore never lands in a URL, and with
+            # it in access logs, proxy logs or browser history. Scoped to
+            # this one path.
+            ticket = request.query_params["ticket"]
         else:
             return JSONResponse(
                 status_code=401,
@@ -272,8 +336,20 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
             )
 
         try:
-            claims = await verify_token(token)
-            ctx = await _load_profile_and_scope(claims["sub"])
+            if ticket is not None:
+                sub = await consume_stream_ticket(ticket)
+                if sub is None:
+                    raise AuthenticationError("Invalid or expired stream ticket", code="INVALID_STREAM_TICKET")
+                cognito_sub = sub
+            else:
+                assert token is not None
+                claims = await verify_token(token)
+                # Logged-out tokens are still cryptographically valid until they
+                # expire; the denylist is what makes logout take effect at once.
+                if await is_access_token_revoked(claims["jti"]):
+                    raise AuthenticationError("This session has been signed out", code="TOKEN_REVOKED")
+                cognito_sub = claims["sub"]
+            ctx = await _load_profile_and_scope(cognito_sub, request_id=request_id, ip_address=client_ip)
         except AnavaException as exc:
             return JSONResponse(
                 status_code=exc.status_code,

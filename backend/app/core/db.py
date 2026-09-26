@@ -1,4 +1,5 @@
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 
@@ -65,6 +66,8 @@ class RequestContext:
     region_id: str | None
     is_active: bool = True
     consent_signed: bool = True
+    request_id: str | None = None
+    ip_address: str | None = None
 
 
 _request_context: ContextVar[RequestContext | None] = ContextVar("_request_context", default=None)
@@ -88,6 +91,10 @@ async def _apply_rls_context(session: AsyncSession) -> None:
         await session.execute(text_set_local("app.current_clinic_id", ctx.clinic_id))
     if ctx.region_id:
         await session.execute(text_set_local("app.current_region_id", ctx.region_id))
+    if ctx.request_id:
+        await session.execute(text_set_local("app.request_id", ctx.request_id))
+    if ctx.ip_address:
+        await session.execute(text_set_local("app.client_ip", ctx.ip_address))
 
 
 def text_set_local(setting_name: str, value: str):
@@ -95,6 +102,26 @@ def text_set_local(setting_name: str, value: str):
 
     # set_config(..., true) = LOCAL (transaction-scoped), matches 15_rls_policies.sql assumption
     return text("SELECT set_config(:name, :value, true)").bindparams(name=setting_name, value=value)
+
+
+@asynccontextmanager
+async def as_system(session: AsyncSession) -> AsyncIterator[None]:
+    """Run the enclosed writes under RLS role 'system', then restore the
+    caller's role.
+
+    For a write the app has already authorized but whose RLS policy only
+    admits staff/system (e.g. rls_payments_update) while the request runs as
+    a patient — without it the UPDATE silently matches 0 rows. Unlike a bare
+    text_set_local(..., 'system'), the elevation ends with the block instead
+    of lasting for the rest of the transaction."""
+    from sqlalchemy import text
+
+    previous = (await session.execute(text("SELECT current_setting('app.current_user_role', true)"))).scalar()
+    await session.execute(text_set_local("app.current_user_role", "system"))
+    try:
+        yield
+    finally:
+        await session.execute(text_set_local("app.current_user_role", previous or ""))
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

@@ -107,7 +107,7 @@ def _placement_summary(row: dict | None) -> str | None:
     if modality == "HD-tDCS":
         a, returns = row.get("anode_site"), row.get("return_sites") or []
         return f"{a} -> {', '.join(returns)}" if a and returns else row.get("montage_label")
-    if modality == "taVNS":
+    if modality == "tVNS":
         parts = [p for p in (row.get("ear_side"), row.get("auricular_site")) if p]
         return " / ".join(parts) or row.get("montage_label")
     if modality in ("TPS", "rTMS"):
@@ -604,6 +604,14 @@ class ProtocolService:
             "prescribed_current_ma": body.prescribed_current_ma,
             "prescribed_duration_min": body.prescribed_duration_min,
             "ramp_seconds": body.ramp_seconds,
+            "prescribed_tvns_wavelength": body.prescribed_tvns_wavelength,
+            "prescribed_tvns_pattern": body.prescribed_tvns_pattern,
+            "prescribed_tvns_strength_pct": body.prescribed_tvns_strength_pct,
+            "prescribed_tvns_frequency_hz": body.prescribed_tvns_frequency_hz,
+            "prescribed_tvns_pulse_width_us": body.prescribed_tvns_pulse_width_us,
+            "prescribed_tvns_duration_min": body.prescribed_tvns_duration_min,
+            "prescribed_tvns_ramp_up_sec": body.prescribed_tvns_ramp_up_sec,
+            "prescribed_tvns_ramp_down_sec": body.prescribed_tvns_ramp_down_sec,
             "sessions_per_week": body.sessions_per_week,
             "supersedes_protocol_id": (str(body.supersedes_protocol_id) if body.supersedes_protocol_id else None),
             "version_major": version_major,
@@ -675,6 +683,19 @@ class ProtocolService:
             # cancellation would for anything relink didn't already claim.
             await self.sessions.cancel_planned(body.supersedes_protocol_id, reason="Superseded by protocol amendment")
             await self.repo.set_status(body.supersedes_protocol_id, "superseded")
+
+            # PRS-freeze: any pending scale on an already-completed session
+            # under the old protocol can no longer be answered — closes the
+            # gap where a very late answer would retroactively change an
+            # already-superseded (and possibly already-reported-on) protocol
+            # version's outcome numbers. Same transaction as the supersede
+            # above, so there's no window for a late submission to land
+            # in between. A session still in flight right now is deliberately
+            # not touched here — see DeviceSessionScaleRepository.
+            # freeze_pending_for_session for that edge case.
+            from app.modules.device_sessions.repository import DeviceSessionScaleRepository
+
+            await DeviceSessionScaleRepository(self.session).freeze_pending_for_protocol(body.supersedes_protocol_id)
 
         counts = await self._generate_appointments(protocol_id, parent, preview, device_id=body.device_id, skip_keys=relinked_keys)
         counts["sessions_relinked"] = len(relinked_keys)
@@ -928,11 +949,38 @@ class ProtocolService:
                 code="PROTOCOL_NO_SESSIONS",
             )
 
-        # fn_check_protocol_prescription_complete (39) refuses this transition
-        # if the dose is incomplete. Checking here first names the missing
-        # fields as a 422 the UI can map back onto step 5, instead of a raised
-        # PL/pgSQL exception surfacing as a 500.
-        missing = [field for field in ("prescribed_current_ma", "prescribed_duration_min", "sessions_per_week") if row.get(field) is None]
+        # fn_check_protocol_prescription_complete (39, modality-aware since
+        # 91/92) refuses this transition if the dose is incomplete. Checking
+        # here first names the missing fields as a 422 the UI can map back
+        # onto step 5, instead of a raised PL/pgSQL exception surfacing as a
+        # 500. Must mirror the trigger's modality split exactly: tDCS/HD-tDCS
+        # and tVNS both prescribe via their own plain, freely-typed columns
+        # (prescribed_current_ma/... for tDCS, prescribed_tvns_.../ for tVNS
+        # — 92, tVNS has no "current_ma" concept so it needed its own set);
+        # TPS/rTMS/other still prescribe via their catalogue dosing_id FK.
+        missing: list[str] = []
+        if row["modality"] in ("tDCS", "HD-tDCS"):
+            if row.get("prescribed_current_ma") is None:
+                missing.append("prescribed_current_ma")
+            if row.get("prescribed_duration_min") is None:
+                missing.append("prescribed_duration_min")
+        elif row["modality"] == "tVNS":
+            for field in (
+                "prescribed_tvns_wavelength",
+                "prescribed_tvns_pattern",
+                "prescribed_tvns_strength_pct",
+                "prescribed_tvns_frequency_hz",
+                "prescribed_tvns_pulse_width_us",
+                "prescribed_tvns_duration_min",
+            ):
+                if row.get(field) is None:
+                    missing.append(field)
+        elif not row.get("custom_montage_id"):
+            slug = _slug_for_modality(row["modality"])
+            if not row.get(f"{slug}_dosing_id"):
+                missing.append("dosing_id")
+        if row.get("sessions_per_week") is None:
+            missing.append("sessions_per_week")
         if missing:
             raise BusinessRuleError(
                 "Prescription is incomplete and cannot be activated. Missing: " + ", ".join(missing),
@@ -1016,17 +1064,9 @@ class ProtocolInstanceService:
         doctor_profile_id = await _resolve_doctor_profile_id(self.session, body.doctor_id)
         await assert_clinic_scope(ctx, self.session, body.clinic_id)
 
-        # uq_protocol_instances_one_active enforces this too; checking first
-        # turns a 23505 into a message naming the instance already open, which
-        # is what the caller should reuse rather than duplicate.
-        existing = await self.repo.get_open_for_patient(patient_profile_id)
-        if existing:
-            raise ConflictError(
-                f"This patient already has an open episode of care (instance {existing['instance_number']}). "
-                "Complete or cancel it before opening another.",
-                code="INSTANCE_ALREADY_OPEN",
-            )
-
+        # A patient may hold several open instances at once (90 dropped
+        # uq_protocol_instances_one_active); their device sessions are kept
+        # apart by excl_patient_device_session_overlap instead.
         number = await self.repo.next_instance_number(patient_profile_id)
         try:
             created = await self.repo.create(
@@ -1043,7 +1083,12 @@ class ProtocolInstanceService:
                 }
             )
         except IntegrityError as exc:
-            raise ConflictError("An open episode of care already exists for this patient", code="INSTANCE_ALREADY_OPEN") from exc
+            # uq_protocol_instances_patient_number: two creates for the same
+            # patient read the same next_instance_number and raced.
+            raise ConflictError(
+                "Another protocol instance was opened for this patient at the same moment — please retry",
+                code="INSTANCE_NUMBER_CONFLICT",
+            ) from exc
 
         await emit_event(
             self.session,
@@ -1239,6 +1284,21 @@ class ProtocolPrsService:
                 code="WRONG_APPOINTMENT_TYPE",
             )
         await self._assert_prs_instance_patient_match(body.instance_id, appt["patient_id"])
+
+        # Hard-reject a late submission against a superseded protocol — the
+        # actual enforcement for the PRS-freeze mechanism. Without this, a
+        # very late answer could still be recorded here and retroactively
+        # change an already-reported protocol version's outcome numbers,
+        # even after its scale rows were marked 'frozen'.
+        from app.modules.device_sessions.repository import DeviceSessionRepository, DeviceSessionScaleRepository
+
+        header = await DeviceSessionRepository(self.session).get_by_appointment(body.appointment_id)
+        if header and await DeviceSessionScaleRepository(self.session).any_frozen_for_session(header["device_session_record_id"]):
+            raise BusinessRuleError(
+                "This assessment is no longer open — the protocol it belonged to has since been amended",
+                code="SESSION_SCALE_FROZEN",
+            )
+
         try:
             row = await self.repo.create_device_session(
                 {
@@ -1253,26 +1313,30 @@ class ProtocolPrsService:
             # uq_ds_prs_appointment: one PRS per visit.
             raise ConflictError("A PRS response already exists for this session", code="PRS_ALREADY_RECORDED") from exc
 
-        await self._complete_due_scales(appt["appointment_id"], body.instance_id)
+        await self._complete_due_scales(appt["appointment_id"], body.instance_id, body.scale_id)
         return {**row, "response_id": row["ds_prs_id"], "kind": "device_session"}
 
-    async def _complete_due_scales(self, appointment_id: UUID, prs_instance_id: str) -> None:
+    async def _complete_due_scales(self, appointment_id: UUID, prs_instance_id: str, scale_id: str) -> None:
         """device_session_scales tracks per-scale delivery for this visit
         (seeded 'pending' by list_scales_due, device_sessions module) but
         nothing ever advanced it past that — this is the missing link,
         called once the PRS instance recorded above is confirmed to be this
         patient's. Matches by protocol_scales.prs_scale_id, the same
-        catalogue-identity join _SESSION_SCALE_SELECT already relies on."""
+        catalogue-identity join _SESSION_SCALE_SELECT already relies on.
+
+        Scoped to the single scale_id the caller says this session actually
+        administered — NOT every prs_scale_results row on the instance.
+        instance_id is disease-scoped (core.prs_assessment_instances has no
+        per-scale column) and can carry results for sibling scales answered
+        elsewhere under the same disease/patient; sweeping all of them here
+        previously marked those unanswered siblings 'completed' too."""
         from app.modules.device_sessions.repository import DeviceSessionRepository, DeviceSessionScaleRepository
-        from app.modules.prs.repository import PrsScaleResultRepository
 
         header = await DeviceSessionRepository(self.session).get_by_appointment(appointment_id)
         if not header:
             return
-        scale_results = await PrsScaleResultRepository(self.session).list_for_instance(prs_instance_id)
-        scale_ids = [r["scale_id"] for r in scale_results]
         await DeviceSessionScaleRepository(self.session).complete_for_prs_instance(
-            header["device_session_record_id"], prs_instance_id, scale_ids
+            header["device_session_record_id"], prs_instance_id, [scale_id]
         )
 
     async def record_follow_up(self, protocol_id: UUID, body: s.FollowUpPrsCreate, ctx: RequestContext) -> dict:

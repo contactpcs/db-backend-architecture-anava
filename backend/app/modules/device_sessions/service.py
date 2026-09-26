@@ -43,6 +43,7 @@ from app.modules.device_sessions.repository import (
     DeviceSessionScaleRepository,
     DeviceSessionSosEventRepository,
     DeviceSessionSymptomRepository,
+    DeviceSessionTvnsSettingsRepository,
 )
 from app.modules.scheduling.repository import AppointmentRepository
 
@@ -56,7 +57,7 @@ _TYPE_DEVICE_SESSION = "device_session"
 # is reachable by every role in device_sessions/router.py's _READERS, so it
 # must only attempt to seed missing rows when the caller is one of these —
 # everyone else just sees whatever the CA/system has already seeded.
-_SCALE_SEED_ROLES = {"super_admin", "clinic_admin", "clinical_assistant", "system"}
+_SCALE_SEED_ROLES = {"super_admin", "clinic_admin", "clinical_assistant", "doctor", "system"}
 
 # Session-level FSM. Deliberately separate from appointments.status — see
 # module docstring and 53's file header "WHAT THIS FILE DELIBERATELY DOES NOT DO".
@@ -86,6 +87,7 @@ class DeviceSessionService:
         self.activities = DeviceSessionActivityRepository(session)
         self.scales = DeviceSessionScaleRepository(session)
         self.feedback = DeviceSessionFeedbackRepository(session)
+        self.tvns_settings = DeviceSessionTvnsSettingsRepository(session)
         self.media = DeviceSessionMediaRepository(session)
         self.events = DeviceSessionEventRepository(session)
         self.sos_events = DeviceSessionSosEventRepository(session)
@@ -136,6 +138,7 @@ class DeviceSessionService:
         detail["activities"] = await self.activities.list_for_session(sid)
         detail["scales"] = await self.scales.list_for_session(sid)
         detail["feedback"] = await self.feedback.get_for_session(sid)
+        detail["tvns_settings"] = await self.tvns_settings.get_for_session(sid)
         detail["media"] = await self.media.list_for_session(sid)
         detail["events"] = await self.events.list_for_session(sid)
         detail["sos_events"] = await self.sos_events.list_for_session(sid)
@@ -216,19 +219,41 @@ class DeviceSessionService:
         )
 
     async def start(self, appointment_id: UUID, ctx: RequestContext) -> dict:
-        await self._resolve_scoped_appointment(appointment_id, ctx)
+        appt = await self._resolve_scoped_appointment(appointment_id, ctx)
         header = await self._header_or_404(appointment_id)
         assert_transition(header["session_status"], "in_progress", _TRANSITIONS, entity="device session", code="INVALID_SESSION_TRANSITION")
+        # The appointment write below goes straight to the repository, past
+        # the scheduling FSM — so its rule (only a checked-in visit can start)
+        # is enforced here. Without it a session started unpaid or before the
+        # patient arrived.
+        if appt["status"] != "checked_in":
+            if appt["status"] == "paid":
+                raise BusinessRuleError("Check the patient in before starting the session", code="CHECK_IN_REQUIRED")
+            raise BusinessRuleError(
+                f"This session can't be started while the appointment is '{appt['status']}'",
+                code="APPOINTMENT_NOT_READY",
+            )
 
+        # performed_by_id/role stamped once, here, at the moment execution
+        # actually starts — a doctor or a clinical assistant, whoever hit
+        # start. Denormalised onto the header the same way protocol_id
+        # already is, so "who ran this" is a direct column read, not a join.
         now_columns = ["started_at"] if header.get("started_at") is None else []
         updated = await self.repo.update_with_now_columns(
-            header["device_session_record_id"], {"session_status": "in_progress"}, now_columns=now_columns
+            header["device_session_record_id"],
+            {"session_status": "in_progress", "performed_by_id": ctx.user_id, "performed_by_role": ctx.role},
+            now_columns=now_columns,
         )
 
         # Reuses the existing appointments FSM — appointments.status is the
         # single source of truth for this coarse transition, per the explicit
         # design decision in 53's file header.
-        await self.appointments.update_status(appointment_id, status="in_progress", ca_id=ctx.user_id)
+        try:
+            await self.appointments.update_status(appointment_id, status="in_progress", ca_id=ctx.user_id, executor_role=ctx.role)
+        except IntegrityError as exc:
+            # excl_ca_overlap: whoever tapped start is already running another
+            # session at this time (same mapping as scheduling's update_status).
+            raise ConflictError("You are already running another session at this time", code="SESSION_EXECUTOR_OVERLAP") from exc
 
         await self._write_event(header["device_session_record_id"], event_type="started", ctx=ctx)
         await emit_event(
@@ -291,6 +316,13 @@ class DeviceSessionService:
         # appointment is marked completed, not cancelled.
         await self.appointments.update_status(appointment_id, status="completed")
 
+        # Completion-time freeze check: this session may have been left
+        # in-flight (claimed/in-progress) when its protocol was amended out
+        # from under it — freeze_pending_for_protocol only catches sessions
+        # already completed at the moment of amendment. Catches that edge
+        # case right here, on the ordinary path it's a 0-row no-op.
+        await self.scales.freeze_pending_for_session(header["device_session_record_id"])
+
         await self._write_event(header["device_session_record_id"], event_type="stopped", ctx=ctx, payload={"reason": reason})
         await emit_event(
             self.session,
@@ -335,6 +367,9 @@ class DeviceSessionService:
         )
 
         await self.appointments.update_status(appointment_id, status="completed")
+
+        # Completion-time freeze check — see stop()'s identical comment.
+        await self.scales.freeze_pending_for_session(header["device_session_record_id"])
 
         await self._write_event(header["device_session_record_id"], event_type="completed", ctx=ctx)
         await emit_event(
@@ -429,7 +464,10 @@ class DeviceSessionService:
         return await self.notes.list_for_session(header["device_session_record_id"])
 
     async def record_activity(self, appointment_id: UUID, body, ctx: RequestContext) -> dict:
-        await self._resolve_scoped_appointment(appointment_id, ctx)
+        # _for_patient_write, not the plain scoped-appointment check — a
+        # patient can now self-log an activity from their own portal, same
+        # "either portal" shape scale delivery already has.
+        await self._resolve_scoped_appointment_for_patient_write(appointment_id, ctx)
         header = await self._header_or_404(appointment_id)
         created = await self.activities.create(
             {
@@ -449,6 +487,16 @@ class DeviceSessionService:
         return await self.activities.list_for_session(header["device_session_record_id"])
 
     # -- scales -------------------------------------------------------------
+
+    async def list_pending_for_caller(self, ctx: RequestContext) -> builtins.list[dict]:
+        """Every patient_app scale still open across all of the caller's own
+        device sessions — powers the patient dashboard's "scales sent to
+        you" widget, so they don't have to already be on a specific
+        device-sessions/{id} page to find one. RLS on device_session_scales
+        already scopes this to the caller's own appointments; no separate
+        clinic-scope check is needed the way appointment-scoped endpoints
+        need _resolve_scoped_appointment."""
+        return await self.scales.list_pending_for_patient(UUID(ctx.user_id))
 
     async def list_scales_due(self, appointment_id: UUID, ctx: RequestContext) -> builtins.list[dict]:
         """Seeds device_session_scales from the protocol's protocol_scales on
@@ -486,6 +534,11 @@ class DeviceSessionService:
         existing = await self.scales.get(header["device_session_record_id"], protocol_scale_id)
         if not existing:
             raise NotFoundError("No scale row for this protocol_scale_id on this session", code="SESSION_SCALE_NOT_FOUND")
+        if existing["status"] == "frozen":
+            raise BusinessRuleError(
+                "This assessment is no longer open — the protocol it belonged to has since been amended",
+                code="SESSION_SCALE_FROZEN",
+            )
         return await self.scales.upsert(
             header["device_session_record_id"],
             protocol_scale_id,
@@ -507,6 +560,11 @@ class DeviceSessionService:
         existing = await self.scales.get(header["device_session_record_id"], protocol_scale_id)
         if not existing:
             raise NotFoundError("No scale row for this protocol_scale_id on this session", code="SESSION_SCALE_NOT_FOUND")
+        if existing["status"] == "frozen":
+            raise BusinessRuleError(
+                "This assessment is no longer open — the protocol it belonged to has since been amended",
+                code="SESSION_SCALE_FROZEN",
+            )
         # update_existing, not upsert — a patient's RLS role can UPDATE this
         # row but not INSERT, and upsert()'s ON CONFLICT still requires the
         # INSERT policy to pass. The row is already confirmed to exist above.
@@ -533,6 +591,27 @@ class DeviceSessionService:
         except IntegrityError as exc:
             # uq_dsf_device_session — one feedback row per session.
             raise ConflictError("Feedback has already been recorded for this session", code="FEEDBACK_ALREADY_RECORDED") from exc
+        return created
+
+    # -- tVNS session settings --------------------------------------------------
+
+    async def record_tvns_settings(self, appointment_id: UUID, fields: dict, ctx: RequestContext) -> dict:
+        """Records the device settings (wavelength/pattern/strength/frequency/
+        pulse width/duration) actually dialled in for this session. CA-entered
+        at session setup, same access tier as the device-fit checklist — not
+        a patient write, unlike feedback."""
+        await self._resolve_scoped_appointment(appointment_id, ctx)
+        header = await self._header_or_404(appointment_id)
+        try:
+            created = await self.tvns_settings.create(
+                {
+                    "device_session_record_id": str(header["device_session_record_id"]),
+                    **fields,
+                }
+            )
+        except IntegrityError as exc:
+            # uq_tvns_session_settings_session — one settings row per session.
+            raise ConflictError("tVNS settings have already been recorded for this session", code="TVNS_SETTINGS_ALREADY_RECORDED") from exc
         return created
 
     # -- media / consent ------------------------------------------------------

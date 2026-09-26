@@ -251,7 +251,7 @@ class DeviceSessionActivityRepository:
 
 
 _SESSION_SCALE_SELECT = (
-    "SELECT ss.*, ps.scale_id AS protocol_scale_scale_id, "
+    "SELECT ss.*, ps.scale_id AS protocol_scale_scale_id, ps.prs_scale_id AS scale_id, "
     "  COALESCE(pr.scale_code, ns.scale_code) AS scale_code, "
     "  COALESCE(pr.scale_name, ns.scale_name) AS scale_name "
     "FROM device_session_scales ss "
@@ -361,6 +361,7 @@ class DeviceSessionScaleRepository:
                         "WHERE ss.protocol_scale_id = ps.protocol_scale_id "
                         "AND ss.device_session_record_id = :sid "
                         "AND ps.prs_scale_id = ANY(:scale_ids) "
+                        "AND ss.status <> 'frozen' "
                         "RETURNING ss.*"
                     ),
                     {"instance_id": prs_instance_id, "sid": str(device_session_record_id), "scale_ids": scale_ids},
@@ -392,6 +393,98 @@ class DeviceSessionScaleRepository:
         )
         return [dict(r) for r in rows]
 
+    async def list_pending_for_patient(self, patient_id: UUID) -> builtins.list[dict]:
+        """Every patient_app scale still open (pending/in_progress) across
+        ALL of this patient's device sessions — the dashboard's "scales sent
+        to you" widget. RLS on device_session_scales already allows a
+        patient to read any row reachable via appointments.patient_id
+        (56_device_session_records.sql's rls_device_session_scales_select),
+        so this is one query, not the appointment-by-appointment N+1 the CA
+        screens use — those need a specific session's full due-list
+        (including non-patient_app rows), this needs the opposite slice."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT ss.*, ps.scale_id AS protocol_scale_scale_id, ps.prs_scale_id AS scale_id, "
+                        "  COALESCE(pr.scale_code, ns.scale_code) AS scale_code, "
+                        "  COALESCE(pr.scale_name, ns.scale_name) AS scale_name, "
+                        "  ds.appointment_id, a.appointment_date, a.session_number "
+                        "FROM device_session_scales ss "
+                        "JOIN protocol_scales ps ON ps.protocol_scale_id = ss.protocol_scale_id "
+                        "LEFT JOIN reference.prs_scales pr ON pr.scale_id = ps.prs_scale_id "
+                        "LEFT JOIN reference.neuromod_scales ns ON ns.scale_id = ps.scale_id "
+                        "JOIN device_sessions ds ON ds.device_session_record_id = ss.device_session_record_id "
+                        "JOIN appointments a ON a.appointment_id = ds.appointment_id "
+                        "WHERE a.patient_id = :patient_id "
+                        "AND ss.delivery_mode = 'patient_app' "
+                        "AND ss.status IN ('pending', 'in_progress') "
+                        "ORDER BY a.appointment_date DESC, ps.display_order"
+                    ),
+                    {"patient_id": str(patient_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def any_frozen_for_session(self, device_session_record_id: UUID) -> bool:
+        """True if this session has at least one scale row already frozen
+        (its protocol was superseded before the patient answered) — the
+        submission-time hard-reject record_device_session checks before
+        accepting a late PRS response, so freezing actually blocks a write
+        instead of being a cosmetic label."""
+        row = (
+            await self.session.execute(
+                text("SELECT 1 FROM device_session_scales WHERE device_session_record_id = :sid AND status = 'frozen' LIMIT 1"),
+                {"sid": str(device_session_record_id)},
+            )
+        ).first()
+        return row is not None
+
+    async def freeze_pending_for_protocol(self, protocol_id: UUID) -> int:
+        """Amendment-time sweep: flips every still-'pending' scale row on an
+        ALREADY-COMPLETED device session under this protocol to 'frozen'.
+        Deliberately scoped to completed sessions only — a session still
+        claimed/in-progress at the moment of amendment is left alone (it
+        will finish under the old protocol regardless, per relink_planned_
+        matching/cancel_planned's own "rows already claimed are left alone"
+        rule) and gets its own freeze check at ITS completion instead, via
+        freeze_pending_for_session below. Called from ProtocolService inside
+        the same transaction as the supersede, so there is no window where a
+        late submission could land between amendment and freeze."""
+        result = await self.session.execute(
+            text(
+                "UPDATE device_session_scales ss SET status = 'frozen', updated_at = NOW() "
+                "FROM device_sessions ds JOIN appointments a ON a.appointment_id = ds.appointment_id "
+                "WHERE ss.device_session_record_id = ds.device_session_record_id "
+                "AND ds.protocol_id = :protocol_id AND a.status = 'completed' AND ss.status = 'pending'"
+            ),
+            {"protocol_id": str(protocol_id)},
+        )
+        return result.rowcount or 0  # type: ignore[attr-defined]
+
+    async def freeze_pending_for_session(self, device_session_record_id: UUID) -> int:
+        """Completion-time hook for the edge case freeze_pending_for_protocol
+        can't catch: a session still claimed/in-progress at the exact moment
+        its protocol was amended completes normally afterward, under the now-
+        superseded protocol. Called from DeviceSessionService.complete()/stop()
+        right after the appointment is marked completed — freezes any of
+        THIS session's still-pending scales if its own protocol has since
+        moved to 'superseded'. A no-op (0 rows) for the ordinary case where
+        the protocol is still active."""
+        result = await self.session.execute(
+            text(
+                "UPDATE device_session_scales ss SET status = 'frozen', updated_at = NOW() "
+                "FROM device_sessions ds JOIN protocol_plan pp ON pp.protocol_id = ds.protocol_id "
+                "WHERE ss.device_session_record_id = ds.device_session_record_id "
+                "AND ds.device_session_record_id = :sid AND pp.status = 'superseded' AND ss.status = 'pending'"
+            ),
+            {"sid": str(device_session_record_id)},
+        )
+        return result.rowcount or 0  # type: ignore[attr-defined]
+
 
 class DeviceSessionFeedbackRepository:
     """core.device_session_feedback — one row per session (uq_dsf_device_session)."""
@@ -407,6 +500,25 @@ class DeviceSessionFeedbackRepository:
         return await fetch_optional(
             self.session,
             text("SELECT * FROM device_session_feedback WHERE device_session_record_id = :id"),
+            {"id": str(device_session_record_id)},
+        )
+
+
+class DeviceSessionTvnsSettingsRepository:
+    """core.tvns_session_settings — one row per session (uq_tvns_session_settings_session),
+    only meaningful when the session's protocol device is modality tVNS."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create(self, data: dict) -> dict:
+        sql, params = insert_returning("tvns_session_settings", data)
+        return await fetch_one(self.session, sql, params)
+
+    async def get_for_session(self, device_session_record_id: UUID) -> dict | None:
+        return await fetch_optional(
+            self.session,
+            text("SELECT * FROM tvns_session_settings WHERE device_session_record_id = :id"),
             {"id": str(device_session_record_id)},
         )
 

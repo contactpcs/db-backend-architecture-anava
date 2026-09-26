@@ -6,10 +6,13 @@ navigate by, and device_sessions.appointment_id is UNIQUE (uq_device_sessions_ap
 so it doubles as the session's own identity without a second id in the URL.
 
 Role gates mirror treatment_protocols/router.py's group pattern: _ALL_STAFF
-for read-mostly staff endpoints, a narrower _CA_WRITERS for the clinical
-assistant actions that actually run the session, and _PATIENT_WRITERS for
-the three places a patient (or a CA on the patient's behalf) files something
-about their own experience — feedback, scale delivery status, raising SOS.
+for read-mostly staff endpoints, a narrower _CA_WRITERS for the actions that
+actually run the session — a clinical assistant OR a doctor, either can
+execute a device session end-to-end — and _PATIENT_WRITERS for the places a
+patient (or a CA/doctor on the patient's behalf) files something about their
+own experience — feedback, scale delivery status, raising SOS. Activities
+additionally allows a patient to self-log one from their own portal
+(_ACTIVITY_WRITERS), same "either portal" shape scale delivery already has.
 """
 
 from __future__ import annotations
@@ -26,14 +29,27 @@ from app.modules.device_sessions.service import DeviceSessionService
 router = APIRouter()
 
 _ALL_STAFF = ("super_admin", "regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist")
-_CA_WRITERS = ("super_admin", "clinical_assistant")
+_CA_WRITERS = ("super_admin", "clinical_assistant", "doctor")
 _READERS = (*_ALL_STAFF, "patient")
-_PATIENT_WRITERS = ("super_admin", "clinical_assistant", "patient")  # feedback, scale status, sos raise
+_PATIENT_WRITERS = ("super_admin", "clinical_assistant", "doctor", "patient")  # feedback, scale status, sos raise
+_ACTIVITY_WRITERS = (*_CA_WRITERS, "patient")  # activities: staff-logged during the session, or patient-logged from their own portal
 
 
 # --------------------------------------------------------------------------
 # Header / checklist
 # --------------------------------------------------------------------------
+
+
+@router.get("/me/device-session-scales", response_model=list[s.PendingPatientScaleRead])
+async def list_my_pending_device_session_scales(
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("patient")),
+):
+    """Every patient_app scale still open across ALL of the caller's device
+    sessions — the dashboard's "scales sent to you" widget, so a patient can
+    find one without already being on its specific device-sessions/{id}
+    page. Patient-only: this is the caller's own inbox, not a staff view."""
+    return await DeviceSessionService(db).list_pending_for_caller(ctx)
 
 
 @router.get("/device-sessions/{appointment_id}", response_model=s.DeviceSessionDetail)
@@ -234,7 +250,7 @@ async def record_activity(
     appointment_id: UUID,
     body: s.ActivityCreate,
     db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role(*_CA_WRITERS)),
+    ctx: RequestContext = Depends(require_role(*_ACTIVITY_WRITERS)),
 ):
     return await DeviceSessionService(db).record_activity(appointment_id, body, ctx)
 
@@ -305,6 +321,24 @@ async def record_feedback(
     """Patient, or CA on the patient's behalf. One row per session
     (uq_dsf_device_session) — a repeat call 409s."""
     return await DeviceSessionService(db).record_feedback(appointment_id, body.answers.model_dump(), body.quote, ctx)
+
+
+# --------------------------------------------------------------------------
+# tVNS session settings
+# --------------------------------------------------------------------------
+
+
+@router.post("/device-sessions/{appointment_id}/tvns-settings", response_model=s.TvnsSessionSettingsRead, status_code=201)
+async def record_tvns_settings(
+    appointment_id: UUID,
+    body: s.TvnsSessionSettingsCreate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_CA_WRITERS)),
+):
+    """Device settings dialled in for this session — wavelength, pattern,
+    strength, frequency, pulse width, duration. One row per session
+    (uq_tvns_session_settings_session) — a repeat call 409s."""
+    return await DeviceSessionService(db).record_tvns_settings(appointment_id, body.model_dump(), ctx)
 
 
 # --------------------------------------------------------------------------

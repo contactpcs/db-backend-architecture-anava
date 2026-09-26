@@ -1,10 +1,11 @@
-"""Auto-marks an unattended appointment 'no_show' instead of leaving it stuck
-at 'paid'/'checked_in' forever with nobody noticing (see the eng review this
+"""Auto-marks an unattended appointment 'no_show' (or, for a never-claimed
+protocol-born row, 'missed') instead of leaving it stuck at 'paid'/
+'checked_in'/'planned' forever with nobody noticing (see the eng review this
 came out of: a missed, paid appointment was visually indistinguishable from a
 normal upcoming one, forever, unless a staff member happened to manually flag
 it — which nothing ever prompted them to do).
 
-TWO INDEPENDENT BRANCHES, each its own grace window (app/config.py):
+THREE INDEPENDENT BRANCHES:
 
     paid, never checked in       -> no_show once appointment_no_show_paid_grace_hours
                                      have passed since the slot's own start time.
@@ -25,9 +26,22 @@ TWO INDEPENDENT BRANCHES, each its own grace window (app/config.py):
                                      TIMESTAMPTZ column — safe to compare
                                      against SQL NOW() directly.
 
-Once no_show, PatientBookingService.reschedule_own (scheduling/service.py)
-now accepts it as a valid rescheduling source — this worker's whole point is
-to get a missed slot INTO that reschedulable state automatically instead of
+    planned protocol-born row,   -> missed once appointment_date is in the
+    slot never claimed at all       past (IST). A device_session/
+                                     protocol_followup starts 'planned' — a
+                                     doctor-set date, no slot, no payment
+                                     attempt (32_treatment_protocol.sql) — and
+                                     nothing else ever moves it out of
+                                     'planned' if the patient never claims a
+                                     slot before that date arrives. No grace
+                                     window: unlike the other two branches
+                                     there is no "slot time" to add hours to,
+                                     only a date, so this waits for the day to
+                                     fully pass rather than firing mid-day.
+
+Once no_show/missed, AppointmentService.reschedule (scheduling/service.py)
+accepts both as a valid rescheduling source — this worker's whole point is to
+get a missed slot INTO that reschedulable state automatically instead of
 waiting on a staff member to notice and mark it by hand.
 """
 
@@ -114,10 +128,32 @@ async def sweep_once() -> dict:
             )
             checked_in_ids = [row[0] for row in checked_in_result.fetchall()]
 
+            # -- branch 3: planned protocol-born row, date passed, slot never claimed --
+            today = _now_ist_naive().date()
+            await session.execute(
+                text(
+                    "INSERT INTO appointment_audit_logs (appointment_id, changed_by, changed_by_role, "
+                    "previous_status, new_status, change_reason) "
+                    "SELECT appointment_id, NULL, 'system', 'planned', 'missed', "
+                    "'Prescribed date passed without a slot ever being claimed' "
+                    "FROM appointments WHERE status = 'planned' AND appointment_date < :today"
+                ),
+                {"today": today},
+            )
+            missed_result = await session.execute(
+                text(
+                    "UPDATE appointments SET status = 'missed', updated_at = NOW() "
+                    "WHERE status = 'planned' AND appointment_date < :today "
+                    "RETURNING appointment_id"
+                ),
+                {"today": today},
+            )
+            missed_ids = [row[0] for row in missed_result.fetchall()]
+
             # Reuses the same event_type the manual PATCH .../status path
             # emits (scheduling/service.py::update_status) — event_relay.py's
             # existing _handle_appointment_status_changed handler needs no
-            # new wiring, just a 'no_show' entry in its _STATUS_TITLES.
+            # new wiring, just a 'no_show'/'missed' entry in its _STATUS_TITLES.
             for appointment_id in (*paid_ids, *checked_in_ids):
                 await emit_event(
                     session,
@@ -126,14 +162,23 @@ async def sweep_once() -> dict:
                     event_type="appointment_status_changed",
                     payload={"appointment_id": str(appointment_id), "status": "no_show", "changed_by_role": "system"},
                 )
+            for appointment_id in missed_ids:
+                await emit_event(
+                    session,
+                    aggregate_type="appointment",
+                    aggregate_id=appointment_id,
+                    event_type="appointment_status_changed",
+                    payload={"appointment_id": str(appointment_id), "status": "missed", "changed_by_role": "system"},
+                )
 
             result = {
                 "no_show_from_paid": len(paid_ids),
                 "no_show_from_checked_in": len(checked_in_ids),
+                "missed_from_planned": len(missed_ids),
                 "skipped": False,
             }
 
-    if result["no_show_from_paid"] or result["no_show_from_checked_in"]:
+    if result["no_show_from_paid"] or result["no_show_from_checked_in"] or result["missed_from_planned"]:
         logger.info("appointments_auto_no_show", **result)
     return result
 

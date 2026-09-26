@@ -142,7 +142,7 @@ class ReportsRepository:
                         "JOIN neuromod_devices nd ON nd.device_id = pp.device_id "
                         "LEFT JOIN tdcs_placements t1 ON t1.tdcs_placement_id = pp.tdcs_placement_id "
                         "LEFT JOIN hd_tdcs_placements t2 ON t2.hd_tdcs_placement_id = pp.hd_tdcs_placement_id "
-                        "LEFT JOIN tavns_placements t3 ON t3.tavns_placement_id = pp.tavns_placement_id "
+                        "LEFT JOIN tvns_placements t3 ON t3.tvns_placement_id = pp.tvns_placement_id "
                         "LEFT JOIN tps_placements t4 ON t4.tps_placement_id = pp.tps_placement_id "
                         "LEFT JOIN rtms_placements t5 ON t5.rtms_placement_id = pp.rtms_placement_id "
                         "LEFT JOIN other_placements t6 ON t6.other_placement_id = pp.other_placement_id "

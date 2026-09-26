@@ -14,7 +14,19 @@ _redis: aioredis.Redis | None = None
 def get_redis() -> aioredis.Redis:
     global _redis
     if _redis is None:
-        _redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+        # An unreachable Redis (VPC-only ElastiCache from a laptop, a network
+        # blip) must fail in seconds, not after the OS connect timeout — this
+        # client is reached from the per-request auth path and the relay. No
+        # socket_timeout on purpose: the SSE subscriber legitimately blocks in
+        # get_message(timeout=25). health_check_interval drops dead pooled
+        # connections (idle timeouts, failovers) instead of reusing them.
+        _redis = aioredis.from_url(
+            settings.redis_url,
+            decode_responses=True,
+            socket_connect_timeout=3,
+            socket_keepalive=True,
+            health_check_interval=30,
+        )
     return _redis
 
 
