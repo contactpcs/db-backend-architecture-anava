@@ -17,6 +17,7 @@ covering all ~30 event types in the catalog now.
 
 import asyncio
 import json
+import time
 from typing import Any
 
 import asyncpg
@@ -33,6 +34,20 @@ logger = structlog.get_logger()
 settings = get_settings()
 
 POLL_INTERVAL_SECONDS = 5.0
+HEARTBEAT_SECONDS = 300.0
+
+# Live counters for the heartbeat log and GET /api/v1/health/live — the only
+# way to tell from outside whether the relay is idle because there is nothing
+# to do, or because it cannot see or write what it should.
+RELAY_STATE: dict[str, Any] = {
+    "started_at": None,
+    "last_drain_at": None,
+    "last_event_at": None,
+    "processed_total": 0,
+    "handler_failures_total": 0,
+    "live_push_failures_total": 0,
+    "last_error": None,
+}
 
 # rls_notif_insert requires rls_user_role() to be a real staff role — set by
 # AuthContextMiddleware inside an HTTP request. This worker has no request
@@ -499,7 +514,8 @@ async def _process_event(session, event: dict) -> None:
                 ),
             )
         except Exception as exc:
-            logger.warning("event_relay_live_push_failed", recipient_id=str(note["recipient_id"]), error=str(exc))
+            RELAY_STATE["live_push_failures_total"] += 1
+            logger.warning("event_relay_live_push_failed", recipient_id=str(note["recipient_id"]), error=repr(exc))
 
 
 async def drain_outbox(limit: int = 100) -> int:
@@ -516,6 +532,11 @@ async def drain_outbox(limit: int = 100) -> int:
     while processed < limit:
         async with _relay_session_factory() as session:
             async with session.begin():
+                # RLS role 'system' (SQL/v1/93): the relay acts for the platform,
+                # not a person. Without it, under the ordinary app login it saw
+                # zero events and could neither mark them sent nor write
+                # notifications — silently. Harmless under the master login.
+                await session.execute(text("SELECT set_config('app.current_user_role', 'system', true)"))
                 row = (
                     (
                         await session.execute(
@@ -533,14 +554,60 @@ async def drain_outbox(limit: int = 100) -> int:
                 try:
                     async with session.begin_nested():
                         await _process_event(session, event)
-                except Exception:
+                except Exception as exc:
+                    RELAY_STATE["handler_failures_total"] += 1
+                    RELAY_STATE["last_error"] = f"{event['event_type']}: {exc!r}"[:500]
                     logger.exception("event_relay_handler_failed", outbox_id=str(event["outbox_id"]), event_type=event["event_type"])
                 await session.execute(
                     text("UPDATE outbox_events SET published_at = NOW() WHERE outbox_id = :id"),
                     {"id": event["outbox_id"]},
                 )
         processed += 1
+        RELAY_STATE["processed_total"] += 1
+        RELAY_STATE["last_event_at"] = time.time()
+    RELAY_STATE["last_drain_at"] = time.time()
     return processed
+
+
+async def relay_backlog() -> dict[str, Any]:
+    """Undelivered outbox events as the relay itself sees them (same engine,
+    same 'system' role) — 0 while events are clearly being created means the
+    relay can't see them (RLS/login), a growing number means it isn't
+    draining."""
+    async with _relay_session_factory() as session:
+        async with session.begin():
+            await session.execute(text("SELECT set_config('app.current_user_role', 'system', true)"))
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT count(*) AS n, EXTRACT(EPOCH FROM now() - min(created_at)) AS oldest_s, current_user AS db_login "
+                            "FROM outbox_events WHERE published_at IS NULL"
+                        )
+                    )
+                )
+                .mappings()
+                .one()
+            )
+    return {"undelivered": int(row["n"]), "oldest_undelivered_seconds": row["oldest_s"], "db_login": row["db_login"]}
+
+
+async def _heartbeat_forever() -> None:
+    """One INFO line every 5 minutes, so the relay is visible in the logs even
+    when nothing goes wrong (failures alone used to be the only trace)."""
+    while True:
+        await asyncio.sleep(HEARTBEAT_SECONDS)
+        try:
+            backlog = await relay_backlog()
+        except Exception as exc:
+            backlog = {"error": repr(exc)}
+        logger.info(
+            "event_relay_heartbeat",
+            processed_total=RELAY_STATE["processed_total"],
+            handler_failures_total=RELAY_STATE["handler_failures_total"],
+            live_push_failures_total=RELAY_STATE["live_push_failures_total"],
+            **backlog,
+        )
 
 
 async def _listen_and_drain() -> None:
@@ -567,6 +634,8 @@ async def run_forever() -> None:
     blip (dropped LISTEN connection, failed drain) restarts the listener
     after a pause instead of silently ending notifications for good."""
     logger.info("event_relay_started")
+    RELAY_STATE["started_at"] = time.time()
+    heartbeat = asyncio.create_task(_heartbeat_forever())
     try:
         while True:
             try:
@@ -574,9 +643,11 @@ async def run_forever() -> None:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                RELAY_STATE["last_error"] = repr(exc)[:500]
                 logger.exception("event_relay_crashed_restarting", error=str(exc))
                 await asyncio.sleep(POLL_INTERVAL_SECONDS)
     finally:
+        heartbeat.cancel()
         await _relay_engine.dispose()
 
 

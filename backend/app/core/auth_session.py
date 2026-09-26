@@ -50,6 +50,11 @@ _BREAKER_SECONDS = 15.0
 _down_until = 0.0
 
 
+def breaker_open_for_seconds() -> float:
+    """0 when Redis is being used normally; otherwise how long it is still skipped."""
+    return max(_down_until - time.monotonic(), 0.0)
+
+
 class RedisUnavailable(Exception):
     """Redis was skipped (breaker open) or failed just now."""
 
