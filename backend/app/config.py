@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     # is racing a 15-minute window; this one is racing multi-hour windows.
     appointment_no_show_sweep_interval_seconds: int = 900
     appointment_no_show_sweeper_enabled: bool = True
+    # Outbox relay (app/workers/event_relay.py): turns outbox events into
+    # notifications rows + live SSE pushes. Off = nobody is ever notified.
+    event_relay_enabled: bool = True
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"

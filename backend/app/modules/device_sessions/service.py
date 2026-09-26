@@ -219,9 +219,20 @@ class DeviceSessionService:
         )
 
     async def start(self, appointment_id: UUID, ctx: RequestContext) -> dict:
-        await self._resolve_scoped_appointment(appointment_id, ctx)
+        appt = await self._resolve_scoped_appointment(appointment_id, ctx)
         header = await self._header_or_404(appointment_id)
         assert_transition(header["session_status"], "in_progress", _TRANSITIONS, entity="device session", code="INVALID_SESSION_TRANSITION")
+        # The appointment write below goes straight to the repository, past
+        # the scheduling FSM — so its rule (only a checked-in visit can start)
+        # is enforced here. Without it a session started unpaid or before the
+        # patient arrived.
+        if appt["status"] != "checked_in":
+            if appt["status"] == "paid":
+                raise BusinessRuleError("Check the patient in before starting the session", code="CHECK_IN_REQUIRED")
+            raise BusinessRuleError(
+                f"This session can't be started while the appointment is '{appt['status']}'",
+                code="APPOINTMENT_NOT_READY",
+            )
 
         # performed_by_id/role stamped once, here, at the moment execution
         # actually starts — a doctor or a clinical assistant, whoever hit
@@ -237,7 +248,12 @@ class DeviceSessionService:
         # Reuses the existing appointments FSM — appointments.status is the
         # single source of truth for this coarse transition, per the explicit
         # design decision in 53's file header.
-        await self.appointments.update_status(appointment_id, status="in_progress", ca_id=ctx.user_id, executor_role=ctx.role)
+        try:
+            await self.appointments.update_status(appointment_id, status="in_progress", ca_id=ctx.user_id, executor_role=ctx.role)
+        except IntegrityError as exc:
+            # excl_ca_overlap: whoever tapped start is already running another
+            # session at this time (same mapping as scheduling's update_status).
+            raise ConflictError("You are already running another session at this time", code="SESSION_EXECUTOR_OVERLAP") from exc
 
         await self._write_event(header["device_session_record_id"], event_type="started", ctx=ctx)
         await emit_event(

@@ -476,3 +476,31 @@ def test_slot_write_conflict_names_the_patients_own_overlap():
     assert own.code == "PATIENT_SESSION_OVERLAP"
     other = _slot_write_conflict(err('conflicting key value violates exclusion constraint "excl_ca_overlap"'))
     assert other.code == "APPOINTMENT_SLOT_TAKEN"
+
+
+def test_starting_a_paid_visit_says_check_in_first():
+    """Check-in stays mandatory (decision 2026-09-26); starting straight from
+    'paid' names the missing step instead of a generic transition error."""
+    from app.core.db import RequestContext
+    from app.core.exceptions import BusinessRuleError
+    from app.modules.scheduling.service import AppointmentService
+
+    svc = AppointmentService.__new__(AppointmentService)
+    ctx = RequestContext(user_id="d1", role="doctor", clinic_id="c1", region_id=None)
+    appt = {"status": STATUS_PAID, "appointment_type": "initial", "doctor_id": "d1", "patient_id": "p1"}
+    with pytest.raises(BusinessRuleError) as err:
+        svc._authorize_transition(appt, status="in_progress", ctx=ctx)
+    assert err.value.code == "CHECK_IN_REQUIRED"
+
+
+def test_booking_conflict_names_the_duplicate_initial():
+    from sqlalchemy.exc import IntegrityError
+
+    from app.core.exceptions import ConflictError
+    from app.modules.scheduling.service import _booking_conflict
+
+    fallback = ConflictError("slot taken", code="APPOINTMENT_SLOT_TAKEN")
+    dup = IntegrityError("INSERT ...", {}, Exception('duplicate key value violates unique constraint "uq_one_active_initial_per_patient"'))
+    overlap = IntegrityError("INSERT ...", {}, Exception('conflicting key value violates exclusion constraint "excl_doctor_overlap"'))
+    assert _booking_conflict(dup, fallback=fallback).code == "INITIAL_APPOINTMENT_EXISTS"
+    assert _booking_conflict(overlap, fallback=fallback) is fallback

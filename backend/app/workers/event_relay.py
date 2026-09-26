@@ -445,8 +445,22 @@ async def _handle_patient_registration_decided(session, payload: dict[str, Any])
     ]
 
 
+async def _handle_device_session_ended(session, payload: dict[str, Any]) -> list[dict]:
+    """device_session.completed / .stopped: the device-session service moves
+    the appointment to 'completed' through the repository directly, so no
+    appointment_status_changed event is emitted for it — this is that event."""
+    if not payload.get("appointment_id"):
+        return []
+    return await _handle_appointment_status_changed(session, {"appointment_id": payload["appointment_id"], "status": "completed"})
+
+
 EVENT_HANDLERS = {
     "appointment_booked": _handle_appointment_booked,
+    # A patient claiming a slot on a doctor-prescribed (planned) session is
+    # the same news as a booking: the slot is now held/confirmed.
+    "appointment_slot_claimed": _handle_appointment_booked,
+    "device_session.completed": _handle_device_session_ended,
+    "device_session.stopped": _handle_device_session_ended,
     "appointment_paid": _handle_appointment_paid,
     "appointment_cancelled": _handle_appointment_cancelled,
     "appointment_status_changed": _handle_appointment_status_changed,
@@ -469,66 +483,71 @@ async def _process_event(session, event: dict) -> None:
     repo = NotificationRepository(session)
     for note in notifications:
         record = await repo.create(note)
-        await publish_to_user(
-            note["recipient_id"],
-            json.dumps(
-                {
-                    "type": record["type"],
-                    "title": record["title"],
-                    "body": record["body"],
-                    "notification_id": str(record["notification_id"]),
-                }
-            ),
-        )
+        # The notifications row is the durable record; the Redis push only
+        # makes it appear live. Redis being down must not roll the row back
+        # (the event is marked published either way, so it would be lost).
+        try:
+            await publish_to_user(
+                note["recipient_id"],
+                json.dumps(
+                    {
+                        "type": record["type"],
+                        "title": record["title"],
+                        "body": record["body"],
+                        "notification_id": str(record["notification_id"]),
+                    }
+                ),
+            )
+        except Exception as exc:
+            logger.warning("event_relay_live_push_failed", recipient_id=str(note["recipient_id"]), error=str(exc))
 
 
-async def drain_outbox() -> int:
-    """Processes all currently-unpublished events once. Returns count processed.
+async def drain_outbox(limit: int = 100) -> int:
+    """Processes up to `limit` unpublished events. Returns count processed.
     Exposed separately from run_forever() so tests/scripts can drain
     synchronously without starting the long-running listener.
 
-    Each row gets its own transaction, and a handler failure is caught and
-    logged rather than left to propagate — one bad notification (e.g. a
-    handler using a type value the notifications table's CHECK constraint
-    rejects) must never take down every future notification with it, which
-    is exactly what letting one shared transaction/loop crash used to do."""
-    async with _relay_session_factory() as session:
-        async with session.begin():
-            outbox_rows = (
-                (await session.execute(text("SELECT * FROM outbox_events WHERE published_at IS NULL ORDER BY created_at LIMIT 100")))
-                .mappings()
-                .all()
-            )
-            rows = [dict(r) for r in outbox_rows]
-
+    One transaction per event, claimed with FOR UPDATE SKIP LOCKED: every API
+    instance runs this relay (app/main.py lifespan), and SKIP LOCKED is what
+    stops two of them sending the same notification twice. A handler failure
+    rolls back to a savepoint and is logged — the event is still marked
+    published, so one bad notification never blocks the queue behind it."""
     processed = 0
-    for row in rows:
+    while processed < limit:
         async with _relay_session_factory() as session:
-            try:
-                async with session.begin():
-                    await _process_event(session, row)
-                    await session.execute(
-                        text("UPDATE outbox_events SET published_at = NOW() WHERE outbox_id = :id"),
-                        {"id": row["outbox_id"]},
-                    )
-            except Exception:
-                logger.exception("event_relay_handler_failed", outbox_id=str(row["outbox_id"]), event_type=row["event_type"])
-                async with _relay_session_factory() as cleanup_session:
-                    async with cleanup_session.begin():
-                        await cleanup_session.execute(
-                            text("UPDATE outbox_events SET published_at = NOW() WHERE outbox_id = :id"),
-                            {"id": row["outbox_id"]},
+            async with session.begin():
+                row = (
+                    (
+                        await session.execute(
+                            text(
+                                "SELECT * FROM outbox_events WHERE published_at IS NULL ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED"
+                            )
                         )
+                    )
+                    .mappings()
+                    .first()
+                )
+                if row is None:
+                    break
+                event = dict(row)
+                try:
+                    async with session.begin_nested():
+                        await _process_event(session, event)
+                except Exception:
+                    logger.exception("event_relay_handler_failed", outbox_id=str(event["outbox_id"]), event_type=event["event_type"])
+                await session.execute(
+                    text("UPDATE outbox_events SET published_at = NOW() WHERE outbox_id = :id"),
+                    {"id": event["outbox_id"]},
+                )
         processed += 1
     return processed
 
 
-async def run_forever() -> None:
+async def _listen_and_drain() -> None:
     dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     conn = await asyncpg.connect(dsn)
     wake = asyncio.Event()
     await conn.add_listener("outbox_new_event", lambda *_: wake.set())
-    logger.info("event_relay_started")
     try:
         while True:
             n = await drain_outbox()
@@ -541,6 +560,23 @@ async def run_forever() -> None:
                 pass
     finally:
         await conn.close()
+
+
+async def run_forever() -> None:
+    """Background loop started from the FastAPI lifespan (app/main.py). A DB
+    blip (dropped LISTEN connection, failed drain) restarts the listener
+    after a pause instead of silently ending notifications for good."""
+    logger.info("event_relay_started")
+    try:
+        while True:
+            try:
+                await _listen_and_drain()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.exception("event_relay_crashed_restarting", error=str(exc))
+                await asyncio.sleep(POLL_INTERVAL_SECONDS)
+    finally:
         await _relay_engine.dispose()
 
 

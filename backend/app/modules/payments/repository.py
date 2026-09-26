@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db import as_system
 from app.core.sql_helpers import fetch_one, fetch_optional
 
 
@@ -153,14 +154,18 @@ class PaymentRepository:
         return [dict(r) for r in rows]
 
     async def set_cancellation_refund(self, payment_id: UUID, *, refund_percent: float, refund_amount: float) -> dict | None:
-        return await fetch_optional(
-            self.session,
-            text(
-                "UPDATE payments SET cancellation_refund_percent = :pct, cancellation_refund_amount = :amt "
-                "WHERE payment_id = :id RETURNING *"
-            ),
-            {"pct": refund_percent, "amt": refund_amount, "id": str(payment_id)},
-        )
+        # as_system: a patient cancelling their own visit runs as 'patient',
+        # which rls_payments_update does not admit — the UPDATE used to match
+        # 0 rows silently and no refund was ever recorded.
+        async with as_system(self.session):
+            return await fetch_optional(
+                self.session,
+                text(
+                    "UPDATE payments SET cancellation_refund_percent = :pct, cancellation_refund_amount = :amt "
+                    "WHERE payment_id = :id RETURNING *"
+                ),
+                {"pct": refund_percent, "amt": refund_amount, "id": str(payment_id)},
+            )
 
     async def get_by_razorpay_order_id(self, razorpay_order_id: str) -> dict | None:
         return await fetch_optional(self.session, text("SELECT * FROM payments WHERE razorpay_order_id = :id"), {"id": razorpay_order_id})
@@ -181,12 +186,16 @@ class PaymentRepository:
         (scheduling/service.py's AppointmentService.reschedule): the patient
         already paid for this visit, they're only moving its time, so the
         new row should carry that payment forward rather than starting a
-        fresh payment seam and asking them to pay twice for the same visit."""
-        return await fetch_optional(
-            self.session,
-            text("UPDATE payments SET appointment_id = :new_id, updated_at = NOW() WHERE payment_id = :id RETURNING *"),
-            {"new_id": str(new_appointment_id), "id": str(payment_id)},
-        )
+        fresh payment seam and asking them to pay twice for the same visit.
+
+        as_system: same RLS gap as set_cancellation_refund — a patient
+        rescheduling their own paid visit otherwise relinks nothing."""
+        async with as_system(self.session):
+            return await fetch_optional(
+                self.session,
+                text("UPDATE payments SET appointment_id = :new_id, updated_at = NOW() WHERE payment_id = :id RETURNING *"),
+                {"new_id": str(new_appointment_id), "id": str(payment_id)},
+            )
 
     async def get(self, payment_id: UUID) -> dict | None:
         return await fetch_optional(self.session, text("SELECT * FROM payments WHERE payment_id = :id"), {"id": str(payment_id)})
