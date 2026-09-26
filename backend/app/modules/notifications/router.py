@@ -2,12 +2,15 @@ import asyncio
 from uuid import UUID
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
+from app.core.auth_session import issue_stream_ticket
 from app.core.db import RequestContext, get_db
+from app.core.exceptions import AuthenticationError, ExternalServiceError
 from app.core.permissions import get_current_context
 from app.core.pubsub import get_redis, user_channel
+from app.core.security import verify_token
 from app.modules.notifications import schemas as s
 from app.modules.notifications.service import NotificationService
 
@@ -32,13 +35,35 @@ async def mark_notifications_read(body: s.MarkReadRequest, db=Depends(get_db), c
     return {"marked_read": count}
 
 
+@router.post("/events/ticket")
+async def create_stream_ticket(request: Request, _ctx: RequestContext = Depends(get_current_context)):
+    """Mints the one-time ticket the browser opens GET /events/stream with.
+
+    EventSource cannot send an Authorization header, so it used to carry the
+    access token in the URL — where it ends up in access logs, proxy logs and
+    browser history. A ticket is single-use and expires in seconds, so a
+    leaked one is already worthless. Called with the normal Bearer token
+    (get_current_context has already verified it)."""
+    claims = await verify_token(request.headers["Authorization"].removeprefix("Bearer ").strip())
+    try:
+        ticket = await issue_stream_ticket(claims["sub"])
+    except AuthenticationError:
+        raise
+    except Exception as exc:
+        # No Redis = no live stream anyway (the relay publishes through it).
+        # 503 tells the client to try again later rather than to log out.
+        logger.warning("stream_ticket_unavailable", error=str(exc))
+        raise ExternalServiceError("Live updates are temporarily unavailable", code="STREAM_UNAVAILABLE") from exc
+    return {"ticket": ticket}
+
+
 @router.get("/events/stream")
 async def event_stream(ctx: RequestContext = Depends(get_current_context)):
     """SSE live feed (Architecture Section 25.1) — one connection per logged-in
-    user, fed by the notification worker's Redis publish. Real browser clients
-    would need a token-via-query-param variant since EventSource can't set
-    Authorization headers; this dev/testable version keeps the same Bearer
-    auth as every other endpoint, consistent with how it's tested here."""
+    user, fed by the notification worker's Redis publish. Authenticated either
+    by a Bearer token or, for a browser EventSource (which cannot set
+    headers), by the one-time ?ticket= from POST /events/ticket — see
+    AuthContextMiddleware."""
 
     async def generator():
         # Redis is required for live push, but its absence (not installed/

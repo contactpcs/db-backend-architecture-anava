@@ -170,9 +170,10 @@ class NewPasswordRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    # Only populated by real Cognito login — local-login has no refresh
-    # token. Returned now so it's available once silent-refresh is built;
-    # nothing consumes it yet.
+    # Always None now: the refresh token travels only in the httpOnly
+    # `anava_refresh` cookie (core/auth_session.py), never in a response body
+    # a page script could read. Kept so older clients that read the field
+    # still parse the response.
     refresh_token: str | None = None
 
 

@@ -7,8 +7,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app.core.auth_session import consume_stream_ticket, is_access_token_revoked
 from app.core.db import RequestContext, engine, set_request_context
-from app.core.exceptions import AnavaException, PermissionError_
+from app.core.exceptions import AnavaException, AuthenticationError, PermissionError_
 from app.core.security import verify_token
 
 logger = structlog.get_logger()
@@ -24,6 +25,11 @@ PUBLIC_PATHS = {
     "/api/v1/auth/login",
     "/api/v1/auth/login/new-password",  # completes NEW_PASSWORD_REQUIRED — no session yet either
     "/api/v1/auth/local-login",  # dev-only (Stage 13 removes this route entirely)
+    # Authenticated by the httpOnly refresh cookie, not a bearer token: refresh
+    # runs precisely when the access token has expired, and logout must work
+    # (and clear the cookie) even with one that already has.
+    "/api/v1/auth/refresh",
+    "/api/v1/auth/logout",
     "/api/v1/auth/register",  # public patient self-registration — see patients module
     "/api/v1/auth/clinics",  # public clinic picker for the self-registration form
     "/api/v1/auth/config",  # public — tells the frontend which auth endpoints to call
@@ -66,6 +72,7 @@ PATIENT_SELF_REGISTRATION_PATH_PREFIXES = (
     # this an inactive mid-registration patient's EventSource 403s on every
     # single page of the registration wizard, not just once.
     "/api/v1/events/stream",
+    "/api/v1/events/ticket",  # the one-time ticket the stream is opened with
 )
 
 
@@ -310,14 +317,18 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         auth_header = request.headers.get("Authorization", "")
+        ticket: str | None = None
+        token: str | None = None
         if auth_header.startswith("Bearer "):
             token = auth_header.removeprefix("Bearer ").strip()
-        elif request.url.path == "/api/v1/events/stream" and request.query_params.get("token"):
-            # Browser EventSource can't set custom headers — SSE is the one
-            # endpoint that accepts the token as a query param instead. Not
-            # opened up generally: query-param tokens are more exposure-prone
-            # (logs, browser history), so this stays scoped to just this path.
-            token = request.query_params["token"]
+        elif request.url.path == "/api/v1/events/stream" and request.query_params.get("ticket"):
+            # Browser EventSource can't set custom headers, so the live stream
+            # is opened with a one-time, 30-second ticket minted by
+            # POST /events/ticket (an authenticated call) instead of the
+            # access token — which therefore never lands in a URL, and with
+            # it in access logs, proxy logs or browser history. Scoped to
+            # this one path.
+            ticket = request.query_params["ticket"]
         else:
             return JSONResponse(
                 status_code=401,
@@ -325,8 +336,20 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
             )
 
         try:
-            claims = await verify_token(token)
-            ctx = await _load_profile_and_scope(claims["sub"], request_id=request_id, ip_address=client_ip)
+            if ticket is not None:
+                sub = await consume_stream_ticket(ticket)
+                if sub is None:
+                    raise AuthenticationError("Invalid or expired stream ticket", code="INVALID_STREAM_TICKET")
+                cognito_sub = sub
+            else:
+                assert token is not None
+                claims = await verify_token(token)
+                # Logged-out tokens are still cryptographically valid until they
+                # expire; the denylist is what makes logout take effect at once.
+                if await is_access_token_revoked(claims["jti"]):
+                    raise AuthenticationError("This session has been signed out", code="TOKEN_REVOKED")
+                cognito_sub = claims["sub"]
+            ctx = await _load_profile_and_scope(cognito_sub, request_id=request_id, ip_address=client_ip)
         except AnavaException as exc:
             return JSONResponse(
                 status_code=exc.status_code,

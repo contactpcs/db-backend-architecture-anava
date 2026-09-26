@@ -7,6 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.core.auth_session import sign_out_profile
 from app.core.sql_helpers import fetch_one, fetch_optional, insert_returning
 
 settings = get_settings()
@@ -102,6 +103,8 @@ async def soft_delete_profile(session: AsyncSession, profile_id: UUID, *, delete
         text("UPDATE profiles SET deleted_by = :by, deleted_at = NOW(), is_active = FALSE WHERE id = :pid"),
         {"by": str(deleted_by), "pid": str(profile_id)},
     )
+    # A removed account must not be able to mint new tokens either.
+    await sign_out_profile(session, profile_id)
 
 
 class DoctorRepository:

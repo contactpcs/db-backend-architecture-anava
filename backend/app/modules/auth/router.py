@@ -1,14 +1,30 @@
+import asyncio
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
+from fastapi.responses import JSONResponse
+from jose import jwt as jose_jwt
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.config import get_settings
+from app.core.auth_session import (
+    clear_refresh_cookie,
+    read_refresh_cookie,
+    revoke_access_token,
+    set_refresh_cookie,
+)
 from app.core.db import RequestContext, engine, get_db
-from app.core.exceptions import AuthenticationError, ConflictError, NotFoundError, ValidationError, profile_conflict_error
+from app.core.exceptions import (
+    AnavaException,
+    AuthenticationError,
+    ConflictError,
+    NotFoundError,
+    ValidationError,
+    profile_conflict_error,
+)
 from app.core.permissions import get_current_context, require_role
-from app.core.security import create_local_token
+from app.core.security import create_local_token, verify_token
 from app.modules.auth.schemas import (
     CurrentUserRead,
     ForgotPasswordConfirm,
@@ -105,8 +121,24 @@ async def register_patient_public(body: PublicPatientRegister, db=Depends(get_db
     return PublicPatientRegisterResponse(access_token=token, patient_id=patient["patient_id"])
 
 
+def _start_session(response: Response, result: dict) -> str:
+    """Turns Cognito's AuthenticationResult into a browser session: the
+    refresh token goes into an httpOnly cookie (never into the JSON body, so
+    page scripts can't read it) and the short-lived access token is returned
+    to be held by the client. The Cognito username rides in the cookie
+    because REFRESH_TOKEN_AUTH needs it later (see cognito.refresh_auth).
+    The access token comes straight from Cognito over TLS, so its claims are
+    read without re-verifying the signature."""
+    access_token: str = result["AccessToken"]
+    refresh_token = result.get("RefreshToken")
+    if refresh_token:
+        claims = jose_jwt.get_unverified_claims(access_token)
+        set_refresh_cookie(response, username=claims.get("username") or claims["sub"], refresh_token=refresh_token)
+    return access_token
+
+
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest) -> TokenResponse:
+async def login(body: LoginRequest, response: Response) -> TokenResponse:
     """Real password login (Stage 13) — calls Cognito's InitiateAuth
     directly with the email/password from our own login form (no Hosted-UI
     redirect). Works for staff and patients alike; username may be an email
@@ -116,11 +148,11 @@ async def login(body: LoginRequest) -> TokenResponse:
     from app.core.cognito import initiate_auth
 
     result = initiate_auth(username=body.username, password=body.password)
-    return TokenResponse(access_token=result["AccessToken"], refresh_token=result.get("RefreshToken"))
+    return TokenResponse(access_token=_start_session(response, result))
 
 
 @router.post("/login/new-password", response_model=TokenResponse)
-async def login_new_password(body: NewPasswordRequest) -> TokenResponse:
+async def login_new_password(body: NewPasswordRequest, response: Response) -> TokenResponse:
     """Completes the NEW_PASSWORD_REQUIRED challenge — a staff account's
     first login after AdminCreateUser's auto-emailed temp password. session
     is the value the /auth/login 400 (code NEW_PASSWORD_REQUIRED) returned."""
@@ -129,7 +161,67 @@ async def login_new_password(body: NewPasswordRequest) -> TokenResponse:
     from app.core.cognito import respond_new_password
 
     result = respond_new_password(username=body.username, new_password=body.new_password, session=body.session)
-    return TokenResponse(access_token=result["AccessToken"], refresh_token=result.get("RefreshToken"))
+    return TokenResponse(access_token=_start_session(response, result))
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh(request: Request) -> Response:
+    """Silent session renewal. The browser sends the httpOnly refresh cookie
+    on its own (it is scoped to /api/v1/auth); no bearer token is needed or
+    wanted — this runs precisely when the access token has expired. Returns
+    a fresh access token. A dead/revoked refresh token gets 401 and the
+    cookie is cleared, which is the client's cue to send the user to login."""
+    if settings.auth_mode != "cognito":
+        raise NotFoundError("Not found", code="NOT_FOUND")
+    from app.core.cognito import refresh_auth
+
+    cookie = read_refresh_cookie(request)
+    if cookie is None:
+        raise AuthenticationError("No session to refresh", code="NO_REFRESH_TOKEN")
+    username, refresh_token = cookie
+    try:
+        result = await asyncio.to_thread(refresh_auth, refresh_token=refresh_token, username=username)
+    except AnavaException as exc:
+        dead = JSONResponse(
+            status_code=exc.status_code,
+            content={"error": {"code": exc.code, "message": exc.message, "details": exc.details}},
+        )
+        clear_refresh_cookie(dead)
+        return dead
+
+    ok = JSONResponse(content=TokenResponse(access_token=result["AccessToken"]).model_dump(exclude_none=True))
+    # Sliding window: every refresh restarts the cookie's clock. Cognito only
+    # sends a new RefreshToken when rotation is on; otherwise keep this one.
+    set_refresh_cookie(ok, username=username, refresh_token=result.get("RefreshToken") or refresh_token)
+    return ok
+
+
+@router.post("/logout", status_code=204)
+async def logout(request: Request) -> Response:
+    """Ends THIS device's session for real: revokes its refresh token at
+    Cognito, denylists its access token so it stops working immediately (a
+    signed JWT would otherwise stay valid until it expires), and clears the
+    cookie. Other devices are untouched. Public path on purpose — it must
+    work, and clear the cookie, even when the access token has already
+    expired — and best-effort throughout: logging out never fails."""
+    from app.core.cognito import revoke_refresh_token
+
+    cookie = read_refresh_cookie(request)
+    if cookie is not None:
+        await asyncio.to_thread(revoke_refresh_token, cookie[1])
+
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            claims = await verify_token(auth_header.removeprefix("Bearer ").strip())
+        except AnavaException:
+            pass  # already expired/invalid — nothing left to revoke
+        else:
+            await revoke_access_token(claims["jti"], claims["exp"])
+
+    out = Response(status_code=204)
+    clear_refresh_cookie(out)
+    return out
 
 
 @router.post("/forgot-password/start", status_code=204)
@@ -208,7 +300,7 @@ async def patient_signup_verify(body: PatientSignupVerify) -> None:
 
 
 @router.post("/patients/signup/complete", response_model=PublicPatientRegisterResponse, status_code=201)
-async def patient_signup_complete(body: PatientSignupComplete, db=Depends(get_db)) -> PublicPatientRegisterResponse:
+async def patient_signup_complete(body: PatientSignupComplete, response: Response, db=Depends(get_db)) -> PublicPatientRegisterResponse:
     """Step 3 — sets the real password (overwriting SignUp's throwaway one),
     creates our own profiles/patients row with the now-real Cognito sub, and
     auto-logs the patient in. The channel they signed up with is already
@@ -252,7 +344,7 @@ async def patient_signup_complete(body: PatientSignupComplete, db=Depends(get_db
     await db.commit()
 
     result = initiate_auth(username=body.contact, password=body.password)
-    return PublicPatientRegisterResponse(access_token=result["AccessToken"], patient_id=patient["patient_id"])
+    return PublicPatientRegisterResponse(access_token=_start_session(response, result), patient_id=patient["patient_id"])
 
 
 # ---------------------------------------------------------------------------
