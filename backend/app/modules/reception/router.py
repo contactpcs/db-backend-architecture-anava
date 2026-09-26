@@ -199,6 +199,17 @@ async def list_registrations(
     clinic_id = UUID(ctx.clinic_id) if ctx.role in ("receptionist", "clinic_admin") and ctx.clinic_id else None
     rows = await PatientService(db).list(clinic_id=clinic_id, approval_status=status)
     rows = [r for r in rows if r.get("self_registered")]
+    # decide_approval (approve AND reject) 400s with REGISTRATION_INCOMPLETE
+    # for anyone not yet at registration_status='registration_complete' —
+    # a patient can sit at approval_status='pending' for the whole 6-step
+    # wizard (it's only set once, up front), so without this filter a
+    # mid-wizard patient (e.g. only consent_signed) shows up in the pending
+    # queue with allowed_actions claiming approve/reject work, and every
+    # click 400s. Same fix as staff.service.ts's getPendingPatients() had
+    # to apply client-side; done here too so every caller of this endpoint
+    # gets a queue that's actually actionable.
+    if status == "pending":
+        rows = [r for r in rows if r.get("registration_status") == "registration_complete"]
     total = len(rows)
     start = (page - 1) * page_size
     page_rows = rows[start : start + page_size]
