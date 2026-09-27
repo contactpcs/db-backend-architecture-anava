@@ -101,7 +101,9 @@ def provision_staff_user(*, email: str, first_name: str, last_name: str, phone: 
 # ─── Patient signup wizard (SignUp/ConfirmSignUp — real OTP delivery) ─────────
 
 
-def sign_up_patient(*, username: str, first_name: str, last_name: str, dob: str | None, gender: str | None) -> None:
+def sign_up_patient(
+    *, username: str, first_name: str, last_name: str, dob: str | None, gender: str | None, password: str | None = None
+) -> None:
     """username is the patient's chosen signup identifier — an email address
     or an E.164 phone number ("+91XXXXXXXXXX"), whichever field they filled
     in. Cognito auto-sends the OTP to that same channel; nothing further to
@@ -115,9 +117,12 @@ def sign_up_patient(*, username: str, first_name: str, last_name: str, dob: str 
         attrs.append({"Name": "birthdate", "Value": dob})
     if gender:
         attrs.append({"Name": "gender", "Value": gender})
+    # password given = current flow (password chosen BEFORE the OTP; the real
+    # one goes straight into SignUp). None = legacy flow still used by the
+    # Android app (OTP first, password set later over a throwaway).
     # token_urlsafe's alphabet has no symbol char this pool's password
     # policy accepts — appended suffix guarantees upper/lower/digit/symbol.
-    throwaway_password = secrets.token_urlsafe(24) + "aA1!"
+    throwaway_password = password or (secrets.token_urlsafe(24) + "aA1!")
     try:
         _client().sign_up(
             ClientId=settings.cognito_app_client_id,
@@ -127,6 +132,12 @@ def sign_up_patient(*, username: str, first_name: str, last_name: str, dob: str 
             UserAttributes=attrs,
         )
     except _client().exceptions.UsernameExistsException as exc:
+        if password is not None:
+            # Current flow: the caller decides (auth/signup.py). A stale
+            # UNCONFIRMED user must NOT just get a resend — it holds the OLD
+            # password, and the patient would then fail to log in with the
+            # one they just chose.
+            raise BusinessRuleError("An account with this email/phone already exists", code="ACCOUNT_ALREADY_EXISTS") from exc
         # Cognito raises this even for an abandoned signup (OTP never
         # entered, still UNCONFIRMED) — not a real conflict, so resend the
         # code and let the wizard continue instead of blocking the patient
@@ -143,6 +154,31 @@ def sign_up_patient(*, username: str, first_name: str, last_name: str, dob: str 
         raise BusinessRuleError(f"Could not start signup: {exc}", code="COGNITO_SIGNUP_FAILED") from exc
 
 
+def get_user_sub(username: str) -> str | None:
+    """The Cognito user's `sub` for a username (email/phone), or None if no
+    such user exists."""
+    _require_cognito_mode()
+    try:
+        resp = _client().admin_get_user(UserPoolId=settings.cognito_user_pool_id, Username=username)
+    except _client().exceptions.UserNotFoundException:
+        return None
+    except ClientError as exc:
+        raise BusinessRuleError(f"Could not look up account: {exc}", code="COGNITO_LOOKUP_FAILED") from exc
+    return next((a["Value"] for a in resp["UserAttributes"] if a["Name"] == "sub"), None)
+
+
+def delete_user(username: str) -> None:
+    """AdminDeleteUser. Only ever called on an abandoned signup — a Cognito
+    user with no profile in our DB (see auth/router.py _start_patient_signup)."""
+    _require_cognito_mode()
+    try:
+        _client().admin_delete_user(UserPoolId=settings.cognito_user_pool_id, Username=username)
+    except _client().exceptions.UserNotFoundException:
+        return
+    except ClientError as exc:
+        raise BusinessRuleError(f"Could not reset abandoned signup: {exc}", code="COGNITO_DELETE_FAILED") from exc
+
+
 def resend_confirmation_code(username: str) -> None:
     _require_cognito_mode()
     try:
@@ -155,7 +191,10 @@ def resend_confirmation_code(username: str) -> None:
         raise BusinessRuleError(f"Could not resend code: {exc}", code="COGNITO_RESEND_FAILED") from exc
 
 
-def confirm_sign_up(*, username: str, code: str) -> None:
+def confirm_sign_up(*, username: str, code: str, allow_already_confirmed: bool = False) -> None:
+    """allow_already_confirmed: a retried confirm (network drop after Cognito
+    accepted the code) is fine — the caller then proves identity with the
+    password anyway (auth/signup.py confirm_and_register)."""
     _require_cognito_mode()
     try:
         _client().confirm_sign_up(
@@ -168,6 +207,10 @@ def confirm_sign_up(*, username: str, code: str) -> None:
         raise PermissionError_("Incorrect verification code", code="INVALID_OTP") from exc
     except _client().exceptions.ExpiredCodeException as exc:
         raise PermissionError_("Verification code expired — request a new one", code="OTP_EXPIRED") from exc
+    except _client().exceptions.NotAuthorizedException as exc:
+        if allow_already_confirmed and "CONFIRMED" in str(exc):
+            return
+        raise BusinessRuleError(f"Could not verify code: {exc}", code="COGNITO_CONFIRM_FAILED") from exc
     except ClientError as exc:
         raise BusinessRuleError(f"Could not verify code: {exc}", code="COGNITO_CONFIRM_FAILED") from exc
 

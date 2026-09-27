@@ -1,0 +1,15 @@
+# Build context is backend/. Secrets and local state must never reach an image.
+.env
+.env.*
+!.env.example
+.venv
+.local_storage
+.mypy_cache
+.pytest_cache
+.ruff_cache
+**/__pycache__
+*.egg-info
+*.log
+tests
+scripts
+docker-compose.yml

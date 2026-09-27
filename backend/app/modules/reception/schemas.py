@@ -35,6 +35,10 @@ class SendCodeRequest(BaseModel):
     last_name: str
     dob: date | None = None
     gender: str | None = Field(default=None, pattern="^(male|female|other)$")
+    # Current flow: password chosen BEFORE the OTP, straight into Cognito
+    # SignUp; then /registrations/confirm verifies + registers in one call.
+    # Omitted = legacy flow (Android app): verify-code, then POST /patients.
+    password: str | None = Field(default=None, min_length=8)
 
 
 class SendCodeResponse(BaseModel):
@@ -101,6 +105,14 @@ class RegisterPatientRequest(BaseModel):
     guardian: GuardianDetails | None = None
     password: str = Field(min_length=8)
     consent: ConsentDetails
+
+
+class ConfirmRegistrationRequest(RegisterPatientRequest):
+    """Current flow's last step: the full registration form (registration_token
+    = the contact, as in the legacy flow) plus the OTP. Verifies the code and
+    registers the patient in one request."""
+
+    code: str
 
 
 class RegisterPatientResponse(BaseModel):

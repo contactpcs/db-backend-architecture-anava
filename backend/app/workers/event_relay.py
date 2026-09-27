@@ -26,7 +26,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import get_settings
-from app.core.db import get_migration_engine
+from app.core.db import get_worker_engine
 from app.core.pubsub import publish_to_user
 from app.modules.notifications.repository import NotificationRepository
 
@@ -49,17 +49,13 @@ RELAY_STATE: dict[str, Any] = {
     "last_error": None,
 }
 
-# rls_notif_insert requires rls_user_role() to be a real staff role — set by
-# AuthContextMiddleware inside an HTTP request. This worker has no request
-# (no HTTP call, no JWT, nothing to impersonate) — it's writing on behalf of
-# the system for an arbitrary recipient, not as any one staff member, so
-# there's no role to set even if we wanted to. Same "bare script, no RLS
-# context, scoped anava_app role rejects the INSERT regardless" issue
-# get_migration_engine()'s docstring describes for seed scripts — the fix is
-# the same: use the master connection, not the scoped one, for this
-# system-level write. Created once at import time (this is a long-running
-# worker, not a short script) rather than per drain cycle.
-_relay_engine = get_migration_engine()
+# Runs on the ordinary app login (anava_app, subject to RLS) as RLS role
+# 'system', set per transaction in drain_outbox()/relay_backlog(). The
+# policies that role needs — read the outbox and recipient lookups, mark
+# events published, write notifications — are SQL/v1/93. It used to connect
+# with the RDS master credentials instead, which put them in the API
+# container. Created once at import time (long-running worker).
+_relay_engine = get_worker_engine()
 _relay_session_factory = async_sessionmaker(_relay_engine, expire_on_commit=False, autoflush=False)
 
 

@@ -9,17 +9,15 @@ class Settings(BaseSettings):
 
     environment: str = "local"
 
-    # Database — database_url is what the running app connects as.
-    # IMPORTANT: as of this review, the deployed role is NOT a scoped
-    # NOBYPASSRLS role — it connects as a Postgres superuser and RLS
-    # policies (15_rls_policies.sql) are bypassed entirely. Nothing in this
-    # codebase verifies the connecting role's rolbypassrls at runtime, so
-    # ownership/scope checks in app/core/scoping.py are the ONLY real
-    # backstop for patient/clinic data access, not RLS. See scoping.py's
-    # module docstring. migration_database_url is what alembic connects as
-    # instead — needs DDL privileges (CREATE/ALTER/DROP), so it's the RDS
-    # master user in real environments. Defaults to database_url (unset
-    # locally — Docker dev has one role for everything, no split).
+    # Database — database_url is what the running app (requests AND the
+    # in-process workers) connects as: anava_app, a scoped role that is NOT
+    # a superuser and does NOT bypass RLS (verified 2026-09-28). RLS is a
+    # real backstop; the app-layer checks in app/core/scoping.py remain the
+    # first line. migration_database_url is the RDS master user — only for
+    # alembic/DDL, seed scripts, partition maintenance and the retention
+    # purge. The API container should not need it at all: run partition
+    # maintenance as a separate scheduled task and set
+    # PARTITION_MAINTENANCE_ENABLED=false on the API.
     # No hardcoded fallback on purpose — a deploy with this unset should
     # fail to boot, not silently connect to a nonexistent local Postgres.
     database_url: str
@@ -118,6 +116,11 @@ class Settings(BaseSettings):
     # <name>` against instead of pasting long-lived keys here. Takes
     # priority over aws_access_key_id/secret when both are somehow set.
     aws_profile: str | None = None
+
+    # Interactive API docs (/docs, /redoc, /openapi.json). None = only when
+    # environment == "local": production must not publish the full API map.
+    # Deploys verify the build through GET /health/version instead.
+    api_docs_enabled: bool | None = None
 
     # Payments — Razorpay test-mode keys, set once available (Stage 10).
     # Empty in early development; payments module runs in stub mode until set.

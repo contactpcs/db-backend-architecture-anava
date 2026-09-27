@@ -43,20 +43,27 @@ def _initials(first_name: str, last_name: str) -> str:
 
 @router.post("/registrations/send-code", response_model=s.SendCodeResponse, status_code=200)
 async def send_verification_code(
-    body: s.SendCodeRequest, _ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))
+    body: s.SendCodeRequest, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))
 ) -> s.SendCodeResponse:
     """Wraps the existing Cognito SignUp call (same function the receptionist-
     signup wizard already uses). verification_id is the contact itself — our
     system has no separate server-side verification-state table to hand back
     an opaque ID for; Cognito tracks confirmation state by username."""
-    from app.core.cognito import sign_up_patient
+    from app.modules.auth.signup import reject_if_contact_taken, start_patient_signup
 
-    sign_up_patient(
-        username=body.contact,
+    method = "email" if body.channel == "email" else "mobile"
+    # Same guards as patient self-signup: refuse a contact already registered
+    # here, and reset an abandoned earlier attempt instead of blocking it.
+    await reject_if_contact_taken(db, method, body.contact)
+    await start_patient_signup(
+        db,
+        contact=body.contact,
+        method=method,
         first_name=body.first_name,
         last_name=body.last_name,
         dob=body.dob.isoformat() if body.dob else None,
         gender=body.gender,
+        password=body.password,
     )
     return s.SendCodeResponse(
         verification_id=body.contact,
@@ -82,6 +89,56 @@ async def verify_code(body: s.VerifyCodeRequest, _ctx: RequestContext = Depends(
         verified=True,
         verified_at=datetime.now(UTC),
         registration_token=contact,
+    )
+
+
+@router.post("/registrations/confirm", response_model=s.RegisterPatientResponse, status_code=201)
+async def confirm_registration(
+    body: s.ConfirmRegistrationRequest, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))
+) -> s.RegisterPatientResponse:
+    """Current flow's last step (password was sent to /registrations/send-code):
+    verifies the OTP and registers the patient in this one request, so an
+    abandoned registration never leaves a verified login with no patient
+    behind it. The patient's login tokens are discarded — a receptionist must
+    never hold them (see auth/signup.py)."""
+    if not body.consent.accepted:
+        raise ValidationError("Consent must be accepted", code="CONSENT_REQUIRED")
+    from app.modules.auth.signup import confirm_and_register
+
+    contact = body.registration_token
+    method = "email" if "@" in contact else "mobile"
+    patient, _auth = await confirm_and_register(
+        db,
+        contact=contact,
+        method=method,
+        code=body.code,
+        password=body.password,
+        registration={
+            "first_name": body.personal.first_name,
+            "last_name": body.personal.last_name,
+            "dob": body.personal.date_of_birth,
+            "gender": body.personal.gender,
+            "address": body.address.street,
+            "city": body.address.city,
+            "state": body.address.state,
+            "country": body.address.country,
+            "pincode": body.address.pincode,
+            "primary_clinic_id": str(body.clinic_id),
+            "guardian_name": body.guardian.name if body.guardian else None,
+            "guardian_relationship": body.guardian.relation if body.guardian else None,
+            "guardian_contact": body.guardian.contact_number if body.guardian else None,
+        },
+        self_registered=False,
+        registered_by=UUID(ctx.user_id),
+    )
+    return s.RegisterPatientResponse(
+        patient_id=patient["patient_id"],
+        full_name=f"{body.personal.first_name} {body.personal.last_name}",
+        login_id=contact,
+        login_channel=method,
+        registration_status="verified",
+        consent_status="signed" if body.consent.signature_captured else "accepted",
+        created_at=patient.get("created_at") or datetime.now(UTC),
     )
 
 

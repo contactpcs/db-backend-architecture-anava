@@ -56,11 +56,9 @@ async def list_patients(
 ):
     # "patient" is allowed here so patients.service.ts's getDashboard()/
     # getMyAnamnesis() (which call this same "RLS-scoped to own record"
-    # endpoint) don't 403. RLS (SQL/15_rls_policies.sql) is NOT the actual
-    # backstop for that scoping: the app's DB role connects as a Postgres
-    # superuser (rolbypassrls=TRUE), which unconditionally bypasses every
-    # RLS policy — so a patient caller must be forced to their own row here
-    # at the app layer, ignoring any clinic_id they might pass.
+    # endpoint) don't 403. RLS scopes a patient to their own row too (the
+    # app login does not bypass it), but the app layer forces it here as
+    # well — defence in depth, ignoring any clinic_id they might pass.
     profile_id = UUID(ctx.user_id) if ctx.role == "patient" else None
     if ctx.role == "patient":
         clinic_id = None

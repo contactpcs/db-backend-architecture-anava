@@ -46,7 +46,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import get_settings
-from app.core.db import get_migration_engine
+from app.core.db import get_worker_engine
 from app.core.events import emit_event
 
 logger = structlog.get_logger()
@@ -57,7 +57,7 @@ logger = structlog.get_logger()
 # other's DELETEs and log misleading counts.
 HOLD_SWEEP_LOCK_KEY = 8412772  # "anava:hold-sweeper"
 
-_engine = get_migration_engine()
+_engine = get_worker_engine()
 _session_factory = async_sessionmaker(_engine, expire_on_commit=False, autoflush=False)
 
 

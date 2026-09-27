@@ -111,7 +111,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await task
 
 
-app = FastAPI(title="Anava Clinic Backend", version="0.1.0", lifespan=lifespan)
+_docs_on = settings.api_docs_enabled if settings.api_docs_enabled is not None else settings.environment == "local"
+# Production must not publish the full API map (every route, parameter and
+# schema) to anonymous callers — docs are served only when enabled.
+app = FastAPI(
+    title="Anava Clinic Backend",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url="/docs" if _docs_on else None,
+    redoc_url="/redoc" if _docs_on else None,
+    openapi_url="/openapi.json" if _docs_on else None,
+)
 
 # Starlette wraps middleware in reverse add-order (last added = outermost),
 # so CORSMiddleware must be added LAST — otherwise AuthContextMiddleware
@@ -152,6 +162,15 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 async def health() -> dict[str, str]:
     """Liveness — process is up. No dependency checks, no auth."""
     return {"status": "ok"}
+
+
+@app.get("/health/version")
+async def health_version() -> dict[str, int]:
+    """What the deploy workflow checks after a release: how many API paths
+    this build serves — the same number /openapi.json's "paths" gave, which
+    production no longer exposes. A bare count, nothing sensitive."""
+    # Built in-process (and cached by FastAPI) even though the URL is off.
+    return {"paths": len(app.openapi()["paths"])}
 
 
 @app.get("/health/ready")

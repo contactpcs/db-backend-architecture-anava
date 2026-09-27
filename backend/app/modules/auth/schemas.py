@@ -60,6 +60,20 @@ class PatientSignupStart(BaseModel):
     guardian_name: str | None = None
     guardian_relationship: str | None = None
     guardian_contact: str | None = None
+    # Current flow: the password is chosen BEFORE the OTP and goes straight
+    # into Cognito SignUp. Omitted = legacy flow (Android app): OTP first,
+    # password set later via /signup/complete.
+    password: str | None = Field(default=None, min_length=8)
+    confirm_password: str | None = None
+
+
+class PatientSignupConfirm(PatientSignupStart):
+    """Step 2 of the current flow — the same form as Start (the wizard is
+    stateless server-side) plus the OTP. Verifies, creates the account and
+    logs in, in one request."""
+
+    password: str = Field(min_length=8)
+    code: str
 
 
 class PatientSignupResend(BaseModel):

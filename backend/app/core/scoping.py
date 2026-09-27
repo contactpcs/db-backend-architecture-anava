@@ -34,11 +34,11 @@ async def assert_patient_self(ctx: RequestContext, session: AsyncSession, patien
     """Every anamnesis/PRS/disease-selection endpoint allows role='patient'
     so a patient can work through their own self-registration wizard or
     portal, but the routes take patients.patient_id as a path param with no
-    other restriction. RLS is meant to be the real backstop here (see
-    SQL/15_rls_policies.sql) but the app's DB role connects as a Postgres
-    superuser (rolbypassrls=TRUE), which unconditionally bypasses RLS — so
-    without this check, any authenticated patient could read/write any
-    OTHER patient's clinical data just by passing their patient_id. No-op
+    other restriction. RLS (SQL/15_rls_policies.sql) also scopes a
+    patient to their own rows — the app login does not bypass it — but this
+    check is the first line: it fails loudly with a 403 instead of RLS
+    silently returning nothing, and it holds even if a policy is ever
+    loosened by mistake. No-op
     for staff roles (they're scoped elsewhere, e.g. assert_clinic_scope)."""
     if ctx.role != "patient":
         return

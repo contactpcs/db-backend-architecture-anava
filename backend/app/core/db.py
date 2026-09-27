@@ -37,17 +37,37 @@ def get_migration_engine() -> AsyncEngine:
     (profiles, prs_diseases/scales/questions/options, admins, ...). Those
     policies require rls_user_role() = 'super_admin' (or similar), which is
     only ever set by AuthContextMiddleware inside a real HTTP request — a
-    bare script has no such context. NOTE: as of this review, `engine`'s
-    connecting role is NOT actually a scoped NOBYPASSRLS role in the
-    deployed environment (see app/config.py's database_url comment and
-    app/core/scoping.py's docstring) — it bypasses RLS entirely, so this
-    INSERT would silently succeed rather than being rejected. Bootstrapping/seeding the very first
-    data into a fresh system is inherently a privileged, one-time operation
-    — use the master connection for it, the same one alembic uses for DDL.
+    bare script has no such context. `engine` connects as anava_app, which
+    is NOT a superuser and does NOT bypass RLS (verified 2026-09-28:
+    rolsuper=false, rolbypassrls=false), so such an INSERT is rejected.
+    Bootstrapping/seeding the very first data into a fresh system is
+    inherently a privileged, one-time operation — use the master connection
+    for it, the same one alembic uses for DDL. Never use it from code that
+    runs inside the API process: that is what get_worker_engine() is for.
     Discovered the hard way migrating to RDS: seed_dev_profile.py failed with
     InsufficientPrivilegeError until pointed at this instead of `engine`."""
     return create_async_engine(
         settings.migration_database_url or settings.database_url,
+        connect_args=_connect_args,
+    )
+
+
+def get_worker_engine() -> AsyncEngine:
+    """For the background workers that run inside the API process (outbox
+    relay, hold sweeper, no-show sweeper). Same login as request traffic —
+    anava_app, subject to RLS — acting as RLS role 'system' via SET LOCAL in
+    each transaction; the policies admitting 'system' are SQL/v1/25, 31, 93.
+    A small pool of its own, so a busy worker never starves request handling.
+
+    Replaces get_migration_engine() for these workers so the API container
+    never needs the RDS master credentials. Only partition maintenance and
+    the retention purge still need them (they run DDL) — run those as a
+    separate scheduled task, not inside the API."""
+    return create_async_engine(
+        settings.database_url,
+        pool_size=3,
+        max_overflow=2,
+        pool_pre_ping=True,
         connect_args=_connect_args,
     )
 

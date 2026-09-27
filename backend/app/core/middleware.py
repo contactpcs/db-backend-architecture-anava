@@ -19,6 +19,7 @@ logger = structlog.get_logger()
 PUBLIC_PATHS = {
     "/health",
     "/health/ready",
+    "/health/version",  # deploy check — path count only
     "/docs",
     "/openapi.json",
     "/redoc",
