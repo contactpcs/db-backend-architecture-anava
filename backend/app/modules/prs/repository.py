@@ -401,13 +401,33 @@ class AssessmentInstanceRepository:
         under it — see PrsAssessmentService.submit_responses). Scoped to
         appointment_id IS NULL for the same reason completed_scale_ids_for_
         standalone_patient is: a device-session-originated completion is a
-        real, cadence-driven re-administration, never a terminal one."""
+        real, cadence-driven re-administration, never a terminal one.
+
+        Excludes an instance that has a NEWER patient_scale_assignments row
+        for the same (patient, disease, stage) — a doctor re-assigning a
+        disease's scales after it was already completed is a deliberate
+        request for a fresh round, not a reopen of the old one. Without this,
+        that new assignment (correctly shown as its own "Pending" card by
+        permissions.service.ts's round-grouping) silently resolved back onto
+        the prior round's completed, read-only instance the moment "Start
+        Assessment" was clicked — the doctor could never actually administer
+        the new round. patient_scale_assignments has no FK to the instance
+        it's "for", so we can't join it directly; comparing timestamps is
+        the same signal the frontend's own round-grouping already relies on
+        (see permissions.service.ts getPatientPermissions)."""
         return await fetch_optional(
             self.session,
             text(
-                "SELECT * FROM prs_assessment_instances WHERE patient_id = :pid AND disease_id IS NOT DISTINCT FROM :disease_id "
-                "AND assessment_stage = :stage AND status = 'completed' AND appointment_id IS NULL "
-                "ORDER BY started_at DESC LIMIT 1"
+                "SELECT pai.* FROM prs_assessment_instances pai "
+                "WHERE pai.patient_id = :pid AND pai.disease_id IS NOT DISTINCT FROM :disease_id "
+                "AND pai.assessment_stage = :stage AND pai.status = 'completed' AND pai.appointment_id IS NULL "
+                "AND NOT EXISTS ("
+                "  SELECT 1 FROM patient_scale_assignments psa "
+                "  WHERE psa.patient_id = pai.patient_id AND psa.disease_id IS NOT DISTINCT FROM pai.disease_id "
+                "  AND psa.assessment_stage = pai.assessment_stage AND psa.is_active = TRUE "
+                "  AND psa.created_at > pai.completed_at"
+                ") "
+                "ORDER BY pai.started_at DESC LIMIT 1"
             ),
             {"pid": str(patient_id), "disease_id": disease_id, "stage": assessment_stage},
         )
@@ -617,7 +637,7 @@ class PrsScaleResultRepository:
         return [dict(r) for r in rows]
 
     async def completed_scale_ids_for_standalone_patient(
-        self, patient_id, assessment_stage: str, exclude_instance_id: str | None = None
+        self, patient_id, assessment_stage: str, disease_id: str | None = None, exclude_instance_id: str | None = None
     ) -> set[str]:
         """Every scale_id this patient has completed under a STANDALONE
         instance (appointment_id IS NULL) for this assessment_stage — i.e.
@@ -637,16 +657,40 @@ class PrsScaleResultRepository:
         freshly-started one: every scale would show is_completed=False and
         be answerable again. exclude_instance_id lets a resumed in-progress
         instance's own not-yet-finalized scales stay excluded from
-        "already completed elsewhere"."""
+        "already completed elsewhere".
+
+        Scoped to disease_id (when given) and excludes results from an
+        instance that's been superseded by a newer patient_scale_assignments
+        round for the same (patient, disease, stage) — mirrors
+        find_completed_standalone's NOT EXISTS guard. Without this, a fresh
+        instance minted for a doctor's re-assigned round (see
+        find_completed_standalone) still inherited every scale's
+        is_completed=True from the PRIOR round's results, because this query
+        only scoped by (patient, stage) — same disease, different round,
+        counted as "already answered" and rendered the new round as 100%
+        complete with zero actual responses under it."""
         params: dict = {"patient_id": str(patient_id), "stage": assessment_stage}
         sql = (
             "SELECT DISTINCT sr.scale_id FROM prs_scale_results sr "
             "JOIN prs_assessment_instances i ON i.instance_id = sr.instance_id "
             "WHERE i.patient_id = :patient_id AND i.assessment_stage = :stage AND i.appointment_id IS NULL"
         )
+        if disease_id is not None:
+            sql += " AND i.disease_id IS NOT DISTINCT FROM :disease_id"
+            params["disease_id"] = disease_id
+        else:
+            sql += " AND i.disease_id IS NULL"
         if exclude_instance_id:
             sql += " AND sr.instance_id != :exclude_id"
             params["exclude_id"] = exclude_instance_id
+        sql += (
+            " AND NOT EXISTS ("
+            "  SELECT 1 FROM patient_scale_assignments psa "
+            "  WHERE psa.patient_id = i.patient_id AND psa.disease_id IS NOT DISTINCT FROM i.disease_id "
+            "  AND psa.assessment_stage = i.assessment_stage AND psa.is_active = TRUE "
+            "  AND psa.created_at > i.completed_at"
+            ")"
+        )
         rows = (await self.session.execute(text(sql), params)).mappings().all()
         return {r["scale_id"] for r in rows}
 
