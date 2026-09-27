@@ -431,8 +431,10 @@ class PrsAssessmentService:
             # retry, not a resubmission.
             if instance["appointment_id"] is None:
                 already_completed = await self.scale_results.completed_scale_ids_for_standalone_patient(
-                    instance["patient_id"], instance["assessment_stage"],
-                    disease_id=instance["disease_id"], exclude_instance_id=instance_id,
+                    instance["patient_id"],
+                    instance["assessment_stage"],
+                    disease_id=instance["disease_id"],
+                    exclude_instance_id=instance_id,
                 )
                 if finalize_scale_id in already_completed:
                     raise BusinessRuleError(
