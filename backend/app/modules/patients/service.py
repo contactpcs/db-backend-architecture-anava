@@ -17,6 +17,7 @@ from app.modules.patients.repository import (
     DoctorPatientAssignmentRepository,
     PatientRepository,
     PatientTransferRepository,
+    PrescribedMedicineRepository,
 )
 from app.modules.staff.service import DoctorService
 
@@ -222,21 +223,42 @@ class PatientService:
         """Receptionist review gate for self-registered patients — only
         reachable once the patient has finished the whole 6-step wizard
         themselves (Master Doc per this feature's design: receptionist only
-        sees the request after registration_complete, not partway through)."""
+        sees the request after registration_complete, not partway through).
+
+        'approved' is terminal (a real patient, already active — nothing
+        left to decide). 'rejected' is NOT terminal: the receptionist can
+        reconsider and approve it later, so the only decision this refuses
+        outright is repeating the SAME one twice (a second reject, or
+        approving an already-approved patient)."""
         patient = await self.get(patient_id)
         if patient["registration_status"] != "registration_complete":
             raise BusinessRuleError("Patient hasn't completed registration yet", code="REGISTRATION_INCOMPLETE")
-        if patient["approval_status"] != "pending":
-            raise BusinessRuleError(f"Approval already {patient['approval_status']}", code="APPROVAL_ALREADY_DECIDED")
+        if patient["approval_status"] == decision:
+            raise BusinessRuleError(f"Approval already {decision}", code="APPROVAL_ALREADY_DECIDED")
+        if patient["approval_status"] == "approved":
+            raise BusinessRuleError("Approval already approved", code="APPROVAL_ALREADY_DECIDED")
 
         await self.repo.set_approval(
             patient_id,
             approval_status=decision,
-            approved_by=decided_by,
+            decided_by=decided_by,
             rejection_reason=rejection_reason,
         )
-        if decision == "approved":
-            await self.session.execute(text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(patient["profile_id"])})
+        # is_active mirrors the CURRENT decision either way — approving flips
+        # it on (including re-approving a rejected patient), rejecting flips
+        # it back off (already off from registration, but explicit here
+        # covers the only other way in: a rejection reversing a re-approval).
+        await self.session.execute(
+            text("UPDATE profiles SET is_active = :active WHERE id = :id"),
+            {"active": decision == "approved", "id": str(patient["profile_id"])},
+        )
+        if decision == "rejected":
+            # End any session they already have, so they land back on login
+            # and see the rejection reason there instead of silently stalling
+            # on the "pending approval" screen. Best-effort; no-op locally.
+            from app.core.auth_session import sign_out_profile
+
+            await sign_out_profile(self.session, patient["profile_id"])
         await emit_event(
             self.session,
             aggregate_type="patient",
@@ -677,3 +699,67 @@ class PatientVisitService:
             "prs_instances": prs_instances,
             "protocols": protocols,
         }
+
+
+class PrescribedMedicineService:
+    """Doctor-prescribed medicines for a patient (SQL/v1/96). Stopping one
+    never deletes it — stop/resume only flips its status, so the patient's
+    medication history stays whole."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repo = PrescribedMedicineRepository(session)
+        self.patients = PatientService(session)
+
+    async def list(self, patient_id: UUID) -> builtins.list[dict]:
+        patient = await self.patients.get(patient_id)
+        return await self.repo.list_for_patient(patient["profile_id"])
+
+    async def create(self, patient_id: UUID, data: dict, *, prescribed_by: UUID) -> dict:
+        patient = await self.patients.get(patient_id)
+        appointment_id = data.get("appointment_id")
+        if appointment_id is not None:
+            owner = (
+                await self.session.execute(
+                    text("SELECT patient_id FROM appointments WHERE appointment_id = :id"), {"id": str(appointment_id)}
+                )
+            ).scalar()
+            if owner is None:
+                raise NotFoundError("Appointment not found", code="APPOINTMENT_NOT_FOUND")
+            if str(owner) != str(patient["profile_id"]):
+                raise ValidationError("Appointment belongs to a different patient", code="APPOINTMENT_PATIENT_MISMATCH")
+        created = await self.repo.create(
+            {
+                "patient_id": str(patient["profile_id"]),
+                "clinic_id": str(patient["primary_clinic_id"]),
+                "prescribed_by": str(prescribed_by),
+                "appointment_id": str(appointment_id) if appointment_id else None,
+                "medicine_name": data["medicine_name"].strip(),
+                "dose": data.get("dose"),
+                "timing": data.get("timing"),
+                "meal_instruction": data.get("meal_instruction"),
+                "duration": data.get("duration"),
+                "note": data.get("note"),
+            }
+        )
+        await emit_event(
+            self.session,
+            aggregate_type="prescribed_medicine",
+            aggregate_id=created["medicine_id"],
+            event_type="medicine_prescribed",
+            payload={"medicine_id": str(created["medicine_id"]), "patient_id": str(patient_id)},
+        )
+        return created
+
+    async def get(self, medicine_id: UUID) -> dict:
+        row = await self.repo.get(medicine_id)
+        if not row:
+            raise NotFoundError("Prescribed medicine not found", code="MEDICINE_NOT_FOUND")
+        return row
+
+    async def set_status(self, medicine_id: UUID, *, status: str, changed_by: UUID) -> dict:
+        row = await self.get(medicine_id)
+        if row["status"] == status:
+            return row
+        updated = await self.repo.set_status(medicine_id, status=status, changed_by=changed_by)
+        return updated or row

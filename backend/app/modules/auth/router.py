@@ -572,7 +572,10 @@ async def get_current_user(ctx: RequestContext = Depends(get_current_context), d
         patient_row = (
             (
                 await db.execute(
-                    text("SELECT patient_id, self_registered, registration_status FROM patients WHERE profile_id = :pid"),
+                    text(
+                        "SELECT patient_id, self_registered, registration_status, approval_status, rejection_reason "
+                        "FROM patients WHERE profile_id = :pid"
+                    ),
                     {"pid": row["id"]},
                 )
             )
@@ -596,10 +599,19 @@ async def get_current_user(ctx: RequestContext = Depends(get_current_context), d
         region_id=UUID(ctx.region_id) if ctx.region_id else None,
         is_active=ctx.is_active,
         consent_signed=ctx.consent_signed,
-        consent_type_required=None if ctx.is_active else ("patient_onboarding" if row["role"] == "patient" else "staff_onboarding"),
+        # A rejected patient (94) already signed consent — inactive here
+        # because they were turned down, not because anything is unsigned.
+        # Don't send them back through the consent screen to explain that.
+        consent_type_required=(
+            None
+            if ctx.is_active or (patient_row and patient_row["approval_status"] == "rejected")
+            else ("patient_onboarding" if row["role"] == "patient" else "staff_onboarding")
+        ),
         self_registered=bool(patient_row["self_registered"]) if patient_row else False,
         patient_id=patient_row["patient_id"] if patient_row else None,
         registration_status=patient_row["registration_status"] if patient_row else None,
+        approval_status=patient_row["approval_status"] if patient_row else None,
+        rejection_reason=patient_row["rejection_reason"] if patient_row else None,
         doctor_id=doctor_row["doctor_id"] if doctor_row else None,
         # Only meaningful for a real cognito-mode patient (the only flow that
         # ever leaves one channel unverified) — every other case (local dev,

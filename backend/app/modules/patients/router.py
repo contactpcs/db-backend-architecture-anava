@@ -13,6 +13,7 @@ from app.modules.patients.service import (
     PatientService,
     PatientTransferService,
     PatientVisitService,
+    PrescribedMedicineService,
 )
 
 router = APIRouter()
@@ -199,3 +200,43 @@ async def exit_patient(
     _ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin", "doctor")),
 ):
     return await PatientExitService(db).exit(patient_id, consent_id=body.consent_id)
+
+
+# ─── Prescribed medicines (SQL/v1/96) ────────────────────────────────────────
+
+
+@router.get("/patients/{patient_id}/prescribed-medicines", response_model=list[s.PrescribedMedicineRead])
+async def list_prescribed_medicines(
+    patient_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))
+):
+    await assert_patient_self(ctx, db, patient_id)
+    if ctx.role != "patient":
+        patient = await PatientService(db).get(patient_id)
+        await assert_clinic_scope(ctx, db, patient["primary_clinic_id"])
+    return await PrescribedMedicineService(db).list(patient_id)
+
+
+@router.post("/patients/{patient_id}/prescribed-medicines", response_model=s.PrescribedMedicineRead, status_code=201)
+async def prescribe_medicine(
+    patient_id: UUID,
+    body: s.PrescribedMedicineCreate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("doctor", "super_admin")),
+):
+    patient = await PatientService(db).get(patient_id)
+    await assert_clinic_scope(ctx, db, patient["primary_clinic_id"])
+    return await PrescribedMedicineService(db).create(patient_id, body.model_dump(), prescribed_by=UUID(ctx.user_id))
+
+
+@router.patch("/prescribed-medicines/{medicine_id}", response_model=s.PrescribedMedicineRead)
+async def update_prescribed_medicine_status(
+    medicine_id: UUID,
+    body: s.PrescribedMedicineStatusUpdate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("doctor", "super_admin")),
+):
+    """Stop or resume a medicine. Never deletes — history stays."""
+    service = PrescribedMedicineService(db)
+    row = await service.get(medicine_id)
+    await assert_clinic_scope(ctx, db, row["clinic_id"])
+    return await service.set_status(medicine_id, status=body.status, changed_by=UUID(ctx.user_id))

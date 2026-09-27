@@ -204,3 +204,42 @@ class VisitSummaryRead(BaseModel):
     anamnesis: dict | None = None
     prs_instances: list[dict] = Field(default_factory=list)
     protocols: list[dict] = Field(default_factory=list)
+
+
+# ─── Prescribed medicines (SQL/v1/96) ────────────────────────────────────────
+# Values match the doctor workspace's dropdowns and the table's CHECKs.
+MEDICINE_TIMINGS = ("Morning", "Afternoon", "Evening", "Night", "Twice daily", "Three times daily", "As needed")
+MEDICINE_MEALS = ("Before meal", "After meal", "With meal", "Empty stomach", "Not applicable")
+
+
+class PrescribedMedicineCreate(BaseModel):
+    medicine_name: str = Field(min_length=1, max_length=200)
+    dose: str | None = Field(default=None, max_length=100)
+    timing: str | None = Field(default=None, pattern="^(" + "|".join(MEDICINE_TIMINGS) + ")$")
+    meal_instruction: str | None = Field(default=None, pattern="^(" + "|".join(MEDICINE_MEALS) + ")$")
+    duration: str | None = Field(default=None, max_length=100)
+    note: str | None = Field(default=None, max_length=1000)
+    # The consultation it's prescribed in, when the workspace knows it.
+    appointment_id: UUID | None = None
+
+
+class PrescribedMedicineStatusUpdate(BaseModel):
+    status: str = Field(pattern="^(active|stopped)$")
+
+
+class PrescribedMedicineRead(BaseModel):
+    medicine_id: UUID
+    patient_id: UUID
+    clinic_id: UUID
+    prescribed_by: UUID
+    prescribed_by_name: str | None = None
+    appointment_id: UUID | None = None
+    medicine_name: str
+    dose: str | None = None
+    timing: str | None = None
+    meal_instruction: str | None = None
+    duration: str | None = None
+    note: str | None = None
+    status: str
+    started_at: datetime
+    stopped_at: datetime | None = None

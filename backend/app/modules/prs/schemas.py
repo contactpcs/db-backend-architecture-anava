@@ -85,6 +85,9 @@ class AssessmentInstanceRead(BaseModel):
     appointment_id: UUID | None = None
     assessment_stage: str
     status: str
+    # Voided instances (e.g. race duplicates, migration 95) stay listed for
+    # audit; readers picking "the" instance must skip them.
+    is_voided: bool = False
     started_at: datetime
     completed_at: datetime | None
     final_result: str | None

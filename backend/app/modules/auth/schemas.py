@@ -219,6 +219,12 @@ class CurrentUserRead(BaseModel):
     self_registered: bool = False
     patient_id: UUID | None = None
     registration_status: str | None = None
+    # role=='patient' only. 'rejected' is why is_active is False here despite
+    # registration_status=='registration_complete' — the frontend's own
+    # "sign your consent" gate (driven by consent_signed) would otherwise be
+    # the only explanation offered, which is wrong for this case (94).
+    approval_status: str | None = None
+    rejection_reason: str | None = None
     # doctors.doctor_id (public ID) — role=='doctor' only. FK columns store
     # profiles.id everywhere, but /doctors/{doctor_id}/... path params expect
     # this public ID, not profiles.id — the frontend has no other way to

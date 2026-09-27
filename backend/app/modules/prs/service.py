@@ -4,6 +4,7 @@ import builtins
 from uuid import UUID
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
@@ -364,16 +365,40 @@ class PrsAssessmentService:
             is_resumed = True
             is_readonly_completed = True
         else:
-            instance = await self.instances.create(
-                disease_id=disease_id,
-                patient_id=profile_id,
-                session_id=session_id,
-                initiated_by=initiated_by,
-                administered_by=administered_by,
-                assessment_stage=assessment_stage,
-                language_code=language_code,
-                appointment_id=appointment_id,
-            )
+            try:
+                # Savepoint: two concurrent starts both land here; for
+                # general_registration uq_prs_one_general_registration (95)
+                # rejects the second insert, and that must not abort the
+                # request — it resumes the instance the winner created.
+                async with self.session.begin_nested():
+                    instance = await self.instances.create(
+                        disease_id=disease_id,
+                        patient_id=profile_id,
+                        session_id=session_id,
+                        initiated_by=initiated_by,
+                        administered_by=administered_by,
+                        assessment_stage=assessment_stage,
+                        language_code=language_code,
+                        appointment_id=appointment_id,
+                    )
+            except IntegrityError:
+                winner = await self.instances.find_in_progress(
+                    patient_id=profile_id, disease_id=disease_id, assessment_stage=assessment_stage
+                ) or await self.instances.find_completed_standalone(
+                    patient_id=profile_id, disease_id=disease_id, assessment_stage=assessment_stage
+                )
+                if winner is None:
+                    raise
+                instance = winner
+                is_resumed = True
+                is_readonly_completed = winner["status"] == "completed"
+                scales = await self._compose_scales(instance, language_code=instance["language_code"])
+                return {
+                    "instance_id": instance["instance_id"],
+                    "is_resumed": is_resumed,
+                    "is_readonly_completed": is_readonly_completed,
+                    "scales": scales,
+                }
             await emit_event(
                 self.session,
                 aggregate_type="prs_assessment_instance",

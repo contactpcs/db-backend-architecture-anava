@@ -355,7 +355,7 @@ class AssessmentInstanceRepository:
             self.session,
             text(
                 "SELECT * FROM prs_assessment_instances WHERE patient_id = :pid AND disease_id IS NOT DISTINCT FROM :disease_id "
-                "AND assessment_stage = :stage AND status = 'in_progress' ORDER BY started_at DESC LIMIT 1"
+                "AND assessment_stage = :stage AND status = 'in_progress' AND is_voided = FALSE ORDER BY started_at DESC LIMIT 1"
             ),
             {"pid": str(patient_id), "disease_id": disease_id, "stage": assessment_stage},
         )
@@ -420,7 +420,7 @@ class AssessmentInstanceRepository:
             text(
                 "SELECT pai.* FROM prs_assessment_instances pai "
                 "WHERE pai.patient_id = :pid AND pai.disease_id IS NOT DISTINCT FROM :disease_id "
-                "AND pai.assessment_stage = :stage AND pai.status = 'completed' AND pai.appointment_id IS NULL "
+                "AND pai.assessment_stage = :stage AND pai.status = 'completed' AND pai.appointment_id IS NULL AND pai.is_voided = FALSE "
                 "AND NOT EXISTS ("
                 "  SELECT 1 FROM patient_scale_assignments psa "
                 "  WHERE psa.patient_id = pai.patient_id AND psa.disease_id IS NOT DISTINCT FROM pai.disease_id "

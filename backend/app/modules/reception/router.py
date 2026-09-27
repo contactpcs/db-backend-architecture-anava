@@ -197,7 +197,9 @@ async def list_registrations(
     from app.modules.patients.service import PatientService
 
     clinic_id = UUID(ctx.clinic_id) if ctx.role in ("receptionist", "clinic_admin") and ctx.clinic_id else None
-    rows = await PatientService(db).list(clinic_id=clinic_id, approval_status=status)
+    # include_unapproved: with no status filter this is the queue's "all" view,
+    # which must still show pending and rejected requests.
+    rows = await PatientService(db).list(clinic_id=clinic_id, approval_status=status, include_unapproved=True)
     rows = [r for r in rows if r.get("self_registered")]
     # decide_approval (approve AND reject) 400s with REGISTRATION_INCOMPLETE
     # for anyone not yet at registration_status='registration_complete' —
@@ -223,7 +225,17 @@ async def list_registrations(
             submitted_on=r["created_at"].date().isoformat() if r.get("created_at") else None,
             status=r["approval_status"],
             linked_patient_id=r["patient_id"] if r["approval_status"] == "approved" else None,
-            allowed_actions=["approve", "reject"] if r["approval_status"] == "pending" else ["view"],
+            # A rejection is not the end of this queue's involvement — the
+            # receptionist can still change their mind and approve it (94),
+            # they just can't reject it a second time.
+            allowed_actions=(
+                ["approve", "reject"]
+                if r["approval_status"] == "pending"
+                else ["approve"]
+                if r["approval_status"] == "rejected"
+                else ["view"]
+            ),
+            rejection_reason=r.get("rejection_reason") if r["approval_status"] == "rejected" else None,
         )
         for r in page_rows
     ]
@@ -255,11 +267,16 @@ async def approve_registration(
 
 @router.post("/registrations/{registration_id}/reject", response_model=s.ApproveRejectResponse)
 async def reject_registration(
-    registration_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))
+    registration_id: UUID,
+    body: s.RejectRegistrationRequest | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES)),
 ) -> s.ApproveRejectResponse:
     from app.modules.patients.service import PatientService
 
-    await PatientService(db).decide_approval(registration_id, decision="rejected", decided_by=UUID(ctx.user_id), rejection_reason=None)
+    await PatientService(db).decide_approval(
+        registration_id, decision="rejected", decided_by=UUID(ctx.user_id), rejection_reason=body.rejection_reason if body else None
+    )
     await db.commit()
     return s.ApproveRejectResponse(registration_id=registration_id, status="rejected")
 

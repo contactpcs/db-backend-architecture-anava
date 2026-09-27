@@ -158,11 +158,20 @@ class RegistrationListItem(BaseModel):
     status: str
     linked_patient_id: UUID | None = None
     allowed_actions: list[str]
+    # Only ever set when status == 'rejected' — why the Rejected tab's row
+    # was turned down. Cleared (NULL) the moment it's approved (94).
+    rejection_reason: str | None = None
 
 
 class RegistrationListResponse(BaseModel):
     items: list[RegistrationListItem]
     pagination: Pagination
+
+
+class RejectRegistrationRequest(BaseModel):
+    # Optional to keep the endpoint callable with no body (older/other
+    # clients) — decide_approval accepts None and just stores no reason.
+    rejection_reason: str | None = None
 
 
 class ApproveRejectResponse(BaseModel):
