@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth_session import sign_out_profile
 from app.core.sql_helpers import fetch_one, fetch_optional
 
 
@@ -211,6 +212,8 @@ class PatientRepository:
             text("UPDATE profiles SET deleted_by = :by, deleted_at = NOW(), is_active = FALSE WHERE id = :pid"),
             {"by": str(deleted_by), "pid": str(patient["profile_id"])},
         )
+        # A removed patient must not be able to mint new tokens either.
+        await sign_out_profile(self.session, patient["profile_id"])
         return patient
 
     async def set_status(self, patient_id: UUID, status: str) -> dict | None:

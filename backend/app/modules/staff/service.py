@@ -7,6 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth_session import sign_out_profile
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, profile_conflict_error
 from app.core.profile_completion import (
@@ -159,6 +160,10 @@ async def _apply_profile_update(session: AsyncSession, profile_id, profile_field
         await update_profile(session, profile_id, profile_fields)
     except IntegrityError as exc:
         raise profile_conflict_error(exc, email=profile_fields.get("email"), phone=profile_fields.get("phone")) from exc
+    if profile_fields.get("is_active") is False:
+        # Deactivated: profiles.is_active already blocks the next request;
+        # this stops the account minting new tokens from its refresh token.
+        await sign_out_profile(session, profile_id)
 
 
 async def _resolve_staff_request(session: AsyncSession, staff_request_id, *, expected_role: str, clinic_id) -> dict | None:

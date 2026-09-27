@@ -175,6 +175,17 @@ def _reject_if_past(on_date: dt.date, start_time: dt.time) -> None:
         raise BusinessRuleError("Cannot book a slot in the past", code="SLOT_IN_PAST")
 
 
+def _booking_conflict(exc: IntegrityError, *, fallback: ConflictError) -> ConflictError:
+    """IntegrityError from inserting a consultation -> the 409 that names the
+    rule that actually fired. uq_one_active_initial_per_patient used to be
+    reported as a doctor-calendar overlap, sending staff looking for a clash
+    that didn't exist."""
+    msg = str(getattr(exc, "orig", exc))
+    if "uq_one_active_initial_per_patient" in msg:
+        return ConflictError("This patient already has an active initial appointment", code="INITIAL_APPOINTMENT_EXISTS")
+    return fallback
+
+
 def _slot_write_conflict(exc: IntegrityError) -> ConflictError:
     """IntegrityError from claiming a device-session/protocol slot -> 409.
 
@@ -597,6 +608,14 @@ class AppointmentService:
 
         _reject_if_past(data["appointment_date"], data["start_time"])
 
+        # Same gate the patient app enforces (book_follow_up): a follow-up
+        # needs a completed initial to follow up on — staff included.
+        if appointment_type == TYPE_FOLLOW_UP and not await self.repo.has_completed_initial(patient_profile_id):
+            raise BusinessRuleError(
+                "This patient has no completed initial consultation to follow up on",
+                code="NO_COMPLETED_INITIAL",
+            )
+
         is_available, duration = await AvailabilityService(self.session).check_slot(
             doctor_profile_id, data["appointment_date"], data["start_time"]
         )
@@ -638,7 +657,10 @@ class AppointmentService:
         try:
             appointment = await self.repo.create(payload)
         except IntegrityError as exc:
-            raise ConflictError("This doctor already has an appointment overlapping this time slot", code="APPOINTMENT_OVERLAP") from exc
+            raise _booking_conflict(
+                exc,
+                fallback=ConflictError("This doctor already has an appointment overlapping this time slot", code="APPOINTMENT_OVERLAP"),
+            ) from exc
         await emit_event(
             self.session,
             aggregate_type="appointment",
@@ -752,6 +774,10 @@ class AppointmentService:
         if allowed_from is None:
             raise BusinessRuleError(f"Unknown status transition to {status!r}", code="INVALID_STATUS_TRANSITION")
         if appt["status"] not in allowed_from:
+            # The most common miss on the visit day: starting before reception
+            # checked the patient in. Check-in stays mandatory; say so plainly.
+            if status == "in_progress" and appt["status"] == STATUS_PAID:
+                raise BusinessRuleError("Check the patient in before starting the visit", code="CHECK_IN_REQUIRED")
             raise BusinessRuleError(f"Cannot move an appointment from '{appt['status']}' to '{status}'", code="INVALID_STATUS_TRANSITION")
 
         if ctx.role == "patient":
@@ -1389,6 +1415,9 @@ class PatientBookingService:
         clinic_id = patient["primary_clinic_id"]
         if not clinic_id:
             raise BusinessRuleError("You are not registered at a clinic", code="CLINIC_REQUIRED")
+        # Same gate as staff booking and claim_slot — a paused/closed clinic
+        # takes no new bookings from any path.
+        await _assert_clinic_operational(self.session, clinic_id)
 
         is_available, duration = await self.availability.check_slot(doctor_profile_id, data["appointment_date"], data["start_time"])
         if not is_available:
@@ -1416,10 +1445,12 @@ class PatientBookingService:
         try:
             created = await self.repo.create(payload)
         except IntegrityError as exc:
-            # Either excl_doctor_overlap (someone took the slot between the
-            # check above and this insert) or uq_one_active_initial_per_patient
-            # (two taps racing). Both mean the same thing to the patient.
-            raise ConflictError("That slot was just taken — please pick another", code="APPOINTMENT_SLOT_TAKEN") from exc
+            # excl_doctor_overlap (someone took the slot between the check
+            # above and this insert) or uq_one_active_initial_per_patient
+            # (two taps racing) — told apart so the message is true.
+            raise _booking_conflict(
+                exc, fallback=ConflictError("That slot was just taken — please pick another", code="APPOINTMENT_SLOT_TAKEN")
+            ) from exc
 
         await emit_event(
             self.session,

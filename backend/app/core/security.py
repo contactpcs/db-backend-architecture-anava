@@ -11,6 +11,7 @@ RLS context) needs to know which mode is active.
 """
 
 import asyncio
+import secrets
 import time
 from functools import lru_cache
 from typing import TypedDict
@@ -19,7 +20,7 @@ import httpx
 from jose import JWTError, jwt
 
 from app.config import get_settings
-from app.core.exceptions import PermissionError_
+from app.core.exceptions import AuthenticationError
 
 settings = get_settings()
 _jwks_lock = asyncio.Lock()
@@ -28,6 +29,12 @@ _jwks_lock = asyncio.Lock()
 class TokenClaims(TypedDict):
     sub: str
     role: str
+    # Identify one access token, so logout can denylist exactly it
+    # (app/core/session_store.py). `username` is the Cognito username that
+    # REFRESH_TOKEN_AUTH's SECRET_HASH must be computed over.
+    jti: str | None
+    exp: int
+    username: str
 
 
 def create_local_token(sub: str, expires_in_seconds: int = 3600) -> str:
@@ -38,6 +45,7 @@ def create_local_token(sub: str, expires_in_seconds: int = 3600) -> str:
     Never used when auth_mode == 'cognito'."""
     payload = {
         "sub": sub,
+        "jti": secrets.token_hex(16),
         "iat": int(time.time()),
         "exp": int(time.time()) + expires_in_seconds,
     }
@@ -93,8 +101,16 @@ async def verify_token(token: str) -> TokenClaims:
                 audience=settings.cognito_app_client_id,
             )
     except JWTError as exc:
-        raise PermissionError_("Invalid or expired token", code="INVALID_TOKEN") from exc
+        # 401, not 403: a bad/expired token means "authenticate again" (the client
+        # refreshes on it); 403 is for a valid caller lacking rights.
+        raise AuthenticationError("Invalid or expired token", code="INVALID_TOKEN") from exc
 
     groups = payload.get("cognito:groups") or []
     role = groups[0] if groups else payload.get("role", "")
-    return TokenClaims(sub=payload["sub"], role=role)
+    return TokenClaims(
+        sub=payload["sub"],
+        role=role,
+        jti=payload.get("jti"),
+        exp=int(payload.get("exp", 0)),
+        username=payload.get("username") or payload["sub"],
+    )

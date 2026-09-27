@@ -30,10 +30,13 @@ import secrets
 from functools import lru_cache
 
 import boto3
+import structlog
 from botocore.exceptions import ClientError
 
 from app.config import get_settings
-from app.core.exceptions import BusinessRuleError, PermissionError_
+from app.core.exceptions import AuthenticationError, BusinessRuleError, PermissionError_
+
+logger = structlog.get_logger()
 
 settings = get_settings()
 
@@ -253,6 +256,62 @@ def initiate_auth(*, username: str, password: str) -> dict:
             details=[{"session": resp["Session"]}],
         )
     return resp["AuthenticationResult"]
+
+
+def refresh_auth(*, refresh_token: str, username: str) -> dict:
+    """REFRESH_TOKEN_AUTH — trades a refresh token for a new access token.
+    `username` must be the account's Cognito username (the access token's own
+    `username` claim), NOT the email/phone typed at login: SECRET_HASH is
+    computed over it and Cognito rejects the alias. Returns Cognito's
+    AuthenticationResult (AccessToken/IdToken/ExpiresIn — no new
+    RefreshToken unless refresh-token rotation is on in the user pool)."""
+    _require_cognito_mode()
+    try:
+        resp = _client().initiate_auth(
+            AuthFlow="REFRESH_TOKEN_AUTH",
+            ClientId=settings.cognito_app_client_id,
+            AuthParameters={"REFRESH_TOKEN": refresh_token, "SECRET_HASH": _secret_hash(username)},
+        )
+    except (_client().exceptions.NotAuthorizedException, _client().exceptions.UserNotFoundException) as exc:
+        # Expired, revoked (logout / admin sign-out) or malformed — all the
+        # same to the caller: log in again.
+        raise AuthenticationError("Session expired — please log in again", code="INVALID_REFRESH_TOKEN") from exc
+    except ClientError as exc:
+        raise AuthenticationError(f"Could not refresh the session: {exc}", code="COGNITO_REFRESH_FAILED") from exc
+    return resp["AuthenticationResult"]
+
+
+def revoke_refresh_token(refresh_token: str) -> None:
+    """RevokeToken — kills this refresh token (and, Cognito-side, the access
+    tokens minted from it). Logout for ONE device: other devices' sessions
+    each hold their own refresh token and are untouched. Never raises —
+    logout must succeed for the user even if Cognito is unreachable; the
+    caller separately denylists the access token locally."""
+    if settings.auth_mode != "cognito":
+        return
+    try:
+        _client().revoke_token(
+            Token=refresh_token,
+            ClientId=settings.cognito_app_client_id,
+            ClientSecret=settings.cognito_app_client_secret,
+        )
+    except Exception as exc:  # noqa: BLE001 — best-effort by design, see docstring
+        logger.warning("cognito_revoke_token_failed", error=str(exc))
+
+
+def admin_sign_out(cognito_username: str) -> None:
+    """AdminUserGlobalSignOut — invalidates EVERY refresh token of a user, on
+    every device. Used when an account is deactivated or removed, so it can
+    never mint another access token. Best-effort: the per-request
+    profiles.is_active check is what actually blocks the account
+    immediately; this only stops the token supply. Needs IAM credentials
+    (like the other Admin* calls here)."""
+    if settings.auth_mode != "cognito":
+        return
+    try:
+        _client().admin_user_global_sign_out(UserPoolId=settings.cognito_user_pool_id, Username=cognito_username)
+    except Exception as exc:  # noqa: BLE001 — best-effort by design, see docstring
+        logger.warning("cognito_admin_sign_out_failed", error=str(exc))
 
 
 def change_password(*, access_token: str, previous_password: str, new_password: str) -> None:
