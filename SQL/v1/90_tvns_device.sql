@@ -268,13 +268,13 @@ CREATE POLICY "rls_tvns_session_settings_select" ON core."tvns_session_settings"
 DROP POLICY IF EXISTS "rls_tvns_session_settings_insert" ON core."tvns_session_settings";
 CREATE POLICY "rls_tvns_session_settings_insert" ON core."tvns_session_settings" FOR INSERT TO public
     WITH CHECK (
-        rls_user_role() = ANY (ARRAY['super_admin'::text, 'clinic_admin'::text, 'clinical_assistant'::text, 'system'::text])
+        rls_user_role() = ANY (ARRAY['super_admin'::text, 'clinic_admin'::text, 'clinical_assistant'::text, 'doctor'::text, 'system'::text])
     );
 
 DROP POLICY IF EXISTS "rls_tvns_session_settings_update" ON core."tvns_session_settings";
 CREATE POLICY "rls_tvns_session_settings_update" ON core."tvns_session_settings" FOR UPDATE TO public
     USING (
-        rls_user_role() = ANY (ARRAY['super_admin'::text, 'clinic_admin'::text, 'clinical_assistant'::text, 'system'::text])
+        rls_user_role() = ANY (ARRAY['super_admin'::text, 'clinic_admin'::text, 'clinical_assistant'::text, 'doctor'::text, 'system'::text])
     );
 
 -- ---------------------------------------------------------------------------

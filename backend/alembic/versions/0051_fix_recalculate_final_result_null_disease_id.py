@@ -1,17 +1,23 @@
-"""Fixes recalculate_final_result()'s v_total_scales count, which summed
-patient_scale_assignments across EVERY disease active under an assessment
-stage instead of just the instance's own disease — a patient with 2+
-diseases assigned under the same stage (e.g. main_clinical ATAXIA + main_
-clinical DEMENTIA) got an inflated denominator that v_completed (scoped to
-one instance) could never reach, so the instance stayed 'in_progress'
-forever even after every one of its own scales was scored and its
-prs_scale_results rows all existed. Confirmed live against a 7-scale ATAXIA
-instance with all 7 scored.
+"""Fixes recalculate_final_result()'s final_result_id computation, which
+built the PK as `NEW.instance_id || '/' || v_instance.disease_id`. Postgres
+string concat with `||` returns NULL when either operand is NULL, so scoring
+any scale on a general_registration instance (disease_id IS NULL) crashed the
+INSERT into prs_final_results with:
 
-Runs SQL/v1/97_fix_recalculate_final_result_disease_scope.sql.
+    null value in column "final_result_id" of relation "prs_final_results"
+    violates not-null constraint
 
-Revision ID: 0049
-Revises: 0048
+Confirmed live 2026-09-28 (staging): every scale-submit on a
+general_registration instance raised IntegrityError → 500.
+
+Fix: wrap in COALESCE so the PK falls back to the bare instance_id when
+disease_id is NULL (it only needs to be a stable non-null string unique per
+instance_id — the upsert targets ON CONFLICT (instance_id), not this column).
+
+Runs SQL/v1/74_fix_recalculate_final_result_null_disease_id.sql.
+
+Revision ID: 0051
+Revises: 0050
 """
 
 from collections.abc import Sequence
@@ -19,24 +25,22 @@ from pathlib import Path
 
 from alembic import op
 
-revision: str = "0049"
-down_revision: str | None = "0048"
+revision: str = "0051"
+down_revision: str | None = "0050"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+SQL_DIR = Path(__file__).resolve().parents[3] / "SQL" / "v1"
 
 SQL_FILES = [
-    "97_fix_recalculate_final_result_disease_scope.sql",
+    "74_fix_recalculate_final_result_null_disease_id.sql",
 ]
-
-SQL_DIR = Path(__file__).resolve().parents[3] / "SQL" / "v1"
 
 
 def _split_statements(sql_text: str) -> list[str]:
-    """Splits a .sql file on top-level semicolons. Copy of the prior
-    revision's — kept per-revision rather than imported, so a historical
-    migration's behavior never shifts under it when a later file's copy is
-    tweaked."""
+    """Splits a .sql file on top-level semicolons. Handles dollar-quoted
+    blocks and single-quoted strings correctly so that semicolons inside
+    function bodies are not treated as statement terminators."""
     statements: list[str] = []
     buf: list[str] = []
     dollar_tag: str | None = None
@@ -135,13 +139,17 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Restores the pre-0049 function body (no disease_id scoping on
-    v_total_scales) — exact text from MasterDB_Anava.sql / 07_prs_tables.sql."""
+    """Restores the pre-0051 function body — the 97_fix version from 0050,
+    which had disease-scoped v_total_scales but still used the bare concat
+    (without COALESCE) for final_result_id. general_registration instances
+    will crash again on scale submit after downgrade."""
     op.execute("""
-CREATE OR REPLACE FUNCTION recalculate_final_result()
-RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION core.recalculate_final_result()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
 DECLARE
-    v_instance      prs_assessment_instances%ROWTYPE;
+    v_instance      core.prs_assessment_instances%ROWTYPE;
     v_total         NUMERIC := 0;
     v_max           NUMERIC := 0;
     v_completed     INTEGER := 0;
@@ -155,19 +163,20 @@ DECLARE
     r               RECORD;
 BEGIN
     SELECT * INTO v_instance
-    FROM prs_assessment_instances
+    FROM core.prs_assessment_instances
     WHERE instance_id = NEW.instance_id;
 
-    SELECT COUNT(*) INTO v_total_scales
-    FROM patient_scale_assignments
+    SELECT COUNT(DISTINCT scale_id) INTO v_total_scales
+    FROM core.patient_scale_assignments
     WHERE patient_id = v_instance.patient_id
       AND assessment_stage = v_instance.assessment_stage
+      AND disease_id IS NOT DISTINCT FROM v_instance.disease_id
       AND is_active = TRUE;
 
     FOR r IN
         SELECT sr.*, sc.scale_code, sc.scale_name
-        FROM prs_scale_results sr
-        JOIN prs_scales sc ON sc.scale_id = sr.scale_id
+        FROM core.prs_scale_results sr
+        JOIN reference.prs_scales sc ON sc.scale_id = sr.scale_id
         WHERE sr.instance_id = NEW.instance_id
     LOOP
         v_total     := v_total + COALESCE(r.calculated_value, 0);
@@ -204,12 +213,13 @@ BEGIN
         END IF;
     END LOOP;
 
-    INSERT INTO prs_final_results (
+    INSERT INTO core.prs_final_results (
         final_result_id, instance_id, calculated_value, max_possible,
         scales_completed, scales_total, overall_severity, overall_severity_label,
         scale_summaries, all_risk_flags, time_stamp
     ) VALUES (
-        NEW.instance_id || '/' || v_instance.disease_id, NEW.instance_id, v_total, v_max,
+        NEW.instance_id || '/' || v_instance.disease_id,
+        NEW.instance_id, v_total, v_max,
         v_completed, v_total_scales, v_worst_sev, v_worst_label,
         v_summaries, v_all_flags, NOW()
     )
@@ -225,13 +235,20 @@ BEGIN
         time_stamp              = EXCLUDED.time_stamp;
 
     IF v_completed >= v_total_scales THEN
-        UPDATE prs_assessment_instances
-        SET status = 'completed', completed_at = NOW(),
-            final_result = (SELECT final_result_id FROM prs_final_results WHERE instance_id = NEW.instance_id)
-        WHERE instance_id = NEW.instance_id AND status != 'completed';
+        UPDATE core.prs_assessment_instances
+        SET
+            status       = 'completed',
+            completed_at = NOW(),
+            final_result = (
+                SELECT final_result_id
+                FROM core.prs_final_results
+                WHERE instance_id = NEW.instance_id
+            )
+        WHERE instance_id = NEW.instance_id
+          AND status != 'completed';
     END IF;
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$function$;
 """)

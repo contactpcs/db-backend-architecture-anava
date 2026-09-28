@@ -24,6 +24,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +33,7 @@ from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, PermissionError_, ValidationError
 from app.core.fsm import assert_transition
 from app.core.scoping import assert_clinic_scope
+from app.modules.admin.repository import BillableItemRepository
 from app.modules.device_sessions.repository import (
     DeviceSessionActivityRepository,
     DeviceSessionAdverseEventRepository,
@@ -108,6 +110,30 @@ class DeviceSessionService:
                 code="WRONG_APPOINTMENT_TYPE",
             )
 
+    async def _resolve_admin_duration(self, appt: dict) -> int:
+        """Resolve the duration configured by the main admin for this device.
+
+        This is the authoritative wall-clock duration for a device session;
+        it must not be replaced by a CA-entered prescription field.
+        """
+        device_id = (
+            await self.session.execute(
+                text("SELECT device_id FROM clinic_devices WHERE clinic_device_id = :id"),
+                {"id": str(appt["clinic_device_id"])},
+            )
+        ).scalar_one_or_none()
+        priced = await BillableItemRepository(self.session).resolve_price(
+            category="device_session",
+            clinic_id=appt["clinic_id"],
+            device_id=device_id,
+        )
+        if not priced or not priced.get("duration_minutes"):
+            raise BusinessRuleError(
+                "This device session has no configured duration — contact the clinic",
+                code="DEVICE_DURATION_NOT_CONFIGURED",
+            )
+        return int(priced["duration_minutes"])
+
     async def _header_or_404(self, appointment_id: UUID) -> dict:
         header = await self.repo.get_by_appointment(appointment_id)
         if not header:
@@ -158,6 +184,7 @@ class DeviceSessionService:
         info = await self.repo.get_device_info_for_protocol(appt["protocol_id"])
         if not info:
             raise NotFoundError("No device found for this appointment's protocol", code="DEVICE_NOT_FOUND")
+        info["session_duration_minutes"] = await self._resolve_admin_duration(appt)
         return info
 
     # -- checklist / lazy header creation --------------------------------------
@@ -239,9 +266,12 @@ class DeviceSessionService:
         # start. Denormalised onto the header the same way protocol_id
         # already is, so "who ran this" is a direct column read, not a join.
         now_columns = ["started_at"] if header.get("started_at") is None else []
+        update_fields: dict[str, Any] = {"session_status": "in_progress", "performed_by_id": ctx.user_id, "performed_by_role": ctx.role}
+        if header.get("actual_duration_min") is None:
+            update_fields["actual_duration_min"] = await self._resolve_admin_duration(appt)
         updated = await self.repo.update_with_now_columns(
             header["device_session_record_id"],
-            {"session_status": "in_progress", "performed_by_id": ctx.user_id, "performed_by_role": ctx.role},
+            update_fields,
             now_columns=now_columns,
         )
 
@@ -334,7 +364,7 @@ class DeviceSessionService:
         return updated or header
 
     async def complete(self, appointment_id: UUID, override_reason: str | None, ctx: RequestContext) -> dict:
-        await self._resolve_scoped_appointment(appointment_id, ctx)
+        appt = await self._resolve_scoped_appointment(appointment_id, ctx)
         header = await self._header_or_404(appointment_id)
         # Same light-touch pre-flight as ProtocolService.complete(): the
         # session must currently be in_progress. No further field-completeness
@@ -347,7 +377,10 @@ class DeviceSessionService:
         # call must be recorded. actual_duration_min/started_at are unset for
         # a session with no checklist filed yet — treat as "can't verify
         # elapsed time" and require the override rather than silently allow.
-        planned_minutes = header.get("actual_duration_min")
+        # The admin-configured device duration is authoritative. The header's
+        # actual_duration_min is retained as an audit value, but is not trusted
+        # for deciding whether the session may be completed early.
+        planned_minutes = await self._resolve_admin_duration(appt)
         started_at = header.get("started_at")
         elapsed_ratio = None
         if planned_minutes and started_at:
