@@ -610,8 +610,10 @@ async def _listen_and_drain() -> None:
     dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     conn = await asyncpg.connect(dsn)
     wake = asyncio.Event()
-    await conn.add_listener("outbox_new_event", lambda *_: wake.set())
     try:
+        # Inside the try so a failed add_listener still closes the connection
+        # instead of leaking one slot per relay restart.
+        await conn.add_listener("outbox_new_event", lambda *_: wake.set())
         while True:
             n = await drain_outbox()
             if n:

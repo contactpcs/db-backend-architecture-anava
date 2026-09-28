@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      - run: pip install ".[dev]"
+      - run: pip install --default-timeout=60 --retries 10 ".[dev]"
       - run: ruff check .
       - run: ruff format --check .
 
@@ -37,7 +37,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      - run: pip install ".[dev]"
+      - run: pip install --default-timeout=60 --retries 10 ".[dev]"
       - run: mypy app
 
   test:
@@ -91,7 +91,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      - run: pip install ".[dev]"
+      - run: pip install --default-timeout=60 --retries 10 ".[dev]"
       - name: Provision SQL/v1 schema
         # alembic/versions/0001_baseline_schema.py reads SQL/01_extensions.sql
         # etc. directly off disk at migration-run time (SQL_DIR = .../"SQL").

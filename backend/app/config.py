@@ -22,7 +22,11 @@ class Settings(BaseSettings):
     # fail to boot, not silently connect to a nonexistent local Postgres.
     database_url: str
     migration_database_url: str | None = None
-    db_pool_size: int = 10
+    # Per-process ceiling = pool + overflow (API) + 5 (shared worker pool) + 1
+    # (relay LISTEN). The RDS instance has 79 slots (5 reserved) shared by
+    # the deployed API AND every developer's local backend — keep this small
+    # by default; raise it via env only on a bigger instance or behind RDS Proxy.
+    db_pool_size: int = 5
     db_max_overflow: int = 5
     # RDS requires/expects SSL; local Docker Postgres doesn't have it configured.
     db_require_ssl: bool = False

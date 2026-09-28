@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from functools import cache
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -52,12 +53,17 @@ def get_migration_engine() -> AsyncEngine:
     )
 
 
+@cache
 def get_worker_engine() -> AsyncEngine:
     """For the background workers that run inside the API process (outbox
     relay, hold sweeper, no-show sweeper). Same login as request traffic —
     anava_app, subject to RLS — acting as RLS role 'system' via SET LOCAL in
     each transaction; the policies admitting 'system' are SQL/v1/25, 31, 93.
     A small pool of its own, so a busy worker never starves request handling.
+    Cached: all three workers share ONE pool — they used to build three
+    separate 3+2 pools, which (with the API pool) let a single process hold
+    ~31 connections and exhausted the 79-slot RDS instance with just two
+    backends running (TooManyConnectionsError, 2026-09-28).
 
     Replaces get_migration_engine() for these workers so the API container
     never needs the RDS master credentials. Only partition maintenance and

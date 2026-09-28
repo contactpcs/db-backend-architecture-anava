@@ -214,18 +214,22 @@ async def _next_appointments(db, profile_ids: list[str]) -> dict[str, str]:
 
     now = _now_ist_naive()
     rows = (
-        await db.execute(
-            text(
-                "SELECT DISTINCT ON (patient_id) patient_id, appointment_date, start_time FROM appointments "
-                "WHERE patient_id = ANY(CAST(:ids AS uuid[])) "
-                "AND status IN ('planned','selected','paid','checked_in','in_progress') "
-                "AND (appointment_date > :today OR (appointment_date = :today AND "
-                "     (start_time IS NULL OR start_time >= :now_time OR status IN ('checked_in','in_progress')))) "
-                "ORDER BY patient_id, appointment_date, start_time NULLS LAST"
-            ),
-            {"ids": profile_ids, "today": now.date(), "now_time": now.time()},
+        (
+            await db.execute(
+                text(
+                    "SELECT DISTINCT ON (patient_id) patient_id, appointment_date, start_time FROM appointments "
+                    "WHERE patient_id = ANY(CAST(:ids AS uuid[])) "
+                    "AND status IN ('planned','selected','paid','checked_in','in_progress') "
+                    "AND (appointment_date > :today OR (appointment_date = :today AND "
+                    "     (start_time IS NULL OR start_time >= :now_time OR status IN ('checked_in','in_progress')))) "
+                    "ORDER BY patient_id, appointment_date, start_time NULLS LAST"
+                ),
+                {"ids": profile_ids, "today": now.date(), "now_time": now.time()},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     out: dict[str, str] = {}
     for r in rows:
         d = r["appointment_date"].isoformat()
