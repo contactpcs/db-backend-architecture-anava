@@ -70,6 +70,12 @@ class AssessmentInstanceCreate(BaseModel):
     # in the service.
     appointment_id: UUID | None = None
     language_code: str = Field(default="en", pattern="^[a-z]{2}$")
+    # When set, scopes the instance to this ONE scale instead of every scale
+    # mapped to disease_id — the device-session "administer this scale" flow,
+    # whose scale never has a patient_scale_assignments row of its own (it
+    # comes from protocol_scales) and would otherwise pull in the disease's
+    # full scale set. See PrsAssessmentService._compose_scales.
+    scale_id: str | None = None
 
 
 class AssessmentInstanceRead(BaseModel):
