@@ -33,6 +33,7 @@ from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, PermissionError_, ValidationError
 from app.core.fsm import assert_transition
 from app.core.scoping import assert_clinic_scope
+from app.modules.admin.repository import BillableItemRepository
 from app.modules.device_sessions.repository import (
     DeviceSessionActivityRepository,
     DeviceSessionAdverseEventRepository,
@@ -46,7 +47,6 @@ from app.modules.device_sessions.repository import (
     DeviceSessionSymptomRepository,
     DeviceSessionTvnsSettingsRepository,
 )
-from app.modules.admin.repository import BillableItemRepository
 from app.modules.scheduling.repository import AppointmentRepository
 
 _TYPE_DEVICE_SESSION = "device_session"
@@ -266,7 +266,7 @@ class DeviceSessionService:
         # start. Denormalised onto the header the same way protocol_id
         # already is, so "who ran this" is a direct column read, not a join.
         now_columns = ["started_at"] if header.get("started_at") is None else []
-        update_fields = {"session_status": "in_progress", "performed_by_id": ctx.user_id, "performed_by_role": ctx.role}
+        update_fields: dict[str, Any] = {"session_status": "in_progress", "performed_by_id": ctx.user_id, "performed_by_role": ctx.role}
         if header.get("actual_duration_min") is None:
             update_fields["actual_duration_min"] = await self._resolve_admin_duration(appt)
         updated = await self.repo.update_with_now_columns(
