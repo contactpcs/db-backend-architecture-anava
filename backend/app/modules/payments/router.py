@@ -27,6 +27,9 @@ _CLINIC_PINNED_STAFF = ("clinic_admin", "doctor", "clinical_assistant", "recepti
 # hand a doctor every clinic's revenue — the role list here is what actually
 # prevents that, not the scope resolver).
 _PAYMENTS_HISTORY_ROLES = ("super_admin", "regional_admin", "clinic_admin", "receptionist")
+# Who can record cash taken at the counter — the front desk and its admins,
+# not doctors/CAs (they don't handle money) and never a patient.
+_CASH_COLLECTING_ROLES = ("super_admin", "regional_admin", "clinic_admin", "receptionist")
 
 
 @router.post("/payments", response_model=s.PaymentRead, status_code=201)
@@ -202,6 +205,19 @@ async def create_appointment_payment_order(
     response. Only the signed webhook or the signature-verified /verify
     call below can ever mark this paid."""
     return await PaymentService(db).create_order(appointment_id, ctx)
+
+
+@router.post("/appointments/{appointment_id}/payments/cash", response_model=s.PaymentRead, status_code=201)
+async def record_appointment_cash_payment(
+    appointment_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_CASH_COLLECTING_ROLES)),
+):
+    """Front desk took cash for this appointment. Settles it exactly like a
+    completed online payment (appointment -> paid, payment row + log +
+    payment_completed event, receipt available) with payment_method='cash'.
+    Staff-only — a patient can never self-declare a cash payment."""
+    return await PaymentService(db).record_cash_payment(appointment_id, ctx)
 
 
 @router.post("/payments/{payment_id}/verify", response_model=s.PaymentRead)

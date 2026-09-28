@@ -928,6 +928,21 @@ class AppointmentService:
             raise BusinessRuleError("Only an active (or no-show) appointment can be rescheduled", code="APPOINTMENT_NOT_ACTIVE")
         await assert_clinic_scope(ctx, self.session, old["clinic_id"])
 
+        # The front desk only puts a time on a doctor-planned protocol
+        # follow-up / device session on the day the treatment schedule set —
+        # moving it to another day is the doctor's call, not reception's.
+        if (
+            changed_by_role == "receptionist"
+            and old["appointment_type"] in PROTOCOL_BORN_TYPES
+            and old["status"] == STATUS_PLANNED
+            and data["appointment_date"] != old["appointment_date"]
+        ):
+            label = "device session" if old["appointment_type"] == TYPE_DEVICE_SESSION else "protocol follow-up"
+            raise BusinessRuleError(
+                f"A {label} can only be booked on its scheduled day",
+                code="PLANNED_SESSION_DATE_LOCKED",
+            )
+
         if old["appointment_type"] in PROTOCOL_BORN_TYPES:
             # A protocol-born row (device_session/protocol_followup) carries
             # protocol_id + session_number, and a protocol_device_sessions/

@@ -543,6 +543,65 @@ class PaymentService:
         )
         return {**payment, "razorpay_key_id": razorpay_client.settings.razorpay_key_id}
 
+    async def record_cash_payment(self, appointment_id: UUID, ctx: RequestContext) -> dict:
+        """Front-desk cash collection — the counter equivalent of a completed
+        Razorpay checkout. Same price resolution as create_order, same
+        update_status path as the webhook/verify (appointment selected ->
+        paid first, then the payment row, payment_log and payment_completed
+        event), just payment_method='cash' and no gateway involved.
+
+        Idempotent: an already-paid appointment returns its payment as-is. If
+        an online attempt was started first (a 'pending' Razorpay-order row
+        exists) and the patient then pays cash instead, that same row is
+        settled as cash rather than creating a second payment."""
+        appt = await self._get_appointment_for_pay(appointment_id, ctx)
+
+        existing = await self.repo.get_for_appointment(appointment_id)
+        if existing and existing["status"] == "paid":
+            return existing
+
+        if appt["status"] != "selected":
+            raise BusinessRuleError(f"Appointment is '{appt['status']}', not awaiting payment", code="NOT_AWAITING_PAYMENT")
+
+        if existing and existing["status"] == "pending":
+            payment_id = existing["payment_id"]
+        else:
+            priced = await self._resolve_amount(appt)
+            payment = await self.repo.create(
+                session_id=None,
+                order_id=None,
+                appointment_id=appointment_id,
+                amount=priced["amount"],
+                currency=priced["currency"],
+                # No gateway order to key on — one cash row per appointment
+                # attempt, unique so a double-click can't insert twice.
+                idempotency_key=f"cash-{appointment_id}",
+                razorpay_order_id=None,
+                base_fee_amount=priced["base_fee_amount"],
+                platform_fee_percent=priced["platform_fee_percent"],
+                platform_fee_amount=priced["platform_fee_amount"],
+            )
+            payment_id = payment["payment_id"]
+            await self.repo.log_event(
+                payment_id,
+                status="pending",
+                amount=priced["amount"],
+                currency=priced["currency"],
+                source="order_created",
+                payment_method="cash",
+                changed_by=UUID(ctx.user_id),
+                changed_by_role=ctx.role,
+            )
+
+        return await self.update_status(
+            payment_id,
+            status="paid",
+            payment_method="cash",
+            _changed_by=UUID(ctx.user_id),
+            _changed_by_role=ctx.role,
+            _source="staff_action",
+        )
+
     async def verify_payment(
         self, payment_id: UUID, *, razorpay_order_id: str, razorpay_payment_id: str, razorpay_signature: str, ctx: RequestContext
     ) -> dict:
