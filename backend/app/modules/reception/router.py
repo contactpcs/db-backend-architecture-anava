@@ -202,12 +202,43 @@ async def register_patient(
     )
 
 
+async def _next_appointments(db, profile_ids: list[str]) -> dict[str, str]:
+    """profile_id -> soonest upcoming appointment ("YYYY-MM-DD" or
+    "YYYY-MM-DDTHH:MM"), one query for the whole page. Upcoming = an active
+    status (a doctor-planned protocol session counts — it has a date, just
+    no time yet) from now on in IST; a visit already checked in / in progress
+    today still counts as the next one."""
+    if not profile_ids:
+        return {}
+    from app.modules.scheduling.service import _now_ist_naive
+
+    now = _now_ist_naive()
+    rows = (
+        await db.execute(
+            text(
+                "SELECT DISTINCT ON (patient_id) patient_id, appointment_date, start_time FROM appointments "
+                "WHERE patient_id = ANY(CAST(:ids AS uuid[])) "
+                "AND status IN ('planned','selected','paid','checked_in','in_progress') "
+                "AND (appointment_date > :today OR (appointment_date = :today AND "
+                "     (start_time IS NULL OR start_time >= :now_time OR status IN ('checked_in','in_progress')))) "
+                "ORDER BY patient_id, appointment_date, start_time NULLS LAST"
+            ),
+            {"ids": profile_ids, "today": now.date(), "now_time": now.time()},
+        )
+    ).mappings().all()
+    out: dict[str, str] = {}
+    for r in rows:
+        d = r["appointment_date"].isoformat()
+        out[str(r["patient_id"])] = f"{d}T{r['start_time'].strftime('%H:%M')}" if r["start_time"] else d
+    return out
+
+
 @router.get("/patients", response_model=s.PatientListResponse)
 async def list_patients(
     page: int = 1, page_size: int = 20, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))
 ) -> s.PatientListResponse:
-    """last_visit/next_appointment are always null — depend on the
-    appointments module, out of scope for this adapter (see schemas.py)."""
+    """last_visit = most recent completed appointment date; next_appointment
+    = soonest upcoming active appointment (see _next_appointments)."""
     from app.modules.patients.service import PatientService
 
     clinic_id = UUID(ctx.clinic_id) if ctx.role in ("receptionist", "clinic_admin") and ctx.clinic_id else None
@@ -215,6 +246,7 @@ async def list_patients(
     total = len(all_patients)
     start = (page - 1) * page_size
     page_items = all_patients[start : start + page_size]
+    next_by_profile = await _next_appointments(db, [str(p["profile_id"]) for p in page_items])
 
     items = [
         s.PatientListItem(
@@ -226,6 +258,8 @@ async def list_patients(
             phone=p["phone"],
             assigned_doctor=p.get("doctor_name"),
             registration_status=p["registration_status"],
+            last_visit=p["last_visit_date"].isoformat() if p.get("last_visit_date") else None,
+            next_appointment=next_by_profile.get(str(p["profile_id"])),
         )
         for p in page_items
     ]

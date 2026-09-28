@@ -147,8 +147,9 @@ class PatientListItem(BaseModel):
     # in this same list. See PatientService._REGISTRATION_STEPS for the
     # ordered value set.
     registration_status: str
-    # Both always null — depend on the appointments module, explicitly
-    # excluded from this adapter's scope.
+    # last_visit: "YYYY-MM-DD" of the latest completed appointment.
+    # next_appointment: soonest upcoming active one, "YYYY-MM-DDTHH:MM" (or
+    # just the date for a doctor-planned session with no time yet).
     last_visit: str | None = None
     next_appointment: str | None = None
 
