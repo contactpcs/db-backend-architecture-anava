@@ -64,6 +64,15 @@ def resolve_cancellation_refund_percent(tiers: list[dict], hours_until: float) -
 
 _REVENUE_GROUP_BY = {"day", "week", "month", "year"}
 
+# Which breakdown a role may ask for. Region only makes sense cross-region
+# (super_admin); clinic only when more than one clinic is in scope.
+_BREAKDOWN_DIMENSIONS_BY_ROLE = {
+    "super_admin": {"region", "clinic", "doctor", "purpose"},
+    "regional_admin": {"clinic", "doctor", "purpose"},
+    "clinic_admin": {"doctor", "purpose"},
+    "receptionist": {"doctor", "purpose"},
+}
+
 
 def _history_scope(ctx: RequestContext) -> tuple[UUID | None, UUID | None]:
     """(clinic_id, region_id) for the payments-history/revenue endpoints —
@@ -286,6 +295,15 @@ class PaymentService:
         clinic_id, region_id = _history_scope(ctx)
         return await self.repo.revenue_summary_by_purpose(
             clinic_id=clinic_id, region_id=region_id, group_by=group_by, date_from=date_from, date_to=date_to
+        )
+
+    async def revenue_breakdown(self, ctx: RequestContext, *, dimension: str, date_from=None, date_to=None) -> builtins.list[dict]:
+        allowed = _BREAKDOWN_DIMENSIONS_BY_ROLE.get(ctx.role, set())
+        if dimension not in allowed:
+            raise BusinessRuleError(f"dimension must be one of {sorted(allowed)} for your role", code="INVALID_BREAKDOWN_DIMENSION")
+        clinic_id, region_id = _history_scope(ctx)
+        return await self.repo.revenue_breakdown(
+            clinic_id=clinic_id, region_id=region_id, dimension=dimension, date_from=date_from, date_to=date_to
         )
 
     async def patient_revenue_totals(self, ctx: RequestContext, *, date_from=None, date_to=None, limit: int = 20) -> builtins.list[dict]:

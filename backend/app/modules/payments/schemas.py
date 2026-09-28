@@ -96,6 +96,15 @@ class RevenueByPurposePoint(BaseModel):
     payment_count: int
 
 
+class RevenueBreakdownRow(BaseModel):
+    # key is the region/clinic/doctor id (or purpose code); NULL = unattributed.
+    key: str | None = None
+    label: str | None = None
+    parent_label: str | None = None
+    total: float
+    payment_count: int
+
+
 class PatientRevenueTotal(BaseModel):
     patient_id: UUID
     patient_name: str | None = None
