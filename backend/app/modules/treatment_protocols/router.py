@@ -100,6 +100,48 @@ async def get_device(device_id: UUID, db=Depends(get_db), _ctx: RequestContext =
     return await CatalogueService(db).get_device_or_404(device_id)
 
 
+# Catalogue maintenance — super_admin only (also enforced by RLS, 32 + 97).
+# No DELETE endpoints: retire a company/device with is_active=false.
+
+
+@router.post("/neuromod/device-companies", response_model=s.DeviceCompanyRead, status_code=201)
+async def create_device_company(
+    body: s.DeviceCompanyCreate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin")),
+):
+    return await CatalogueService(db).create_company(body.model_dump(), ctx=ctx)
+
+
+@router.patch("/neuromod/device-companies/{company_id}", response_model=s.DeviceCompanyRead)
+async def update_device_company(
+    company_id: UUID,
+    body: s.DeviceCompanyUpdate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin")),
+):
+    return await CatalogueService(db).update_company(company_id, body.model_dump(), ctx=ctx)
+
+
+@router.post("/neuromod/devices", response_model=s.DeviceRead, status_code=201)
+async def create_device(
+    body: s.DeviceCreate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin")),
+):
+    return await CatalogueService(db).create_device(body.model_dump(), ctx=ctx)
+
+
+@router.patch("/neuromod/devices/{device_id}", response_model=s.DeviceRead)
+async def update_device(
+    device_id: UUID,
+    body: s.DeviceUpdate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin")),
+):
+    return await CatalogueService(db).update_device(device_id, body.model_dump(), ctx=ctx)
+
+
 # --------------------------------------------------------------------------
 # Step 2 - Condition
 # --------------------------------------------------------------------------

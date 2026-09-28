@@ -114,7 +114,64 @@ class DeviceCompanyRead(BaseModel):
     company_code: str
     company_name: str
     country: str | None = None
+    website: str | None = None
+    support_email: str | None = None
+    support_phone: str | None = None
+    regulatory_ids: dict = Field(default_factory=dict)
+    notes: str | None = None
     is_active: bool
+
+
+# Must match chk_neuromod_devices_modality (90_tvns_device.sql).
+DeviceModality = Literal["tDCS", "HD-tDCS", "tVNS", "TPS", "rTMS", "other"]
+
+
+class DeviceCompanyCreate(BaseModel):
+    company_code: str = Field(min_length=1, max_length=50)
+    company_name: str = Field(min_length=1, max_length=200)
+    country: str | None = None
+    website: str | None = None
+    support_email: str | None = None
+    support_phone: str | None = None
+    regulatory_ids: dict = Field(default_factory=dict)
+    notes: str | None = None
+    is_active: bool = True
+
+
+class DeviceCompanyUpdate(BaseModel):
+    # company_code is deliberately absent: it's the stable join key for seed
+    # scripts (32's column comment), not meant to change after creation.
+    company_name: str | None = Field(default=None, min_length=1, max_length=200)
+    country: str | None = None
+    website: str | None = None
+    support_email: str | None = None
+    support_phone: str | None = None
+    regulatory_ids: dict | None = None
+    notes: str | None = None
+    is_active: bool | None = None
+
+
+class DeviceCreate(BaseModel):
+    company_id: UUID
+    device_code: str = Field(min_length=1, max_length=50)
+    device_name: str = Field(min_length=1, max_length=200)
+    model_number: str | None = None
+    modality: DeviceModality
+    phase: int = Field(default=1, ge=1, le=2)
+    is_active: bool = True
+
+
+class DeviceUpdate(BaseModel):
+    # device_code and modality are deliberately absent: device_code is the
+    # stable handle seed files/presets pin, and modality decides which
+    # placement/dosing tables a device's rows live in (fn_check_device_modality
+    # triggers) — changing it after the fact would orphan that catalogue data.
+    # Wrong modality = retire this device and create a new one.
+    company_id: UUID | None = None
+    device_name: str | None = Field(default=None, min_length=1, max_length=200)
+    model_number: str | None = None
+    phase: int | None = Field(default=None, ge=1, le=2)
+    is_active: bool | None = None
 
 
 class DeviceRead(BaseModel):

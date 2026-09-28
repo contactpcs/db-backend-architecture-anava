@@ -171,6 +171,31 @@ class CatalogueRepository:
             {"id": str(device_id)},
         )
 
+    # -- catalogue writes (super_admin only; RLS + 97's grant) --------------
+
+    async def get_company(self, company_id: UUID) -> dict | None:
+        return await fetch_optional(
+            self.session,
+            text("SELECT * FROM reference.device_companies WHERE company_id = :id"),
+            {"id": str(company_id)},
+        )
+
+    async def create_company(self, data: dict) -> dict:
+        sql, params = insert_returning("reference.device_companies", data)
+        return await fetch_one(self.session, sql, params)
+
+    async def update_company(self, company_id: UUID, data: dict) -> dict | None:
+        sql, params = update_returning("reference.device_companies", "company_id", str(company_id), data)
+        return await fetch_optional(self.session, sql, params)
+
+    async def create_device(self, data: dict) -> dict:
+        sql, params = insert_returning("reference.neuromod_devices", data)
+        return await fetch_one(self.session, sql, params)
+
+    async def update_device(self, device_id: UUID, data: dict) -> dict | None:
+        sql, params = update_returning("reference.neuromod_devices", "device_id", str(device_id), data)
+        return await fetch_optional(self.session, sql, params)
+
     # -- conditions --------------------------------------------------------
 
     async def list_conditions(self, *, device_id: UUID | None = None, active_only: bool = True) -> builtins.list[dict]:

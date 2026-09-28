@@ -137,6 +137,68 @@ class CatalogueService:
             raise NotFoundError("Device not found", code="DEVICE_NOT_FOUND")
         return device
 
+    # -- catalogue writes (super_admin) --------------------------------------
+    # No delete: both tables are Retention Bucket 3 — retire with is_active=false.
+
+    async def _get_company_or_404(self, company_id: UUID) -> dict:
+        company = await self.repo.get_company(company_id)
+        if not company:
+            raise NotFoundError("Device company not found", code="DEVICE_COMPANY_NOT_FOUND")
+        return company
+
+    async def create_company(self, fields: dict, *, ctx: RequestContext) -> dict:
+        try:
+            company = await self.repo.create_company(fields)
+        except IntegrityError as exc:
+            raise ConflictError("A company with this code or name already exists", code="DEVICE_COMPANY_CONFLICT") from exc
+        await self._audit("device_company", company["company_id"], "device_company_created", fields, ctx)
+        return company
+
+    async def update_company(self, company_id: UUID, fields: dict, *, ctx: RequestContext) -> dict:
+        existing = await self._get_company_or_404(company_id)
+        clean = {k: v for k, v in fields.items() if v is not None}
+        if not clean:
+            return existing
+        try:
+            company = await self.repo.update_company(company_id, clean)
+        except IntegrityError as exc:
+            raise ConflictError("A company with this name already exists", code="DEVICE_COMPANY_CONFLICT") from exc
+        await self._audit("device_company", company_id, "device_company_updated", clean, ctx)
+        return company  # type: ignore[return-value]
+
+    async def create_device(self, fields: dict, *, ctx: RequestContext) -> dict:
+        company = await self._get_company_or_404(fields["company_id"])
+        if not company["is_active"]:
+            raise BusinessRuleError("Cannot add a device under an inactive company", code="DEVICE_COMPANY_INACTIVE")
+        clean = {k: (str(v) if isinstance(v, UUID) else v) for k, v in fields.items()}
+        try:
+            row = await self.repo.create_device(clean)
+        except IntegrityError as exc:
+            raise ConflictError("A device with this code already exists", code="DEVICE_CONFLICT") from exc
+        await self._audit("neuromod_device", row["device_id"], "device_created", clean, ctx)
+        return await self.get_device_or_404(row["device_id"])
+
+    async def update_device(self, device_id: UUID, fields: dict, *, ctx: RequestContext) -> dict:
+        existing = await self.get_device_or_404(device_id)
+        clean = {k: (str(v) if isinstance(v, UUID) else v) for k, v in fields.items() if v is not None}
+        if not clean:
+            return existing
+        if "company_id" in clean:
+            await self._get_company_or_404(UUID(clean["company_id"]))
+        await self.repo.update_device(device_id, clean)
+        await self._audit("neuromod_device", device_id, "device_updated", clean, ctx)
+        return await self.get_device_or_404(device_id)
+
+    async def _audit(self, aggregate_type: str, aggregate_id: Any, event_type: str, changes: dict, ctx: RequestContext) -> None:
+        # Who changed the catalogue, and what — the hand-run-SQL era had none of this.
+        await emit_event(
+            self.session,
+            aggregate_type=aggregate_type,
+            aggregate_id=str(aggregate_id),
+            event_type=event_type,
+            payload={"changed_by": ctx.user_id, "changes": {k: str(v) if isinstance(v, UUID) else v for k, v in changes.items()}},
+        )
+
     async def list_conditions(self, *, device_id: UUID | None = None) -> builtins.list[dict]:
         return await self.repo.list_conditions(device_id=device_id)
 
