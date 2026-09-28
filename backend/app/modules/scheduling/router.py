@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -158,6 +159,7 @@ async def list_appointments(
     date_to: date | None = None,
     skip: int = 0,
     limit: int = 100,
+    order: Literal["asc", "desc"] = Query("asc", description="Sort by appointment_date/start_time"),
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
@@ -172,6 +174,7 @@ async def list_appointments(
         date_to=date_to,
         skip=skip,
         limit=limit,
+        order=order,
     )
 
 

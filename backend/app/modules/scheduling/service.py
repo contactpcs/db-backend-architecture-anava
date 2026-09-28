@@ -689,6 +689,7 @@ class AppointmentService:
         date_to=None,
         skip: int = 0,
         limit: int = 100,
+        order: str = "asc",
     ) -> builtins.list[dict]:
         # v1: patient sees only their own, doctor only their own, staff
         # scoped to clinic (+ optional doctor_id/patient_id filters layered
@@ -724,6 +725,7 @@ class AppointmentService:
             date_to=date_to,
             skip=skip,
             limit=limit,
+            order=order,
         )
 
     async def list_upcoming(self, *, ctx: RequestContext, days: int = 14) -> builtins.list[dict]:

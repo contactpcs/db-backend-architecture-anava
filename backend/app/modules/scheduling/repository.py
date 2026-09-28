@@ -288,6 +288,7 @@ class AppointmentRepository:
         date_to=None,
         skip: int = 0,
         limit: int = 100,
+        order: str = "asc",
     ) -> builtins.list[dict]:
         clauses: builtins.list[str] = []
         params: dict[str, Any] = {}
@@ -320,10 +321,15 @@ class AppointmentRepository:
             params["date_to"] = date_to
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         params["skip"], params["limit"] = skip, limit
+        # appointment_id tiebreak keeps OFFSET paging stable across pages.
+        # "desc" lets callers that page through a large clinic see the most
+        # recent appointments first instead of the oldest `limit` rows.
+        direction = "DESC" if order == "desc" else "ASC"
+        order_by = f"a.appointment_date {direction}, a.start_time {direction} NULLS LAST, a.appointment_id"
         rows = (
             (
                 await self.session.execute(
-                    text(f"{_APPT_SELECT}{where} ORDER BY a.appointment_date, a.start_time OFFSET :skip LIMIT :limit"), params
+                    text(f"{_APPT_SELECT}{where} ORDER BY {order_by} OFFSET :skip LIMIT :limit"), params
                 )
             )
             .mappings()
