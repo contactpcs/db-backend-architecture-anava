@@ -327,11 +327,7 @@ class AppointmentRepository:
         direction = "DESC" if order == "desc" else "ASC"
         order_by = f"a.appointment_date {direction}, a.start_time {direction} NULLS LAST, a.appointment_id"
         rows = (
-            (
-                await self.session.execute(
-                    text(f"{_APPT_SELECT}{where} ORDER BY {order_by} OFFSET :skip LIMIT :limit"), params
-                )
-            )
+            (await self.session.execute(text(f"{_APPT_SELECT}{where} ORDER BY {order_by} OFFSET :skip LIMIT :limit"), params))
             .mappings()
             .all()
         )

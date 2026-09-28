@@ -88,6 +88,20 @@ async def get_revenue_summary_by_purpose(
     return await PaymentService(db).revenue_summary_by_purpose(ctx, group_by=group_by, date_from=date_from, date_to=date_to)
 
 
+@router.get("/payments/revenue-breakdown", response_model=list[s.RevenueBreakdownRow])
+async def get_revenue_breakdown(
+    dimension: str = "clinic",
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_PAYMENTS_HISTORY_ROLES)),
+):
+    """Paid revenue per region / clinic / doctor / purpose, biggest first,
+    within the caller's role scope. Allowed dimensions depend on role
+    (region: super_admin only; clinic: super_admin + regional_admin)."""
+    return await PaymentService(db).revenue_breakdown(ctx, dimension=dimension, date_from=date_from, date_to=date_to)
+
+
 @router.get("/payments/patient-totals", response_model=list[s.PatientRevenueTotal])
 async def get_patient_revenue_totals(
     date_from: datetime | None = None,

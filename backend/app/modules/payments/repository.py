@@ -458,6 +458,57 @@ class PaymentRepository:
         rows = (await self.session.execute(text(query), params)).mappings().all()
         return [dict(r) for r in rows]
 
+    # dimension -> (group key expr, label expr, parent-label expr). Validated
+    # against this dict before use — never interpolate caller input directly.
+    # Doctor attribution: a consultation's own doctor_id, else (device sessions,
+    # which have no doctor of record) the prescribing doctor on the protocol
+    # instance. Store orders have neither and land in the NULL "Unattributed" row.
+    _BREAKDOWN_DIMENSIONS = {
+        "region": ("c.region_id", "r.region_name", "NULL"),
+        "clinic": ("c.clinic_id", "c.clinic_name", "MIN(r.region_name)"),
+        "doctor": (
+            "COALESCE(a.doctor_id, pi.doctor_id)",
+            "ddp.first_name || ' ' || ddp.last_name",
+            "CASE WHEN COUNT(DISTINCT c.clinic_id) = 1 THEN MIN(c.clinic_name) ELSE COUNT(DISTINCT c.clinic_id) || ' clinics' END",
+        ),
+        "purpose": ("COALESCE(a.appointment_type, so.order_type, 'other')", "COALESCE(a.appointment_type, so.order_type, 'other')", "NULL"),
+    }
+
+    async def revenue_breakdown(
+        self,
+        *,
+        clinic_id: UUID | None,
+        region_id: UUID | None,
+        dimension: str,
+        date_from=None,
+        date_to=None,
+    ) -> list[dict]:
+        """Paid revenue totalled per region / clinic / doctor / purpose,
+        biggest first, within the caller's scope."""
+        key_expr, label_expr, parent_expr = self._BREAKDOWN_DIMENSIONS[dimension]
+        scope_sql, scope_params = self._scope_clause(clinic_id=clinic_id, region_id=region_id)
+        where = ["p.status = 'paid'", "p.paid_at IS NOT NULL"]
+        params: dict = {**scope_params}
+        if date_from:
+            where.append("p.paid_at >= :date_from")
+            params["date_from"] = date_from
+        if date_to:
+            where.append("p.paid_at < :date_to")
+            params["date_to"] = date_to
+
+        query = (
+            f"SELECT ({key_expr})::text AS key, MIN({label_expr}) AS label, {parent_expr} AS parent_label, "
+            "SUM(p.amount) AS total, COUNT(*) AS payment_count "
+            f"{self._HISTORY_BASE}"
+            "LEFT JOIN regions r ON r.region_id = c.region_id "
+            "LEFT JOIN protocol_instances pi ON pi.instance_id = a.instance_id "
+            "LEFT JOIN profiles ddp ON ddp.id = COALESCE(a.doctor_id, pi.doctor_id) "
+            f"WHERE {' AND '.join(where)} {scope_sql} "
+            f"GROUP BY {key_expr} ORDER BY total DESC"
+        )
+        rows = (await self.session.execute(text(query), params)).mappings().all()
+        return [dict(r) for r in rows]
+
     async def patient_revenue_totals(
         self,
         *,
