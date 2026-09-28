@@ -93,6 +93,7 @@ async def start_assessment(
         initiated_by=initiated_by,
         language_code=body.language_code,
         appointment_id=body.appointment_id,
+        scale_id=body.scale_id,
     )
 
 

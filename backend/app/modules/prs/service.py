@@ -208,27 +208,42 @@ class PrsAssessmentService:
             )
         return result
 
-    async def _compose_scales(self, instance: dict, *, language_code: str) -> list[dict]:
+    async def _compose_scales(self, instance: dict, *, language_code: str, only_scale_id: str | None = None) -> list[dict]:
         """Shared by start() and set_language() — same scales[] shape (each
         with its questions/options translated into language_code), so a
         language switch re-renders through the identical response shape the
         frontend already handles from start()."""
-        profile_id = instance["patient_id"]
-        assignment_repo = PatientScaleAssignmentRepository(self.session)
-        assignments = await assignment_repo.list(
-            patient_id=profile_id, assessment_stage=instance["assessment_stage"], disease_id=instance["disease_id"]
-        )
-        # patient_scale_assignments has no uniqueness constraint on
-        # (patient, scale, disease, stage) — re-assigning the same scale
-        # (e.g. a CA re-sending it, or two separate callers targeting the
-        # same scale) creates another row rather than upserting one. A
-        # plain list comprehension over every row duplicated the scale in
-        # the composed list, which the frontend then rendered twice with
-        # the same scale_id (React key collisions) and let the patient
-        # partially answer one copy while the other stayed unanswered,
-        # blocking the assessment from ever reading as complete. dict.
-        # fromkeys preserves first-seen order while deduping.
-        scale_ids = list(dict.fromkeys(a["scale_id"] for a in assignments))
+        # A device session administers ONE specific scale at a time
+        # (device_session_scales seeds one row per due scale — see
+        # treatment_protocols.service), not "every scale mapped to this
+        # disease." Without only_scale_id, an appointment-scoped instance
+        # for a scale that isn't in patient_scale_assignments (device-session
+        # scales never are — they come from protocol_scales, not the
+        # standalone assignment flow) fell through to the disease-catalog
+        # fallback below and pulled in ALL of the disease's scales (e.g. 7
+        # for ATAXIA) instead of the 1 actually being administered. The
+        # instance could then never reach 'completed' from a single scale's
+        # worth of answers, and the appointment_id-scoped resume path in
+        # start() would keep it stuck 'in_progress' forever.
+        if only_scale_id is not None:
+            scale_ids = [only_scale_id]
+        else:
+            profile_id = instance["patient_id"]
+            assignment_repo = PatientScaleAssignmentRepository(self.session)
+            assignments = await assignment_repo.list(
+                patient_id=profile_id, assessment_stage=instance["assessment_stage"], disease_id=instance["disease_id"]
+            )
+            # patient_scale_assignments has no uniqueness constraint on
+            # (patient, scale, disease, stage) — re-assigning the same scale
+            # (e.g. a CA re-sending it, or two separate callers targeting the
+            # same scale) creates another row rather than upserting one. A
+            # plain list comprehension over every row duplicated the scale in
+            # the composed list, which the frontend then rendered twice with
+            # the same scale_id (React key collisions) and let the patient
+            # partially answer one copy while the other stayed unanswered,
+            # blocking the assessment from ever reading as complete. dict.
+            # fromkeys preserves first-seen order while deduping.
+            scale_ids = list(dict.fromkeys(a["scale_id"] for a in assignments))
         if not scale_ids:
             # general_registration has no disease to look up (disease
             # selection removed from registration — 70_remove_disease_
@@ -301,6 +316,7 @@ class PrsAssessmentService:
         initiated_by: str = "patient",
         language_code: str = "en",
         appointment_id=None,
+        scale_id: str | None = None,
     ) -> dict:
         """Composed in one round trip: resumes an in-progress instance for
         this patient/disease/stage instead of creating a duplicate, then
@@ -309,7 +325,13 @@ class PrsAssessmentService:
         may have overridden the set) with full question+option data and each
         scale's completion state. Previously this only ever created a bare
         instance row and returned scales=[] — nothing downstream could
-        render an actual question without a second, never-built endpoint."""
+        render an actual question without a second, never-built endpoint.
+
+        scale_id, when given, scopes the whole instance to just that one
+        scale (see _compose_scales) — the device-session "administer this
+        scale" flow, which has no patient_scale_assignments row for the
+        scale it wants and would otherwise fall back to every scale mapped
+        to the disease."""
         if disease_id is None and assessment_stage != "general_registration":
             raise ValidationError(f"disease_id is required for assessment_stage={assessment_stage!r}", code="DISEASE_ID_REQUIRED")
         profile_id = await _resolve_profile_id(self.session, patient_id)
@@ -392,7 +414,7 @@ class PrsAssessmentService:
                 instance = winner
                 is_resumed = True
                 is_readonly_completed = winner["status"] == "completed"
-                scales = await self._compose_scales(instance, language_code=instance["language_code"])
+                scales = await self._compose_scales(instance, language_code=instance["language_code"], only_scale_id=scale_id)
                 return {
                     "instance_id": instance["instance_id"],
                     "is_resumed": is_resumed,
@@ -409,7 +431,7 @@ class PrsAssessmentService:
 
         # Resumed instance keeps whatever language it was already set to
         # (the patient picks language via set_language(), not by re-starting).
-        scales = await self._compose_scales(instance, language_code=instance["language_code"])
+        scales = await self._compose_scales(instance, language_code=instance["language_code"], only_scale_id=scale_id)
         return {
             "instance_id": instance["instance_id"],
             "is_resumed": is_resumed,
