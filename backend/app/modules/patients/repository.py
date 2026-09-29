@@ -386,3 +386,42 @@ class PrescribedMedicineRepository:
             {"status": status, "by": str(changed_by), "id": str(medicine_id)},
         )
         return await self.get(medicine_id)
+
+
+class PatientClinicalNoteRepository:
+    """core.patient_clinical_notes (99). Append-only — no update/delete."""
+
+    _SELECT = (
+        "SELECT n.*, dp.first_name || ' ' || dp.last_name AS doctor_name "
+        "FROM patient_clinical_notes n LEFT JOIN profiles dp ON dp.id = n.doctor_id "
+    )
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def list_for_patient(self, patient_profile_id: UUID) -> list[dict]:
+        rows = (
+            (
+                await self.session.execute(
+                    text(self._SELECT + "WHERE n.patient_id = :pid ORDER BY n.created_at DESC"),
+                    {"pid": str(patient_profile_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def get(self, note_id: UUID) -> dict | None:
+        return await fetch_optional(self.session, text(self._SELECT + "WHERE n.note_id = :id"), {"id": str(note_id)})
+
+    async def create(self, data: dict) -> dict:
+        row = await fetch_one(
+            self.session,
+            text(
+                "INSERT INTO patient_clinical_notes (patient_id, doctor_id, appointment_id, category, note_text) "
+                "VALUES (:patient_id, :doctor_id, :appointment_id, :category, :note_text) RETURNING note_id"
+            ),
+            data,
+        )
+        return await self.get(row["note_id"])  # type: ignore[return-value]

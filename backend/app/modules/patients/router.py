@@ -9,6 +9,7 @@ from app.core.scoping import assert_clinic_scope, assert_patient_self
 from app.modules.patients import schemas as s
 from app.modules.patients.service import (
     FollowUpService,
+    PatientClinicalNoteService,
     PatientExitService,
     PatientService,
     PatientTransferService,
@@ -238,3 +239,26 @@ async def update_prescribed_medicine_status(
     row = await service.get(medicine_id)
     await assert_clinic_scope(ctx, db, row["clinic_id"])
     return await service.set_status(medicine_id, status=body.status, changed_by=UUID(ctx.user_id))
+
+
+# ─── Clinical notes (SQL/v1/99) ──────────────────────────────────────────────
+# Doctor-authored only — never patient-visible, unlike prescribed medicines.
+
+
+@router.get("/patients/{patient_id}/clinical-notes", response_model=list[s.PatientClinicalNoteRead])
+async def list_clinical_notes(patient_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
+    patient = await PatientService(db).get(patient_id)
+    await assert_clinic_scope(ctx, db, patient["primary_clinic_id"])
+    return await PatientClinicalNoteService(db).list(patient_id)
+
+
+@router.post("/patients/{patient_id}/clinical-notes", response_model=s.PatientClinicalNoteRead, status_code=201)
+async def add_clinical_note(
+    patient_id: UUID,
+    body: s.PatientClinicalNoteCreate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("doctor", "super_admin")),
+):
+    patient = await PatientService(db).get(patient_id)
+    await assert_clinic_scope(ctx, db, patient["primary_clinic_id"])
+    return await PatientClinicalNoteService(db).create(patient_id, body.model_dump(), doctor_id=UUID(ctx.user_id))

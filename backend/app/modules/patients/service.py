@@ -15,6 +15,7 @@ from app.core.profile_completion import PATIENT_FIELDS, compute_completion_perce
 from app.core.resolve import resolve_patient_profile_id as _resolve_profile_id
 from app.modules.patients.repository import (
     DoctorPatientAssignmentRepository,
+    PatientClinicalNoteRepository,
     PatientRepository,
     PatientTransferRepository,
     PrescribedMedicineRepository,
@@ -763,3 +764,48 @@ class PrescribedMedicineService:
             return row
         updated = await self.repo.set_status(medicine_id, status=status, changed_by=changed_by)
         return updated or row
+
+
+class PatientClinicalNoteService:
+    """Doctor's clinical notes for a patient (SQL/v1/99) — a free-form,
+    categorized, chronological note log. Append-only: no edit/delete."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repo = PatientClinicalNoteRepository(session)
+        self.patients = PatientService(session)
+
+    async def list(self, patient_id: UUID) -> builtins.list[dict]:
+        patient = await self.patients.get(patient_id)
+        return await self.repo.list_for_patient(patient["profile_id"])
+
+    async def create(self, patient_id: UUID, data: dict, *, doctor_id: UUID) -> dict:
+        patient = await self.patients.get(patient_id)
+        appointment_id = data.get("appointment_id")
+        if appointment_id is not None:
+            owner = (
+                await self.session.execute(
+                    text("SELECT patient_id FROM appointments WHERE appointment_id = :id"), {"id": str(appointment_id)}
+                )
+            ).scalar()
+            if owner is None:
+                raise NotFoundError("Appointment not found", code="APPOINTMENT_NOT_FOUND")
+            if str(owner) != str(patient["profile_id"]):
+                raise ValidationError("Appointment belongs to a different patient", code="APPOINTMENT_PATIENT_MISMATCH")
+        created = await self.repo.create(
+            {
+                "patient_id": str(patient["profile_id"]),
+                "doctor_id": str(doctor_id),
+                "appointment_id": str(appointment_id) if appointment_id else None,
+                "category": data["category"],
+                "note_text": data["note_text"].strip(),
+            }
+        )
+        await emit_event(
+            self.session,
+            aggregate_type="patient_clinical_note",
+            aggregate_id=created["note_id"],
+            event_type="clinical_note_added",
+            payload={"note_id": str(created["note_id"]), "patient_id": str(patient_id)},
+        )
+        return created

@@ -243,3 +243,33 @@ class PrescribedMedicineRead(BaseModel):
     status: str
     started_at: datetime
     stopped_at: datetime | None = None
+
+
+# ─── Patient clinical notes (SQL/v1/99) ──────────────────────────────────────
+# Values match the doctor workspace's category dropdown and the table's CHECK.
+CLINICAL_NOTE_CATEGORIES = (
+    "Consultation",
+    "Assessment Review",
+    "Treatment Review",
+    "Session Review",
+    "Follow-up",
+    "General",
+)
+
+
+class PatientClinicalNoteCreate(BaseModel):
+    category: str = Field(pattern="^(" + "|".join(CLINICAL_NOTE_CATEGORIES) + ")$")
+    note_text: str = Field(min_length=1, max_length=5000)
+    # The consultation it was written during, when the workspace knows it.
+    appointment_id: UUID | None = None
+
+
+class PatientClinicalNoteRead(BaseModel):
+    note_id: UUID
+    patient_id: UUID
+    doctor_id: UUID
+    doctor_name: str | None = None
+    appointment_id: UUID | None = None
+    category: str
+    note_text: str
+    created_at: datetime
