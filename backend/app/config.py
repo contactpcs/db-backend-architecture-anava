@@ -126,6 +126,12 @@ class Settings(BaseSettings):
     # Deploys verify the build through GET /health/version instead.
     api_docs_enabled: bool | None = None
 
+    # API audit recorder (perf/api-audit): one JSON line per request to
+    # api_audit_log (core/middleware.py::ApiAuditMiddleware). Off = the
+    # middleware is not even registered, nothing is written.
+    api_audit: bool = False
+    api_audit_log: str = r"D:\PCS\Documents\API_Audit\raw\traffic.jsonl"
+
     # Payments — Razorpay test-mode keys, set once available (Stage 10).
     # Empty in early development; payments module runs in stub mode until set.
     razorpay_key_id: str | None = None

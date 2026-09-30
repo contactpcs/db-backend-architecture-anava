@@ -1,11 +1,18 @@
+import contextlib
+import json
+import os
 import time
 import uuid
+from contextvars import ContextVar
+from datetime import UTC, datetime
+from urllib.parse import parse_qs
 
 import structlog
 from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.auth_session import consume_stream_ticket, is_access_token_revoked
 from app.core.db import RequestContext, engine, set_request_context
@@ -369,4 +376,204 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                 )
 
         set_request_context(ctx)
+        # For ApiAuditMiddleware (outside this one): a contextvar set here never
+        # flows back out to it, request.state (the shared scope) does.
+        request.state.ctx = ctx
         return await call_next(request)
+
+
+# ─── API audit recorder (perf/api-audit) ──────────────────────────────────
+# Off unless settings.api_audit (env API_AUDIT=1): main.py only registers
+# ApiAuditMiddleware + the query-count listener when it is on. Writes one JSON
+# line per request to settings.api_audit_log for the API audit, which joins
+# it to a Playwright browser log by X-Request-ID. Pure ASGI (not
+# BaseHTTPMiddleware) so a streaming/SSE body passes through untouched —
+# only JSON bodies are copied (capped) to read their shape. A logging failure
+# is swallowed; it must never break or alter the request.
+
+_audit_db_queries: ContextVar[list[int] | None] = ContextVar("_audit_db_queries", default=None)
+
+# Matched as substrings of the lower-cased key, so "new_password", "otp_code",
+# "refresh_token", "razorpay_signature" are all caught. Over-redacting a
+# "pincode" is the accepted cost of never writing an OTP.
+_AUDIT_SECRET_KEYS = ("password", "passwd", "otp", "code", "token", "secret", "authorization", "cookie", "ticket", "signature")
+_AUDIT_TAGS = ("portal", "chapter", "flow", "step", "action", "run")
+_AUDIT_LIST_KEYS = ("items", "data", "results", "rows", "records")
+_AUDIT_BODY_LIMIT = 2 * 1024 * 1024  # ponytail: bigger bodies are sized, not parsed
+
+
+def count_audit_db_query(*_args) -> None:
+    """before_cursor_execute listener on engine.sync_engine. The counter list
+    is created per request by ApiAuditMiddleware; SQLAlchemy runs the sync
+    cursor in a greenlet that inherits the request's contextvars, so every
+    query of that request (including AuthContextMiddleware's scope lookup)
+    lands in the same list. Queries outside a request (workers) see None."""
+    counter = _audit_db_queries.get()
+    if counter is not None:
+        counter[0] += 1
+
+
+def _audit_redact(value):
+    if isinstance(value, dict):
+        return {k: "[REDACTED]" if any(s in str(k).lower() for s in _AUDIT_SECRET_KEYS) else _audit_redact(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_audit_redact(v) for v in value]
+    return value
+
+
+def _audit_query(qs: str) -> dict:
+    return {k: v[0] if len(v) == 1 else v for k, v in parse_qs(qs, keep_blank_values=True).items()}
+
+
+def _audit_body(raw: bytes, content_type: str):
+    if not raw:
+        return None
+    media = content_type.split(";")[0].strip()
+    if len(raw) < _AUDIT_BODY_LIMIT:
+        if "json" in media:
+            try:
+                return _audit_redact(json.loads(raw))
+            except ValueError:
+                pass
+        elif media == "application/x-www-form-urlencoded":
+            return _audit_redact(_audit_query(raw.decode("utf-8", "replace")))
+    return f"<{len(raw)} bytes {media or 'unknown'}>"
+
+
+def _audit_shape(raw: bytes) -> dict:
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return {}
+    items, list_key = None, None
+    if isinstance(data, list):
+        items = data
+    elif isinstance(data, dict):
+        list_key = next((k for k in _AUDIT_LIST_KEYS if isinstance(data.get(k), list)), None)
+        items = data[list_key] if list_key else None
+    return {
+        "response_keys": list(data.keys()) if isinstance(data, dict) else None,
+        "list_key": list_key,
+        "item_count": len(items) if items is not None else None,
+        "first_item_keys": list(items[0].keys()) if items and isinstance(items[0], dict) else None,
+    }
+
+
+class ApiAuditMiddleware:
+    def __init__(self, app: ASGIApp, log_path: str) -> None:
+        self.app = app
+        self.log_path = log_path
+        with contextlib.suppress(Exception):
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
+    def _write(self, record: dict) -> None:
+        try:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, default=str) + "\n")
+        except Exception:
+            logger.warning("api_audit_write_failed", exc_info=True)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        path = scope.get("path", "")
+        if scope["type"] != "http" or scope["method"] == "OPTIONS" or path == "/health" or path.startswith("/health/"):
+            await self.app(scope, receive, send)
+            return
+
+        start = time.perf_counter()
+        ts = datetime.now(UTC).isoformat(timespec="milliseconds")
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope["headers"]}
+        # Every response must carry an id the browser log can join on. The
+        # auth middleware's early 401/403 returns never reach
+        # RequestIDMiddleware, so the id is fixed here, passed downstream as
+        # if the client sent it (AuthContextMiddleware and
+        # RequestIDMiddleware both honour an incoming X-Request-ID), and put
+        # on the response below when missing.
+        request_id = headers.get("x-request-id")
+        if not request_id:
+            request_id = str(uuid.uuid4())
+            scope["headers"] = [*scope["headers"], (b"x-request-id", request_id.encode("latin-1"))]
+
+        counter = [0]
+        counter_token = _audit_db_queries.set(counter)
+        req_body = bytearray()
+        resp_body = bytearray()
+        resp: dict = {"status": None, "bytes": 0, "content_type": "", "sse": False}
+
+        def base_record() -> dict:
+            ctx = scope.get("state", {}).get("ctx")
+            return {
+                "ts": ts,
+                "request_id": request_id,
+                "method": scope["method"],
+                # FastAPI >=0.13x no longer copies included routes with their
+                # prefix: scope["route"].path is "/refresh" for
+                # /api/v1/auth/refresh. The effective route context holds the
+                # full template; top-level app routes only have scope["route"].
+                "route_template": getattr((scope.get("fastapi") or {}).get("effective_route_context"), "path", None)
+                or getattr(scope.get("route"), "path", None),
+                "raw_path": path,
+                "query_params": _audit_redact(_audit_query(scope.get("query_string", b"").decode("latin-1"))),
+                "status": resp["status"],
+                "user_id": getattr(ctx, "user_id", None),
+                "role": getattr(ctx, "role", None),
+                "audit": {t: headers.get(f"x-audit-{t}") for t in _AUDIT_TAGS},
+            }
+
+        async def receive_wrapper() -> Message:
+            message = await receive()
+            if message["type"] == "http.request" and len(req_body) <= _AUDIT_BODY_LIMIT:
+                req_body.extend(message.get("body", b""))
+            return message
+
+        async def send_wrapper(message: Message) -> None:
+            try:
+                if message["type"] == "http.response.start":
+                    resp["status"] = message["status"]
+                    raw_headers = list(message.get("headers", []))
+                    resp_headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in raw_headers}
+                    resp["content_type"] = resp_headers.get("content-type", "")
+                    if "x-request-id" not in resp_headers:
+                        message = {**message, "headers": [*raw_headers, (b"x-request-id", request_id.encode("latin-1"))]}
+                    if resp["content_type"].startswith("text/event-stream"):
+                        # The body never ends while the user stays on the
+                        # page — log the open now, the close in finally.
+                        resp["sse"] = True
+                        self._write({**base_record(), "event": "stream_open", "db_query_count": counter[0]})
+                elif message["type"] == "http.response.body":
+                    body = message.get("body", b"")
+                    resp["bytes"] += len(body)
+                    if "json" in resp["content_type"] and len(resp_body) <= _AUDIT_BODY_LIMIT:
+                        resp_body.extend(body)
+            except Exception:
+                logger.warning("api_audit_capture_failed", exc_info=True)
+            await send(message)
+
+        error: str | None = None
+        try:
+            await self.app(scope, receive_wrapper, send_wrapper)
+        except BaseException as exc:
+            error = type(exc).__name__
+            raise
+        finally:
+            _audit_db_queries.reset(counter_token)
+            try:
+                record = base_record()
+                record.update(
+                    event="stream_close" if resp["sse"] else "request",
+                    status=resp["status"] or (500 if error else None),
+                    request_content_type=headers.get("content-type"),
+                    # request_body is teed as the app reads it; a body nobody
+                    # read (early 401, unused) is null, this still sizes it.
+                    request_content_length=headers.get("content-length"),
+                    request_body=_audit_body(bytes(req_body), headers.get("content-type", "")),
+                    response_content_type=resp["content_type"],
+                    response_bytes=resp["bytes"],
+                    duration_ms=round((time.perf_counter() - start) * 1000, 2),
+                    db_query_count=counter[0],
+                    error=error,
+                )
+                if "json" in resp["content_type"] and len(resp_body) <= _AUDIT_BODY_LIMIT:
+                    record.update(_audit_shape(bytes(resp_body)))
+                self._write(record)
+            except Exception:
+                logger.warning("api_audit_record_failed", exc_info=True)

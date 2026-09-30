@@ -7,12 +7,12 @@ import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 from app.config import get_settings
 from app.core.db import RequestContext, engine
 from app.core.exceptions import AnavaException
-from app.core.middleware import AuthContextMiddleware, RequestIDMiddleware
+from app.core.middleware import ApiAuditMiddleware, AuthContextMiddleware, RequestIDMiddleware, count_audit_db_query
 from app.core.permissions import require_role
 from app.modules.admin.router import router as admin_router
 from app.modules.anamnesis.router import router as anamnesis_router
@@ -129,6 +129,11 @@ app = FastAPI(
 # and the browser never sees an Access-Control-Allow-Origin header.
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(AuthContextMiddleware)
+if settings.api_audit:
+    # Outside AuthContextMiddleware so its early 401/403s are recorded too,
+    # inside CORS for the reason above (preflights are skipped anyway).
+    event.listen(engine.sync_engine, "before_cursor_execute", count_audit_db_query)
+    app.add_middleware(ApiAuditMiddleware, log_path=settings.api_audit_log)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origins,
