@@ -1636,11 +1636,14 @@ class PatientBookingService:
             cancellation_reason=reason,
         )
 
-    async def my_appointments(self, ctx: RequestContext, *, include_past: bool = False) -> builtins.list[dict]:
+    async def my_appointments(
+        self, ctx: RequestContext, *, include_past: bool = False, appointment_type: str | None = None
+    ) -> builtins.list[dict]:
         """Every appointment of every type, protocol-generated 'planned' rows
         included — those are exactly what the patient needs to see in order to
-        claim a slot for them."""
-        return await self.repo.list_for_patient(UUID(ctx.user_id), include_past=include_past)
+        claim a slot for them. appointment_type narrows it (e.g. the
+        dashboard/device-sessions pages need only device_session rows)."""
+        return await self.repo.list_for_patient(UUID(ctx.user_id), include_past=include_past, appointment_type=appointment_type)
 
     async def my_appointment_history(self, ctx: RequestContext) -> builtins.list[dict]:
         """The appointment-section feed: every appointment ever, newest first,

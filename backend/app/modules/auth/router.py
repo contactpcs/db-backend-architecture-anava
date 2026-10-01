@@ -588,8 +588,16 @@ async def get_current_user(ctx: RequestContext = Depends(get_current_context), d
     row = (
         (
             await db.execute(
-                text("SELECT id, email, first_name, last_name, role, email_verified, phone_verified FROM profiles WHERE id = :id"),
-                {"id": ctx.user_id},
+                # clinic name/city ride along on the same round trip — the
+                # sidebar used to download the public clinic list on every
+                # page load just to label the caller's clinic (API audit F-007).
+                text(
+                    "SELECT p.id, p.email, p.first_name, p.last_name, p.role, p.email_verified, p.phone_verified, "
+                    "c.clinic_name, c.city AS clinic_city "
+                    "FROM profiles p LEFT JOIN clinics c ON c.clinic_id = CAST(:cid AS uuid) "
+                    "WHERE p.id = :id"
+                ),
+                {"id": ctx.user_id, "cid": ctx.clinic_id},
             )
         )
         .mappings()
@@ -627,6 +635,8 @@ async def get_current_user(ctx: RequestContext = Depends(get_current_context), d
         last_name=row["last_name"],
         role=row["role"],
         clinic_id=UUID(ctx.clinic_id) if ctx.clinic_id else None,
+        clinic_name=row["clinic_name"],
+        clinic_city=row["clinic_city"],
         region_id=UUID(ctx.region_id) if ctx.region_id else None,
         is_active=ctx.is_active,
         consent_signed=ctx.consent_signed,

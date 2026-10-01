@@ -59,6 +59,10 @@ _APPT_SELECT = (
     # appointment reads are the one endpoint patients can already call.
     "tp.version_major AS protocol_version_major, "
     "tp.version_minor AS protocol_version_minor, "
+    # The protocol's own status (active/completed/superseded/...) — the
+    # patient device-sessions page needs only this from the protocol and
+    # used to fetch the whole protocol per row for it (API audit F-011).
+    "tp.status AS protocol_status, "
     # What a protocol-born row is FOR, so a patient running several protocols
     # side by side (90) can tell their sessions apart: device, the conditions
     # it treats, which course it belongs to, and the prescribing doctor (a
@@ -216,7 +220,12 @@ class AppointmentRepository:
         return row is not None
 
     async def list_for_patient(
-        self, patient_profile_id: UUID, *, include_past: bool = False, statuses: builtins.list[str] | None = None
+        self,
+        patient_profile_id: UUID,
+        *,
+        include_past: bool = False,
+        statuses: builtins.list[str] | None = None,
+        appointment_type: str | None = None,
     ) -> builtins.list[dict]:
         """Every appointment of every type for one patient, protocol-generated
         'planned' rows included — those are exactly what the patient needs to
@@ -228,6 +237,9 @@ class AppointmentRepository:
         if statuses:
             clauses.append("a.status = ANY(:statuses)")
             params["statuses"] = statuses
+        if appointment_type:
+            clauses.append("a.appointment_type = :appointment_type")
+            params["appointment_type"] = appointment_type
         rows = (
             (
                 await self.session.execute(

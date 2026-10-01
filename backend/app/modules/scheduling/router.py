@@ -250,13 +250,16 @@ async def get_appointment_audit_log(
 @router.get("/me/appointments", response_model=list[s.AppointmentRead])
 async def my_appointments(
     include_past: bool = False,
+    appointment_type: str | None = None,
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role("patient")),
 ):
     """Every appointment of every type, protocol-generated planned sessions
     included — those are exactly what the patient needs to see in order to claim
-    a slot for them."""
-    return await PatientBookingService(db).my_appointments(ctx, include_past=include_past)
+    a slot for them. ?appointment_type=device_session returns only those rows
+    (API audit F-010: the dashboard used to download all of them to count
+    device sessions)."""
+    return await PatientBookingService(db).my_appointments(ctx, include_past=include_past, appointment_type=appointment_type)
 
 
 @router.get("/me/appointments/history", response_model=list[s.AppointmentHistoryRead])

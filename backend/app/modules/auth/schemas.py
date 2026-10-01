@@ -222,6 +222,8 @@ class CurrentUserRead(BaseModel):
     last_name: str
     role: str
     clinic_id: UUID | None = None
+    clinic_name: str | None = None
+    clinic_city: str | None = None
     region_id: UUID | None = None
     is_active: bool = True
     consent_signed: bool = True

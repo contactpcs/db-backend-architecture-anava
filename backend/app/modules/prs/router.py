@@ -59,6 +59,19 @@ async def list_patient_prs_instances(
     return await PrsAssessmentService(db).list_for_patient(patient_id, assessment_stage=assessment_stage)
 
 
+@router.get("/patients/{patient_id}/scores-summary")
+async def get_patient_scores_summary(
+    patient_id: UUID,
+    assessment_stage: str | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    # One call for the scores card/results lists — replaces 4 calls per
+    # completed instance the frontend used to make (API audit fix F-002).
+    await assert_patient_self(ctx, db, patient_id)
+    return await PrsAssessmentService(db).scores_summary(patient_id, assessment_stage=assessment_stage)
+
+
 @router.get("/patients/{patient_id}/disease-composite", response_model=s.DiseaseCompositeRead)
 async def get_latest_disease_composite(
     patient_id: UUID,
@@ -166,4 +179,4 @@ async def submit_responses(
 async def get_results(instance_id: str, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
     instance = await PrsAssessmentService(db).get(instance_id)
     assert_owns_profile(ctx, instance["patient_id"])
-    return await PrsAssessmentService(db).results(instance_id)
+    return await PrsAssessmentService(db).results(instance_id, instance)

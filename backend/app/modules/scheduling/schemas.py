@@ -222,6 +222,8 @@ class AppointmentRead(BaseModel):
     # have no other endpoint that surfaces this.
     protocol_version_major: int | None = None
     protocol_version_minor: int | None = None
+    # protocol_plan.status of that protocol (active/completed/superseded/...).
+    protocol_status: str | None = None
     # What a protocol-born row is for — lets a patient running several
     # protocols (90) tell their sessions apart. NULL for consultations.
     device_name: str | None = None

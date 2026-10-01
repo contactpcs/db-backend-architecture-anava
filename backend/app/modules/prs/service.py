@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import json
 from uuid import UUID
 
 from sqlalchemy import text
@@ -20,6 +21,16 @@ from app.modules.prs.repository import (
 )
 from app.modules.prs.scoring_rules import compute_scale_score
 from app.modules.scheduling.repository import AppointmentRepository
+
+
+def _json_field(value, fallback):
+    """JSONB columns arrive as str from raw text() queries."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return fallback
+    return value if value is not None else fallback
 
 
 def _is_skipped(q: dict, questions: list[dict], given_by_qid: dict[str, str]) -> bool:
@@ -150,6 +161,54 @@ class PrsAssessmentService:
         scale model and is now permanently null."""
         profile_id = await _resolve_profile_id(self.session, patient_id)
         return await self.scale_results.latest_for_patient(profile_id, disease_id)
+
+    async def scores_summary(self, patient_id: UUID, *, assessment_stage: str | None = None) -> dict:
+        """Every PRS instance of a patient with its scores, in a fixed number
+        of queries. Same shape the frontend used to compose itself from
+        /prs-instances + per completed instance /results, /prs-assessment-
+        instances/{id}, /prs-catalog/diseases and /disease-composite (4 calls
+        per instance — API audit fix F-002). Score fields come from the
+        current as-of disease composite, exactly as the old composition did;
+        in-progress instances carry no scores."""
+        profile_id = await _resolve_profile_id(self.session, patient_id)
+        rows = await self.instances.list_for_patient_with_disease_name(profile_id, assessment_stage=assessment_stage)
+        completed = [r["instance_id"] for r in rows if r["status"] == "completed"]
+        scales_by_instance: dict[str, list[dict]] = {}
+        for sr in await self.scale_results.list_for_instances(completed):
+            scales_by_instance.setdefault(sr["instance_id"], []).append(
+                {
+                    **sr,
+                    "scale_result_id": sr.get("scale_result_id") or sr["scale_id"],
+                    "scale_code": sr["scale_code"] or sr["scale_id"].split("/")[0],
+                    "scale_name": sr["scale_name"] or sr["scale_code"] or sr["scale_id"].split("/")[0],
+                    "subscale_scores": _json_field(sr.get("subscale_scores"), {}),
+                    "risk_flags": _json_field(sr.get("risk_flags"), []),
+                }
+            )
+        composites = await self.scale_results.latest_composites_for_patient(profile_id) if completed else {}
+
+        instances = []
+        for r in rows:
+            item = {
+                "instance_id": r["instance_id"],
+                "disease_id": r["disease_id"] or "",
+                "status": r["status"],
+                "completed_at": r["completed_at"],
+                "appointment_id": r["appointment_id"],
+            }
+            if r["status"] == "completed":
+                comp = composites.get(r["disease_id"]) or {}
+                value = comp.get("calculated_value")
+                item.update(
+                    disease_name=r["disease_name"] or r["disease_id"],
+                    disease_score=float(value) if value is not None else None,
+                    percentage=float(value) if value is not None else None,
+                    severity_level=comp.get("severity_level"),
+                    severity_label=comp.get("severity_label"),
+                    scale_summaries=scales_by_instance.get(r["instance_id"], []),
+                )
+            instances.append(item)
+        return {"instances": instances, "total": len(instances), "diseases": len({i["disease_id"] for i in instances})}
 
     async def list_for_patient(self, patient_id: UUID, *, assessment_stage: str | None = None) -> list[dict]:
         """Used by the admin/staff patient-detail view to show a patient's
@@ -617,8 +676,15 @@ class PrsAssessmentService:
         )
         await self.scale_results.ensure_baseline(patient_id, disease_id)
 
-    async def results(self, instance_id: str) -> dict:
-        await self.get(instance_id)
+    async def results(self, instance_id: str, instance: dict | None = None) -> dict:
+        """Scale results + final result, plus the instance row and the
+        current as-of disease composite — the results page used to fetch
+        those two separately (API audit F-014). instance: pass it when the
+        caller already loaded it (the router does, for its ownership check)."""
+        instance = instance or await self.get(instance_id)
         scale_results = await self.scale_results.list_for_instance(instance_id)
         final = await self.scale_results.final_result(instance_id)
-        return {"scale_results": scale_results, "final_result": final}
+        composite = None
+        if instance.get("disease_id"):
+            composite = await self.scale_results.latest_for_patient(instance["patient_id"], instance["disease_id"])
+        return {"scale_results": scale_results, "final_result": final, "instance": instance, "disease_composite": composite}

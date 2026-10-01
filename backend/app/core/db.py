@@ -111,16 +111,17 @@ async def _apply_rls_context(session: AsyncSession) -> None:
     ctx = get_request_context()
     if ctx is None:
         return
-    await session.execute(text_set_local("app.current_user_id", ctx.user_id))
-    await session.execute(text_set_local("app.current_user_role", ctx.role))
-    if ctx.clinic_id:
-        await session.execute(text_set_local("app.current_clinic_id", ctx.clinic_id))
-    if ctx.region_id:
-        await session.execute(text_set_local("app.current_region_id", ctx.region_id))
-    if ctx.request_id:
-        await session.execute(text_set_local("app.request_id", ctx.request_id))
-    if ctx.ip_address:
-        await session.execute(text_set_local("app.client_ip", ctx.ip_address))
+    settings_to_apply = {
+        "app.current_user_id": ctx.user_id,
+        "app.current_user_role": ctx.role,
+        "app.current_clinic_id": ctx.clinic_id,
+        "app.current_region_id": ctx.region_id,
+        "app.request_id": ctx.request_id,
+        "app.client_ip": ctx.ip_address,
+    }
+    # One round trip for every GUC instead of one per setting (was up to 6
+    # per request). Unset values stay unset, as before — never set to ''.
+    await session.execute(text_set_locals({k: v for k, v in settings_to_apply.items() if v}))
 
 
 def text_set_local(setting_name: str, value: str):
@@ -128,6 +129,18 @@ def text_set_local(setting_name: str, value: str):
 
     # set_config(..., true) = LOCAL (transaction-scoped), matches 15_rls_policies.sql assumption
     return text("SELECT set_config(:name, :value, true)").bindparams(name=setting_name, value=value)
+
+
+def text_set_locals(values: dict[str, str]):
+    """Several SET LOCALs in one statement (one DB round trip). Names and
+    values are both bound parameters, never interpolated."""
+    from sqlalchemy import text
+
+    calls = ", ".join(f"set_config(:n{i}, :v{i}, true)" for i in range(len(values)))
+    params = {}
+    for i, (name, value) in enumerate(values.items()):
+        params[f"n{i}"], params[f"v{i}"] = name, value
+    return text(f"SELECT {calls}").bindparams(**params)
 
 
 @asynccontextmanager

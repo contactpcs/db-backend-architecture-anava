@@ -469,3 +469,12 @@ class SosEventRead(BaseModel):
 
 
 DeviceSessionDetail.model_rebuild()
+
+
+class SessionScaleSummaryRead(BaseModel):
+    """/me/device-session-scale-summaries row: one per device session."""
+
+    appointment_id: UUID
+    total: int
+    completed: int
+    actionable: bool

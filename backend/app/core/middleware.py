@@ -15,7 +15,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.auth_session import consume_stream_ticket, is_access_token_revoked
-from app.core.db import RequestContext, engine, set_request_context
+from app.core.db import RequestContext, engine, set_request_context, text_set_locals
 from app.core.exceptions import AnavaException, AuthenticationError, PermissionError_
 from app.core.security import verify_token
 
@@ -148,8 +148,7 @@ async def _load_profile_and_scope(cognito_sub: str, *, request_id: str, ip_addre
         # (profile_id/staff_id = rls_user_id()) instead of hitting the same
         # bootstrap chicken-and-egg problem the cognito_sub fix above solves
         # for the first query. See SQL/31_fix_profile_bootstrap_lookup_rls.sql.
-        await conn.execute(text("SELECT set_config('app.current_user_id', :uid, true)"), {"uid": profile_id})
-        await conn.execute(text("SELECT set_config('app.current_user_role', :role, true)"), {"role": role})
+        await conn.execute(text_set_locals({"app.current_user_id": profile_id, "app.current_user_role": role}))
 
         # Self-heal: for staff roles, is_active is meant to mirror a signed
         # staff_onboarding consent record exactly (see
