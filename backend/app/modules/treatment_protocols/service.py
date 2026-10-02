@@ -496,7 +496,9 @@ class ProtocolService:
         detail["follow_ups"] = [r for r in all_rows if r["appointment_type"] == _TYPE_FOLLOW_UP]
         return detail
 
-    async def list(self, ctx: RequestContext, **filters) -> builtins.list[dict]:
+    async def list(
+        self, ctx: RequestContext, *, include_sessions: bool = False, sessions_all_types: bool = False, **filters
+    ) -> builtins.list[dict]:
         # Non-cross-clinic roles are pinned to their own clinic regardless of
         # what they asked for.
         if ctx.role not in ("super_admin", "regional_admin"):
@@ -508,7 +510,19 @@ class ProtocolService:
         # had one.
         if filters.get("patient_id"):
             filters["patient_id"] = await _resolve_patient_profile_id(self.session, filters["patient_id"])
-        return await self.repo.list(**filters)
+        rows = await self.repo.list(**filters)
+        if include_sessions:
+            # Same device-session list get_detail() returns, for every row in
+            # one query — the doctor Sessions page used to fetch the full
+            # detail of each protocol just for this (API audit F-034).
+            # sessions_all_types: every appointment of the protocol, same as
+            # GET /treatment-protocols/{id}/sessions (doctor Reports KPIs, F-037).
+            by_protocol = await self.sessions.list_for_protocols(
+                [str(r["protocol_id"]) for r in rows], appointment_type=None if sessions_all_types else _TYPE_DEVICE_SESSION
+            )
+            for r in rows:
+                r["sessions"] = by_protocol.get(str(r["protocol_id"]), [])
+        return rows
 
     async def list_sessions(self, protocol_id: UUID, ctx: RequestContext, *, appointment_type: str | None = None) -> builtins.list[dict]:
         row = await self.get_or_404(protocol_id)

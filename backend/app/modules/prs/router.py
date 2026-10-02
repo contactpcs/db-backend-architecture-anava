@@ -37,6 +37,16 @@ async def assign_scale(body: s.PatientScaleAssignmentCreate, db=Depends(get_db),
     return await PatientScaleAssignmentService(db).create(assigned_by=UUID(ctx.user_id), **body.model_dump())
 
 
+@router.post("/patient-scale-assignments/bulk", response_model=list[s.PatientScaleAssignmentRead], status_code=201)
+async def assign_scales_bulk(
+    body: s.PatientScaleAssignmentBulkCreate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))
+):
+    """Several scales in one request and one transaction — the assign
+    screens used to POST once per scale, and a mid-way failure left the
+    patient with only some of them (API audit F-042)."""
+    return await PatientScaleAssignmentService(db).create_many(assigned_by=UUID(ctx.user_id), **body.model_dump())
+
+
 @router.get("/patients/{patient_id}/scale-assignments", response_model=list[s.PatientScaleAssignmentRead])
 async def list_scale_assignments(
     patient_id: UUID,

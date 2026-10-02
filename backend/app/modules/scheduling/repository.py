@@ -306,6 +306,7 @@ class AppointmentRepository:
         patient_id: UUID | None = None,
         status: str | None = None,
         appointment_type: str | None = None,
+        exclude_appointment_type: str | None = None,
         date_from=None,
         date_to=None,
         doctor_name: str | None = None,
@@ -338,6 +339,12 @@ class AppointmentRepository:
             # caller from pulling every appointment and discarding most of it.
             clauses.append("a.appointment_type = :appointment_type")
             params["appointment_type"] = appointment_type
+        if exclude_appointment_type:
+            # The doctor's calendar wants everything EXCEPT device sessions
+            # (a CA runs those) — used to download them all and drop them
+            # client-side, pushing real visits past the row limit (F-028).
+            clauses.append("a.appointment_type <> :exclude_appointment_type")
+            params["exclude_appointment_type"] = exclude_appointment_type
         if date_from:
             clauses.append("a.appointment_date >= :date_from")
             params["date_from"] = date_from

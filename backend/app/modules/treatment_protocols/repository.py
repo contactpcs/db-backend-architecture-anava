@@ -1120,6 +1120,30 @@ class ProtocolSessionRepository:
         sql, params = insert_returning("appointments", data)
         return await fetch_one(self.session, sql, params)
 
+    async def list_for_protocols(self, protocol_ids: builtins.list[str], *, appointment_type: str | None) -> dict[str, builtins.list[dict]]:
+        """list_for_protocol for many protocols in one query, grouped by
+        protocol_id, same per-protocol ORDER BY (API audit F-034)."""
+        if not protocol_ids:
+            return {}
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT * FROM appointments WHERE protocol_id = ANY(CAST(:ids AS uuid[])) "
+                        "AND (CAST(:t AS text) IS NULL OR appointment_type = :t) "
+                        "ORDER BY protocol_id, appointment_date, session_number NULLS LAST, start_time NULLS LAST"
+                    ),
+                    {"ids": protocol_ids, "t": appointment_type},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        grouped: dict[str, builtins.list[dict]] = {}
+        for r in rows:
+            grouped.setdefault(str(r["protocol_id"]), []).append(dict(r))
+        return grouped
+
     async def list_for_protocol(self, protocol_id: UUID, *, appointment_type: str | None = None) -> builtins.list[dict]:
         clauses = ["protocol_id = :id"]
         params: dict[str, Any] = {"id": str(protocol_id)}

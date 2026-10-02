@@ -61,6 +61,30 @@ class DeviceSessionRepository:
             {"id": str(device_session_record_id)},
         )
 
+    async def summaries_for_protocol(self, protocol_id: UUID) -> builtins.list[dict]:
+        """Per device-session record of one protocol: status, feedback answers,
+        adverse-event count, clinic — one query (API audit F-043; the
+        treatment plan used to fetch the full detail of every session)."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT ds.appointment_id, ds.session_status, a.clinic_id, "
+                        "  (SELECT f.answers::text FROM device_session_feedback f "
+                        "   WHERE f.device_session_record_id = ds.device_session_record_id LIMIT 1) AS feedback_answers, "
+                        "  (SELECT count(*) FROM device_session_adverse_events e "
+                        "   WHERE e.device_session_record_id = ds.device_session_record_id) AS adverse_event_count "
+                        "FROM device_sessions ds JOIN appointments a ON a.appointment_id = ds.appointment_id "
+                        "WHERE a.protocol_id = :pid"
+                    ),
+                    {"pid": str(protocol_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [{**dict(r), "feedback_answers": json.loads(r["feedback_answers"]) if r["feedback_answers"] else None} for r in rows]
+
     async def children(self, device_session_record_id: UUID) -> dict:
         """symptoms/adverse_events/notes/activities/media/events/sos_events
         lists + feedback/tvns_settings rows for one session, one round trip."""

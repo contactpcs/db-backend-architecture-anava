@@ -685,6 +685,7 @@ class AppointmentService:
         patient_id=None,
         status=None,
         appointment_type=None,
+        exclude_appointment_type=None,
         date_from=None,
         date_to=None,
         skip: int = 0,
@@ -695,6 +696,7 @@ class AppointmentService:
         return await self.repo.list(
             **scope,
             appointment_type=appointment_type,
+            exclude_appointment_type=exclude_appointment_type,
             status=status,
             date_from=date_from,
             date_to=date_to,
@@ -737,9 +739,9 @@ class AppointmentService:
             region_id = UUID(ctx.region_id) if ctx.region_id else None
         return {"clinic_id": clinic_id, "region_id": region_id, "doctor_id": doctor_id, "patient_id": patient_id}
 
-    async def list_upcoming(self, *, ctx: RequestContext, days: int = 14) -> builtins.list[dict]:
+    async def list_upcoming(self, *, ctx: RequestContext, days: int = 14, patient_id=None) -> builtins.list[dict]:
         today = _now_ist_naive().date()
-        rows = await self.list(ctx=ctx, date_from=today, date_to=today + dt.timedelta(days=days), limit=200)
+        rows = await self.list(ctx=ctx, patient_id=patient_id, date_from=today, date_to=today + dt.timedelta(days=days), limit=200)
         return [r for r in rows if r["status"] in ACTIVE_STATUSES]
 
     async def list_today(self, *, ctx: RequestContext) -> builtins.list[dict]:

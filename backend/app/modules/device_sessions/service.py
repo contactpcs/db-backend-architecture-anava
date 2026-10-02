@@ -166,6 +166,15 @@ class DeviceSessionService:
         detail["scales"] = await self.scales.list_for_session(sid)
         return detail
 
+    async def summaries_for_protocol(self, protocol_id: UUID, ctx: RequestContext) -> builtins.list[dict]:
+        """Tally inputs for every device session of a protocol in one read.
+        Same clinic-scope rule as the per-session reads (_resolve_scoped_
+        appointment); RLS scopes the rows themselves."""
+        rows = await self.repo.summaries_for_protocol(protocol_id)
+        for clinic_id in {r["clinic_id"] for r in rows}:
+            await assert_clinic_scope(ctx, self.session, clinic_id)
+        return rows
+
     async def get_device_info(self, appointment_id: UUID, ctx: RequestContext) -> dict:
         """Device name + pinned unit serial for the appointment's protocol,
         resolvable before any device_sessions header row exists — see

@@ -139,8 +139,15 @@ async def create_appointment(body: s.AppointmentCreate, db=Depends(get_db), ctx:
 
 
 @router.get("/appointments/upcoming", response_model=list[s.AppointmentRead])
-async def list_upcoming_appointments(db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
-    return await AppointmentService(db).list_upcoming(ctx=ctx)
+async def list_upcoming_appointments(
+    patient_id: UUID | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    """patient_id (patients.patient_id) narrows it to one patient — the doctor's
+    patient summary used to download the doctor's whole upcoming list to find
+    one patient's next visit (API audit F-031). Same role scoping as list()."""
+    return await AppointmentService(db).list_upcoming(ctx=ctx, patient_id=patient_id)
 
 
 @router.get("/appointments/today", response_model=list[s.AppointmentRead])
@@ -155,6 +162,7 @@ async def list_appointments(
     patient_id: UUID | None = None,
     status: str | None = None,
     appointment_type: str | None = Query(None, description="device_session | protocol_followup | initial | follow_up"),
+    exclude_appointment_type: str | None = Query(None, description="drop one type, e.g. device_session (doctor calendar)"),
     date_from: date | None = None,
     date_to: date | None = None,
     skip: int = 0,
@@ -170,6 +178,7 @@ async def list_appointments(
         patient_id=patient_id,
         status=status,
         appointment_type=appointment_type,
+        exclude_appointment_type=exclude_appointment_type,
         date_from=date_from,
         date_to=date_to,
         skip=skip,
@@ -186,6 +195,7 @@ async def page_appointments(
     patient_id: UUID | None = None,
     status: str | None = None,
     appointment_type: str | None = None,
+    exclude_appointment_type: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     search: str | None = None,
@@ -210,6 +220,7 @@ async def page_appointments(
         doctor_name=doctor_name,
         status=status,
         appointment_type=appointment_type,
+        exclude_appointment_type=exclude_appointment_type,
         date_from=date_from,
         date_to=date_to,
         search=search,

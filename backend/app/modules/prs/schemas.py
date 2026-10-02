@@ -43,6 +43,17 @@ class PatientScaleAssignmentCreate(BaseModel):
     assignment_reason: str = Field(default="auto_disease_match", pattern="^(auto_disease_match|ca_selected|doctor_override)$")
 
 
+class PatientScaleAssignmentBulkCreate(BaseModel):
+    """POST /patient-scale-assignments/bulk — several scales of one disease
+    for one patient, all-or-nothing (API audit F-042)."""
+
+    patient_id: UUID
+    disease_id: str
+    scale_ids: list[str] = Field(min_length=1, max_length=50)
+    assessment_stage: str = Field(pattern="^(general_registration|main_clinical|followup)$")
+    assignment_reason: str = Field(default="auto_disease_match", pattern="^(auto_disease_match|ca_selected|doctor_override)$")
+
+
 class PatientScaleAssignmentRead(BaseModel):
     psa_id: UUID
     patient_id: UUID

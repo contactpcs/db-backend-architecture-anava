@@ -102,6 +102,32 @@ class PatientScaleAssignmentService:
             assignment_reason=assignment_reason,
         )
 
+    async def create_many(
+        self,
+        *,
+        patient_id: UUID,
+        scale_ids: builtins.list[str],
+        disease_id: str,
+        assessment_stage: str,
+        assigned_by: UUID,
+        assignment_reason: str,
+    ) -> builtins.list[dict]:
+        """Same rows create() makes, one per scale, in the request's single
+        transaction — all assigned or none (API audit F-042). Duplicate ids
+        in the request are created once."""
+        profile_id = await _resolve_profile_id(self.repo.session, patient_id)
+        return [
+            await self.repo.create(
+                patient_id=profile_id,
+                scale_id=scale_id,
+                disease_id=disease_id,
+                assessment_stage=assessment_stage,
+                assigned_by=assigned_by,
+                assignment_reason=assignment_reason,
+            )
+            for scale_id in dict.fromkeys(scale_ids)
+        ]
+
     async def list(self, patient_id: UUID, *, assessment_stage: str | None = None) -> builtins.list[dict]:
         profile_id = await _resolve_profile_id(self.repo.session, patient_id)
         return await self.repo.list(patient_id=profile_id, assessment_stage=assessment_stage)

@@ -478,3 +478,12 @@ class SessionScaleSummaryRead(BaseModel):
     total: int
     completed: int
     actionable: bool
+
+
+class DeviceSessionSummaryRead(BaseModel):
+    """/treatment-protocols/{id}/device-session-summaries row."""
+
+    appointment_id: UUID
+    session_status: str | None = None
+    feedback_answers: dict | None = None
+    adverse_event_count: int = 0
