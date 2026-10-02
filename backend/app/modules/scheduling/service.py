@@ -691,6 +691,27 @@ class AppointmentService:
         limit: int = 100,
         order: str = "asc",
     ) -> builtins.list[dict]:
+        scope = await self._scope(ctx, clinic_id=clinic_id, doctor_id=doctor_id, patient_id=patient_id)
+        return await self.repo.list(
+            **scope,
+            appointment_type=appointment_type,
+            status=status,
+            date_from=date_from,
+            date_to=date_to,
+            skip=skip,
+            limit=limit,
+            order=order,
+        )
+
+    async def page(
+        self, *, ctx: RequestContext, page: int, page_size: int, clinic_id=None, doctor_id=None, patient_id=None, **filters
+    ) -> dict:
+        """Paged list + total + pill counts (API audit F-023); same role
+        scoping as list()."""
+        scope = await self._scope(ctx, clinic_id=clinic_id, doctor_id=doctor_id, patient_id=patient_id)
+        return await self.repo.page(page=page, page_size=page_size, **scope, **filters)
+
+    async def _scope(self, ctx: RequestContext, *, clinic_id=None, doctor_id=None, patient_id=None) -> dict:
         # v1: patient sees only their own, doctor only their own, staff
         # scoped to clinic (+ optional doctor_id/patient_id filters layered
         # on top) — never trusting a caller-supplied id to widen their view.
@@ -714,19 +735,7 @@ class AppointmentService:
         region_id = None
         if ctx.role == "regional_admin" and not clinic_id:
             region_id = UUID(ctx.region_id) if ctx.region_id else None
-        return await self.repo.list(
-            appointment_type=appointment_type,
-            clinic_id=clinic_id,
-            region_id=region_id,
-            doctor_id=doctor_id,
-            patient_id=patient_id,
-            status=status,
-            date_from=date_from,
-            date_to=date_to,
-            skip=skip,
-            limit=limit,
-            order=order,
-        )
+        return {"clinic_id": clinic_id, "region_id": region_id, "doctor_id": doctor_id, "patient_id": patient_id}
 
     async def list_upcoming(self, *, ctx: RequestContext, days: int = 14) -> builtins.list[dict]:
         today = _now_ist_naive().date()

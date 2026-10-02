@@ -271,6 +271,23 @@ class AppointmentRead(BaseModel):
     created_at: datetime
 
 
+class AppointmentPageCounts(BaseModel):
+    all: int
+    by_status: dict[str, int]
+    by_type: dict[str, int]
+
+
+class AppointmentPageRead(BaseModel):
+    """GET /appointments/page."""
+
+    items: list[AppointmentRead]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    counts: AppointmentPageCounts
+
+
 class AppointmentHistoryRead(AppointmentRead):
     """/me/appointments/history — one row per appointment with its most
     recent payment folded in, so the patient portal's appointment section

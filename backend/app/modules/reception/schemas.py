@@ -181,6 +181,15 @@ class RegistrationListResponse(BaseModel):
     pagination: Pagination
 
 
+class ReceptionDashboardResponse(BaseModel):
+    """GET /reception/dashboard — counts + first 5 actionable registrations."""
+
+    patient_count: int
+    pending_count: int
+    registered_today: int
+    pending_preview: list[RegistrationListItem]
+
+
 class RejectRegistrationRequest(BaseModel):
     # Optional to keep the endpoint callable with no body (older/other
     # clients) — decide_approval accepts None and just stores no reason.

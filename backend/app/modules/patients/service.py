@@ -168,6 +168,14 @@ class PatientService:
         patients = await self.repo.list(**filters)
         return [_attach_completion(p) for p in patients]
 
+    async def list_page(self, *, limit: int, offset: int, **filters) -> tuple[builtins.list[dict], int]:
+        """One SQL page + total (see repository.list_page). No completion
+        fields — list views don't show them."""
+        return await self.repo.list_page(limit=limit, offset=offset, **filters)
+
+    async def count(self, **filters) -> int:
+        return await self.repo.count(**filters)
+
     async def update(self, patient_id: UUID, fields: dict) -> dict:
         await self.get(patient_id)  # 404 if missing
         profile_keys = {

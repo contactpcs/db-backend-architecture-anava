@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from uuid import UUID
 
 from sqlalchemy import text
@@ -158,7 +159,7 @@ class PatientRepository:
     async def get_by_profile_id(self, profile_id: UUID) -> dict | None:
         return await fetch_optional(self.session, text(f"{self._SELECT_WITH_PROFILE} WHERE pt.profile_id = :pid"), {"pid": str(profile_id)})
 
-    async def list(
+    def _list_where(
         self,
         *,
         registration_status: str | None = None,
@@ -166,10 +167,18 @@ class PatientRepository:
         clinic_id: UUID | None = None,
         profile_id: UUID | None = None,
         include_unapproved: bool = False,
-    ) -> list[dict]:
+        self_registered: bool | None = None,
+        search: str | None = None,
+        created_today: bool = False,
+        gender: str | None = None,
+        doctor_name: str | None = None,
+    ) -> tuple[str, dict]:
+        """WHERE clause shared by list(), list_page() and count() so paged
+        and full reads can never disagree on which patients exist."""
         # pt.deleted_at IS NULL — soft-deleted patients (see delete() below)
         # never show up in the active list, but the row is never removed.
-        clauses, params = ["pt.deleted_at IS NULL"], {}
+        clauses: builtins.list[str] = ["pt.deleted_at IS NULL"]
+        params: dict = {}
         # A self-registration still awaiting a receptionist ('pending') or
         # turned down ('rejected') is a request, not a patient — it belongs in
         # the approvals queue, not in every patient list (doctor, CA, reception,
@@ -190,11 +199,61 @@ class PatientRepository:
         if profile_id:
             clauses.append("pt.profile_id = :profile_id")
             params["profile_id"] = str(profile_id)
-        where = f"WHERE {' AND '.join(clauses)}"
+        if self_registered is not None:
+            clauses.append("pt.self_registered = :self_registered")
+            params["self_registered"] = self_registered
+        if search:
+            # name / phone / email / MRN / assigned doctor — what the reception
+            # list and booking-modal pickers used to match client-side.
+            clauses.append(
+                "((p.first_name || ' ' || p.last_name) ILIKE :search OR p.phone ILIKE :search OR p.email ILIKE :search "
+                "OR pt.mrn ILIKE :search OR (dp.first_name || ' ' || dp.last_name) ILIKE :search)"
+            )
+            params["search"] = f"%{search.strip()}%"
+        if gender:
+            clauses.append("lower(p.gender) = lower(:gender)")
+            params["gender"] = gender
+        if doctor_name:
+            clauses.append("(dp.first_name || ' ' || dp.last_name) = :doctor_name")
+            params["doctor_name"] = doctor_name
+        if created_today:
+            # Clinic day = IST, same as scheduling's _now_ist_naive.
+            clauses.append("(pt.created_at AT TIME ZONE 'Asia/Kolkata')::date = (now() AT TIME ZONE 'Asia/Kolkata')::date")
+        return f"WHERE {' AND '.join(clauses)}", params
+
+    async def list(self, **filters) -> list[dict]:
+        where, params = self._list_where(**filters)
         rows = (
             (await self.session.execute(text(f"{self._SELECT_WITH_PROFILE} {where} ORDER BY pt.created_at DESC"), params)).mappings().all()
         )
         return [dict(r) for r in rows]
+
+    async def count(self, **filters) -> int:
+        where, params = self._list_where(**filters)
+        sql = (
+            "SELECT count(*) FROM patients pt JOIN profiles p ON p.id = pt.profile_id "
+            f"LEFT JOIN profiles dp ON dp.id = pt.primary_doctor_id {where}"
+        )
+        return int((await self.session.execute(text(sql), params)).scalar() or 0)
+
+    async def list_page(self, *, limit: int, offset: int, **filters) -> tuple[builtins.list[dict], int]:
+        """One page in SQL plus the total — list() reads every row, which the
+        reception lists used to do on every page request (API audit F-020)."""
+        total = await self.count(**filters)
+        if total == 0 or limit <= 0 or offset >= total:
+            return [], total
+        where, params = self._list_where(**filters)
+        rows = (
+            (
+                await self.session.execute(
+                    text(f"{self._SELECT_WITH_PROFILE} {where} ORDER BY pt.created_at DESC LIMIT :limit OFFSET :offset"),
+                    {**params, "limit": limit, "offset": offset},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows], total
 
     async def update(self, patient_id: UUID, *, profile_fields: dict, patient_fields: dict) -> dict | None:
         patient = await self.get(patient_id)

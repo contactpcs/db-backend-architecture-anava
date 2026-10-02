@@ -76,6 +76,41 @@ async def get_patient(patient_id: UUID, db=Depends(get_db), ctx: RequestContext 
     return await PatientService(db).get(patient_id)
 
 
+@router.get("/patients/{patient_id}/registration-record")
+async def get_registration_record(
+    patient_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))
+):
+    """The registration intake in one call (API audit F-025): registration-
+    stage anamnesis + its responses, and the latest completed non-voided
+    general_registration PRS instance with its results. Was 4 calls in two
+    sequential chains (anamnesis -> responses, prs-instances -> results).
+    Same services, same access rule (assert_patient_self), and the anamnesis
+    parts are serialized through the same schemas as their own endpoints;
+    missing pieces are null, exactly as the frontend treated a 404."""
+    from app.core.exceptions import NotFoundError
+    from app.modules.anamnesis import schemas as an
+    from app.modules.anamnesis.service import AnamnesisService
+    from app.modules.prs.service import PrsAssessmentService
+
+    await assert_patient_self(ctx, db, patient_id)
+    anamnesis, responses = None, []
+    try:
+        assessment = await AnamnesisService(db).get_current(patient_id, "registration")
+        anamnesis = an.AnamnesisAssessmentRead.model_validate(assessment)
+        rows = await AnamnesisService(db).get_responses(assessment["anamnesis_id"])
+        responses = [an.AnamnesisResponseRead.model_validate(r) for r in rows]
+    except NotFoundError:
+        pass
+
+    general_prs = None
+    prs = PrsAssessmentService(db)
+    live = [i for i in await prs.list_for_patient(patient_id, assessment_stage="general_registration") if not i.get("is_voided")]
+    latest = next((i for i in live if i["status"] == "completed"), live[0] if live else None)
+    if latest:
+        general_prs = await prs.results(latest["instance_id"], latest)
+    return {"anamnesis": anamnesis, "anamnesis_responses": responses, "general_prs": general_prs}
+
+
 @router.get("/patients/{patient_id}/visits/{appointment_id}/summary", response_model=s.VisitSummaryRead)
 async def get_visit_summary(
     patient_id: UUID,

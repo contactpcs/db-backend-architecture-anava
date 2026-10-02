@@ -178,6 +178,46 @@ async def list_appointments(
     )
 
 
+@router.get("/appointments/page", response_model=s.AppointmentPageRead)
+async def page_appointments(
+    clinic_id: UUID | None = None,
+    doctor_id: UUID | None = None,
+    doctor_name: str | None = None,
+    patient_id: UUID | None = None,
+    status: str | None = None,
+    appointment_type: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    search: str | None = None,
+    exclude_superseded: bool = True,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
+):
+    """One page of appointments + total + per-status/per-type counts over the
+    same scope without the status/type filter (API audit F-023: the reception
+    table used to download every appointment in range and filter/count in the
+    browser). Same role scoping as GET /appointments. Registered before
+    /appointments/{appointment_id} so "page" is never parsed as an id."""
+    result = await AppointmentService(db).page(
+        ctx=ctx,
+        page=page,
+        page_size=page_size,
+        clinic_id=clinic_id,
+        doctor_id=doctor_id,
+        patient_id=patient_id,
+        doctor_name=doctor_name,
+        status=status,
+        appointment_type=appointment_type,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+        exclude_superseded=exclude_superseded,
+    )
+    return {**result, "page": page, "page_size": page_size, "total_pages": max(1, -(-result["total"] // page_size))}
+
+
 @router.get("/appointments/{appointment_id}", response_model=s.AppointmentRead)
 async def get_appointment(appointment_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
     appt = await AppointmentService(db).get(appointment_id)

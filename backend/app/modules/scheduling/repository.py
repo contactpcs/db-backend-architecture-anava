@@ -29,6 +29,16 @@ from app.core.sql_helpers import fetch_one, fetch_optional, insert_returning
 #                           a.doctor_id is always set in practice); this is
 #                           now just an alias of a.doctor_id/dp, kept as its
 #                           own field so callers don't have to know that.
+# Lean FROM for page counts — same aliases the shared WHERE uses, without
+# _APPT_SELECT's per-row subqueries.
+_PAGE_COUNT_FROM = (
+    "FROM appointments a "
+    "JOIN profiles pp ON pp.id = a.patient_id "
+    "LEFT JOIN profiles dp ON dp.id = a.doctor_id "
+    "LEFT JOIN patients pt ON pt.profile_id = a.patient_id"
+)
+SUPERSEDED_CANCELLATION_REASON = "Superseded by protocol amendment"
+
 _APPT_SELECT = (
     "SELECT a.*, pp.first_name || ' ' || pp.last_name AS patient_name, "
     "dp.first_name || ' ' || dp.last_name AS doctor_name, "
@@ -287,8 +297,8 @@ class AppointmentRepository:
         )
         return [dict(r) for r in rows]
 
-    async def list(
-        self,
+    @staticmethod
+    def _list_where(
         *,
         clinic_id: UUID | None = None,
         region_id: UUID | None = None,
@@ -298,10 +308,13 @@ class AppointmentRepository:
         appointment_type: str | None = None,
         date_from=None,
         date_to=None,
-        skip: int = 0,
-        limit: int = 100,
-        order: str = "asc",
-    ) -> builtins.list[dict]:
+        doctor_name: str | None = None,
+        search: str | None = None,
+        exclude_superseded: bool = False,
+    ) -> tuple[str, dict[str, Any]]:
+        """WHERE shared by list(), page() and page counts. Aliases: a =
+        appointments, pp = patient profile, dp = doctor profile, pt = patients
+        (all present in _APPT_SELECT and in _PAGE_COUNT_FROM)."""
         clauses: builtins.list[str] = []
         params: dict[str, Any] = {}
         if clinic_id:
@@ -331,7 +344,33 @@ class AppointmentRepository:
         if date_to:
             clauses.append("a.appointment_date <= :date_to")
             params["date_to"] = date_to
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        if doctor_name:
+            clauses.append("(dp.first_name || ' ' || dp.last_name) = :doctor_name")
+            params["doctor_name"] = doctor_name
+        if search:
+            # Same fields the reception table used to match client-side.
+            clauses.append(
+                "(a.appointment_id::text ILIKE :search OR (pp.first_name || ' ' || pp.last_name) ILIKE :search "
+                "OR pt.mrn ILIKE :search OR pt.patient_id::text ILIKE :search "
+                "OR (dp.first_name || ' ' || dp.last_name) ILIKE :search)"
+            )
+            params["search"] = f"%{search.strip()}%"
+        if exclude_superseded:
+            # Protocol-amendment auto-cancellations: the old version's slots,
+            # not a cancellation anyone should see (frontend isSupersededCancellation).
+            clauses.append("NOT (a.status = 'cancelled' AND a.cancellation_reason IS NOT DISTINCT FROM :superseded)")
+            params["superseded"] = SUPERSEDED_CANCELLATION_REASON
+        return (f"WHERE {' AND '.join(clauses)}" if clauses else ""), params
+
+    async def list(
+        self,
+        *,
+        skip: int = 0,
+        limit: int = 100,
+        order: str = "asc",
+        **filters,
+    ) -> builtins.list[dict]:
+        where, params = self._list_where(**filters)
         params["skip"], params["limit"] = skip, limit
         # appointment_id tiebreak keeps OFFSET paging stable across pages.
         # "desc" lets callers that page through a large clinic see the most
@@ -344,6 +383,42 @@ class AppointmentRepository:
             .all()
         )
         return [dict(r) for r in rows]
+
+    async def page(self, *, page: int, page_size: int, status: str | None = None, appointment_type: str | None = None, **scope) -> dict:
+        """One page + total + per-status / per-type counts over the scope
+        WITHOUT the status/type filter (the reception table's pill counts),
+        in 2 queries (API audit F-023). Chronological: date, then start time
+        with unscheduled (NULL) first, matching the table's old client sort."""
+        where, params = self._list_where(**scope)
+        counts_sql = f"SELECT a.status, a.appointment_type, count(*) AS n {_PAGE_COUNT_FROM} {where} GROUP BY a.status, a.appointment_type"
+        by_status: dict[str, int] = {}
+        by_type: dict[str, int] = {}
+        total = 0
+        for r in (await self.session.execute(text(counts_sql), params)).mappings().all():
+            by_status[r["status"]] = by_status.get(r["status"], 0) + r["n"]
+            by_type[r["appointment_type"]] = by_type.get(r["appointment_type"], 0) + r["n"]
+            if (not status or r["status"] == status) and (not appointment_type or r["appointment_type"] == appointment_type):
+                total += r["n"]
+        where, params = self._list_where(**scope, status=status, appointment_type=appointment_type)
+        params["skip"], params["limit"] = (page - 1) * page_size, page_size
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        f"{_APPT_SELECT}{where} ORDER BY a.appointment_date, a.start_time NULLS FIRST, a.appointment_id "
+                        "OFFSET :skip LIMIT :limit"
+                    ),
+                    params,
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return {
+            "items": [dict(r) for r in rows],
+            "total": total,
+            "counts": {"all": sum(by_status.values()), "by_status": by_status, "by_type": by_type},
+        }
 
     async def list_for_doctor_on_date(self, doctor_id: UUID, on_date) -> builtins.list[dict]:
         rows = (
