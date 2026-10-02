@@ -155,6 +155,7 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://localhost:3001",
         "https://staging-app.anavaclinics.com",
+        "https://app.anavaclinics.com",
     ]
 
     # Clinical staff (doctor/CA/receptionist) must log in with an official
