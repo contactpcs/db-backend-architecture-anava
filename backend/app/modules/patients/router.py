@@ -47,6 +47,24 @@ async def register_patient(
     return await PatientService(db).register(data, cognito_sub=cognito_sub, registered_by=UUID(ctx.user_id))
 
 
+@router.get("/patients/count")
+async def count_patients(
+    registration_status: str | None = None,
+    approval_status: str | None = None,
+    clinic_id: UUID | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
+) -> dict:
+    """Same filters and scoping as GET /patients, but just the number — the
+    clinical-assistant dashboard and approvals badge used to download every
+    patient to count them (API audit F-045). Registered before
+    /patients/{patient_id} so "count" is never parsed as an id."""
+    if clinic_id is None and ctx.role in ("clinic_admin", "receptionist"):
+        clinic_id = UUID(ctx.clinic_id)
+    count = await PatientService(db).count(registration_status=registration_status, approval_status=approval_status, clinic_id=clinic_id)
+    return {"count": count}
+
+
 @router.get("/patients", response_model=list[s.PatientRead])
 async def list_patients(
     registration_status: str | None = None,

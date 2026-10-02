@@ -355,12 +355,18 @@ class AppointmentRepository:
             clauses.append("(dp.first_name || ' ' || dp.last_name) = :doctor_name")
             params["doctor_name"] = doctor_name
         if search:
-            # Same fields the reception table used to match client-side.
-            clauses.append(
-                "(a.appointment_id::text ILIKE :search OR (pp.first_name || ' ' || pp.last_name) ILIKE :search "
-                "OR pt.mrn ILIKE :search OR pt.patient_id::text ILIKE :search "
-                "OR (dp.first_name || ' ' || dp.last_name) ILIKE :search)"
-            )
+            # Name / MRN / doctor / session number always; appointment and
+            # patient UUIDs only for >= 8 chars, so a short query like "12"
+            # (a session number) doesn't match every id containing "12".
+            fields = [
+                "(pp.first_name || ' ' || pp.last_name) ILIKE :search",
+                "pt.mrn ILIKE :search",
+                "(dp.first_name || ' ' || dp.last_name) ILIKE :search",
+                "CAST(a.session_number AS text) ILIKE :search",
+            ]
+            if len(search.strip()) >= 8:
+                fields += ["a.appointment_id::text ILIKE :search", "pt.patient_id::text ILIKE :search"]
+            clauses.append(f"({' OR '.join(fields)})")
             params["search"] = f"%{search.strip()}%"
         if exclude_superseded:
             # Protocol-amendment auto-cancellations: the old version's slots,
