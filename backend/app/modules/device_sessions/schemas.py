@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # --------------------------------------------------------------------------
 # Fixed vocabularies — copied from 53's CHECK constraints
@@ -90,6 +90,10 @@ class ChecklistUpdate(BaseModel):
     ramp_down_deviation_reason: str | None = None
     montage_verified: bool | None = None
     contraindication_checklist: dict | None = None
+    # The pre-session page saves its Device Fit ticks through this same
+    # call; without the field here pydantic silently dropped them, so every
+    # save (e.g. tapping to sign) reloaded the session and cleared them.
+    device_fit_checklist: dict | None = None
     patient_consent: dict | None = None
     ca_declaration: dict | None = None
 
@@ -316,9 +320,19 @@ class NoteRead(BaseModel):
 
 
 class ActivityCreate(BaseModel):
-    activities: list[str] = Field(min_length=1)
+    # Either chips, free text, or both — the live page lets a CA log an
+    # activity that's only described in the free-text box.
+    activities: list[str] = Field(default_factory=list)
     free_text: str | None = None
     note: str | None = None
+
+    @model_validator(mode="after")
+    def _activity_or_free_text(self) -> "ActivityCreate":
+        if self.free_text is not None:
+            self.free_text = self.free_text.strip() or None
+        if not self.activities and not self.free_text:
+            raise ValueError("Select at least one activity or describe it in the text box")
+        return self
 
 
 class ActivityRead(BaseModel):

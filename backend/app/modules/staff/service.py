@@ -478,7 +478,7 @@ class CaDoctorAssignmentService:
         try:
             return await self.repo.create(ca_id=ca_id, doctor_id=doctor_id, clinic_id=clinic_id, is_primary=is_primary)
         except IntegrityError as exc:
-            raise ConflictError("This CA is already assigned to this doctor", code="ASSIGNMENT_ALREADY_EXISTS") from exc
+            raise ConflictError("This Clinical Assistant is already assigned to this doctor", code="ASSIGNMENT_ALREADY_EXISTS") from exc
 
     async def list(self, *, ca_id: UUID | None = None, doctor_id: UUID | None = None) -> builtins.list[dict]:
         return await self.repo.list(ca_id=ca_id, doctor_id=doctor_id)
