@@ -12,7 +12,13 @@ from sqlalchemy import event, text
 from app.config import get_settings
 from app.core.db import RequestContext, engine
 from app.core.exceptions import AnavaException
-from app.core.middleware import ApiAuditMiddleware, AuthContextMiddleware, RequestIDMiddleware, count_audit_db_query
+from app.core.middleware import (
+    ApiAuditMiddleware,
+    AuthContextMiddleware,
+    RequestIDMiddleware,
+    assert_auth_context_function,
+    count_audit_db_query,
+)
 from app.core.permissions import require_role
 from app.core.security import warm_jwks
 from app.modules.admin.router import router as admin_router
@@ -95,6 +101,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                            LOCKED instead of an advisory lock, so several
                            instances share the queue without double-sending.
     """
+    # Auth needs ops.auth_context (alembic 0054). Missing -> refuse to boot.
+    # DB unreachable -> only warn; requests will surface it, and a DB blip at
+    # deploy time must not keep the API down.
+    try:
+        await assert_auth_context_function()
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        logger.warning("auth_context_check_skipped", error=repr(exc))
+
     tasks: list[asyncio.Task] = []
     if settings.partition_maintenance_enabled:
         tasks.append(asyncio.create_task(run_partition_maintenance_forever()))

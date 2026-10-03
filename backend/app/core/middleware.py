@@ -15,7 +15,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.auth_session import consume_stream_ticket, is_access_token_revoked
-from app.core.db import RequestContext, engine, set_request_context, text_set_locals
+from app.core.db import RequestContext, engine, set_request_context
 from app.core.exceptions import AnavaException, AuthenticationError, PermissionError_
 from app.core.security import verify_token
 
@@ -117,197 +117,42 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
 
 async def _load_profile_and_scope(cognito_sub: str, *, request_id: str, ip_address: str | None) -> RequestContext:
-    """Resolves the caller's profile + tenant scope. Deliberately minimal
-    (raw parameterized SQL, not an ORM model) — the `profiles`/`admins`/
-    `clinic_staff_assignments`/`patients` tables already exist in the schema
-    from Stage 2's migration even though their owning modules (admin/staff/
-    patients) haven't been built yet. Extend this once those modules exist
-    if a richer scope lookup is needed; don't duplicate the query there."""
-    async with engine.connect() as conn:
-        # Must run before the SELECT below, in the same transaction — this is
-        # what rls_profiles_select's self-lookup clause matches against, since
-        # app.current_user_id/role can't be set yet (this query is what
-        # determines them). See SQL/31_fix_profile_bootstrap_lookup_rls.sql.
-        await conn.execute(text("SELECT set_config('app.current_cognito_sub', :sub, true)"), {"sub": cognito_sub})
-        row = (
-            await conn.execute(
-                text("SELECT id, role, is_active, consent_signed FROM profiles WHERE cognito_sub = :sub"),
-                {"sub": cognito_sub},
-            )
-        ).first()
-        if row is None:
-            raise PermissionError_("Profile not found", code="PROFILE_NOT_FOUND")
+    """Resolves the caller's profile + tenant scope in ONE round trip:
+    ops.auth_context() (SQL/v1/101_auth_context_lookup.sql) runs the same
+    profile read, staff consent self-heal / re-check, scope lookup and
+    closed-clinic / inactive-region checks that used to be up to 9 separate
+    statements here (API audit). Live data every request — not a cache.
 
-        profile_id, role = str(row.id), row.role
-        is_active, consent_signed = row.is_active, row.consent_signed
-
-        # Now genuinely known (resolved above) — set them immediately so
-        # every query below this point on this same connection (self-heal's
-        # consent_records check, the admins/clinic_staff_assignments/patients
-        # scope lookups) can satisfy their own RLS self-lookup clauses
-        # (profile_id/staff_id = rls_user_id()) instead of hitting the same
-        # bootstrap chicken-and-egg problem the cognito_sub fix above solves
-        # for the first query. See SQL/31_fix_profile_bootstrap_lookup_rls.sql.
-        await conn.execute(text_set_locals({"app.current_user_id": profile_id, "app.current_user_role": role}))
-
-        # Self-heal: for staff roles, is_active is meant to mirror a signed
-        # staff_onboarding consent record exactly (see
-        # SQL/28_consent_redesign.sql / consent/service.py::sign). If it's
-        # somehow FALSE despite a signed record already existing — a gap in
-        # some future creation/signing path, the same class of bug that once
-        # bricked a regional_admin here — re-derive from the real source of
-        # truth (consent_records) instead of leaving the account stuck.
-        # Scoped to staff only: patients have their own richer activation
-        # gate (registration-complete/approval) that must NOT be
-        # short-circuited by this check.
-        #
-        # Also requires consent_signed to STILL be FALSE — once an account
-        # has ever been properly activated (consent_signed=TRUE), is_active
-        # going FALSE afterward is a deliberate admin deactivation (staff
-        # deactivate button, staff/service.py::_split_profile_fields), not a
-        # bricked account — self-healing that back to TRUE would make
-        # deactivation impossible. Real bricked accounts have BOTH flags
-        # stuck FALSE despite a signed record existing; a deactivated one has
-        # only is_active FALSE with consent_signed still TRUE.
-        if role != "patient" and not is_active and not consent_signed:
-            healed = (
-                await conn.execute(
-                    text(
-                        "SELECT 1 FROM consent_records WHERE staff_id = :pid "
-                        "AND consent_type = 'staff_onboarding' AND status = 'signed' LIMIT 1"
-                    ),
-                    {"pid": profile_id},
-                )
-            ).first()
-            if healed:
-                async with engine.begin() as heal_conn:
-                    # profiles has RLS forced and this connection is fresh
-                    # (no GUC carried over from the read above) — without
-                    # this, rls_profiles_update admits nobody here and the
-                    # UPDATE silently affects zero rows. Found live: this
-                    # write-back had never actually been persisting — see
-                    # SQL/v1/78_profiles_update_system_role_rls.sql.
-                    await heal_conn.execute(text("SELECT set_config('app.current_user_role', 'system', true)"))
-                    await heal_conn.execute(
-                        text("UPDATE profiles SET is_active = TRUE, consent_signed = TRUE WHERE id = :pid"),
-                        {"pid": profile_id},
-                    )
-                is_active, consent_signed = True, True
-
-        # Mirror of the self-heal above, other direction: is_active = TRUE
-        # must correspond to a REAL signed consent, not just a flag someone
-        # (or a seed/bootstrap script) set directly. Found live: 6 staff/
-        # admin accounts had is_active = TRUE and consent_signed = TRUE with
-        # zero actual consent_records rows behind them — provisioned by a
-        # seed script that set both flags directly, bypassing the sign flow
-        # entirely. The super-admin consent view correctly reported "not
-        # signed" for every one of them; the flags were simply wrong.
-        # Re-verify against the real table on every request rather than
-        # trusting the flag blindly, and write back (so this doesn't
-        # re-query every request forever for a permanently-fine account) —
-        # same "re-derive from the real source of truth" reasoning as the
-        # self-heal block above, just checking the claim instead of
-        # granting it. Costs one extra indexed lookup per staff request;
-        # accepted deliberately — consent compliance is the kind of
-        # correctness this app already pays for elsewhere (the whole
-        # app-layer ownership-check pattern exists for the same reason).
-        elif role != "patient" and is_active:
-            really_signed = (
-                await conn.execute(
-                    text(
-                        "SELECT 1 FROM consent_records WHERE staff_id = :pid "
-                        "AND consent_type = 'staff_onboarding' AND status = 'signed' LIMIT 1"
-                    ),
-                    {"pid": profile_id},
-                )
-            ).first()
-            if not really_signed:
-                async with engine.begin() as heal_conn:
-                    await heal_conn.execute(text("SELECT set_config('app.current_user_role', 'system', true)"))
-                    await heal_conn.execute(
-                        text("UPDATE profiles SET is_active = FALSE, consent_signed = FALSE WHERE id = :pid"),
-                        {"pid": profile_id},
-                    )
-                is_active, consent_signed = False, False
-
-        clinic_id: str | None = None
-        region_id: str | None = None
-
-        if role in ("super_admin", "regional_admin", "clinic_admin"):
-            scope = (
-                await conn.execute(
-                    text("SELECT region_id, clinic_id FROM admins WHERE profile_id = :pid"),
-                    {"pid": profile_id},
-                )
-            ).first()
-            if scope:
-                region_id = str(scope.region_id) if scope.region_id else None
-                clinic_id = str(scope.clinic_id) if scope.clinic_id else None
-        elif role in ("doctor", "clinical_assistant", "receptionist"):
-            scope = (
-                await conn.execute(
-                    text("SELECT clinic_id FROM clinic_staff_assignments WHERE profile_id = :pid AND is_active = TRUE LIMIT 1"),
-                    {"pid": profile_id},
-                )
-            ).first()
-            if scope:
-                clinic_id = str(scope.clinic_id)
-        elif role == "patient":
-            scope = (
-                await conn.execute(
-                    text("SELECT primary_clinic_id FROM patients WHERE profile_id = :pid"),
-                    {"pid": profile_id},
-                )
-            ).first()
-            if scope and scope.primary_clinic_id:
-                clinic_id = str(scope.primary_clinic_id)
-
-        # Clinic-closed / region-inactive lockout. super_admin/regional_admin
-        # are exempt so someone can still log in to reopen/reactivate — same
-        # reasoning as the pending_closure<->active revert path in
-        # admin/service.py's clinic FSM. Checked via clinic_id's own region
-        # (not admins.region_id directly) so clinic_admin/doctor/CA/
-        # receptionist/patient are all covered through the one clinic_id they
-        # already resolve to above.
-        #
-        # rls_clinics_select only admits a row when status NOT IN
-        # (pending_closure, closed) OR clinic_id = rls_clinic_id() (and
-        # rls_regions_select mirrors this with is_active = true OR region_id =
-        # rls_region_id()) — app.current_clinic_id/current_region_id aren't
-        # set yet at this point in the request (that happens later via
-        # set_request_context), so a closed clinic / inactive region would
-        # otherwise be invisible to its own query and this check would never
-        # fire for the exact rows it exists to catch. Same self-lookup trap
-        # as SQL/31_fix_profile_bootstrap_lookup_rls.sql — fixed the same way:
-        # set the GUC to the specific row being checked, immediately before
-        # checking it.
-        if role not in ("super_admin", "regional_admin") and clinic_id:
-            await conn.execute(text("SELECT set_config('app.current_clinic_id', :cid, true)"), {"cid": clinic_id})
-            clinic_row = (
-                await conn.execute(text("SELECT status, region_id FROM clinics WHERE clinic_id = :cid"), {"cid": clinic_id})
-            ).first()
-            if clinic_row:
-                if clinic_row.status == "closed":
-                    raise PermissionError_("This clinic is closed", code="CLINIC_CLOSED")
-                if clinic_row.region_id:
-                    region_id_str = str(clinic_row.region_id)
-                    await conn.execute(text("SELECT set_config('app.current_region_id', :rid, true)"), {"rid": region_id_str})
-                    region_row = (
-                        await conn.execute(text("SELECT is_active FROM regions WHERE region_id = :rid"), {"rid": region_id_str})
-                    ).first()
-                    if region_row and not region_row.is_active:
-                        raise PermissionError_("This region is inactive", code="REGION_INACTIVE")
-
+    Own transaction, committed before any rejection is raised, so a consent
+    self-heal write sticks even when the request is then refused (as the old
+    separate heal connection did)."""
+    async with engine.begin() as conn:
+        row = (await conn.execute(text("SELECT * FROM ops.auth_context(:sub)"), {"sub": cognito_sub})).first()
+    if row is None:
+        raise PermissionError_("Profile not found", code="PROFILE_NOT_FOUND")
+    if row.clinic_closed:
+        raise PermissionError_("This clinic is closed", code="CLINIC_CLOSED")
+    if row.region_inactive:
+        raise PermissionError_("This region is inactive", code="REGION_INACTIVE")
     return RequestContext(
-        user_id=profile_id,
-        role=role,
-        clinic_id=clinic_id,
-        region_id=region_id,
-        is_active=is_active,
-        consent_signed=consent_signed,
+        user_id=str(row.profile_id),
+        role=row.user_role,
+        clinic_id=str(row.scope_clinic_id) if row.scope_clinic_id else None,
+        region_id=str(row.scope_region_id) if row.scope_region_id else None,
+        is_active=row.active,
+        consent_signed=row.consent,
         request_id=request_id,
         ip_address=ip_address,
     )
+
+
+async def assert_auth_context_function() -> None:
+    """Startup guard: the lookup above needs alembic 0054. Fail the boot with a
+    clear message instead of returning a 500 on every authenticated request."""
+    async with engine.connect() as conn:
+        found = (await conn.execute(text("SELECT to_regprocedure('ops.auth_context(text)') IS NOT NULL"))).scalar()
+    if not found:
+        raise RuntimeError("ops.auth_context(text) is missing - run `alembic upgrade head` (0054) before starting the API")
 
 
 class AuthContextMiddleware(BaseHTTPMiddleware):
