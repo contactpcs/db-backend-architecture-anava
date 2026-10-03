@@ -448,6 +448,15 @@ class WeeklyScheduleService:
         doctor_profile_id = await _resolve_doctor_profile_id(self.session, doctor_id)
         return await self.repo.list_for_doctor(doctor_profile_id)
 
+    async def list_for_clinic(self, clinic_id: UUID | None, *, region_id: UUID | None = None) -> list[dict]:
+        """[{doctor_id, schedules}] — doctor_id is doctors.doctor_id (what
+        /doctors/{doctor_id}/weekly-schedules takes); doctors with no active
+        rule are left out, same as an empty per-doctor list."""
+        grouped: dict = {}
+        for row in await self.repo.list_for_clinic_doctors(clinic_id, region_id=region_id):
+            grouped.setdefault(row.pop("doctor_record_id"), []).append(row)
+        return [{"doctor_id": k, "schedules": v} for k, v in grouped.items()]
+
     async def replace_own(self, *, doctor_profile_id: UUID, clinic_id: UUID, items: list[dict]) -> list[dict]:
         await _assert_clinic_operational(self.session, clinic_id)
         await _assert_within_clinic_hours(self.session, clinic_id, items)
@@ -476,6 +485,14 @@ class ScheduleOverrideService:
     async def list_for_doctor(self, doctor_id: UUID) -> list[dict]:
         doctor_profile_id = await _resolve_doctor_profile_id(self.session, doctor_id)
         return await self.repo.list_for_doctor(doctor_profile_id)
+
+    async def list_for_clinic(self, clinic_id: UUID) -> list[dict]:
+        """[{doctor_id, overrides}] keyed by doctors.doctor_id; doctors with
+        none are left out, same as an empty per-doctor list."""
+        grouped: dict = {}
+        for row in await self.repo.list_for_clinic_doctors(clinic_id):
+            grouped.setdefault(row.pop("doctor_record_id"), []).append(row)
+        return [{"doctor_id": k, "overrides": v} for k, v in grouped.items()]
 
     async def delete_own(self, override_id: UUID, *, doctor_profile_id: UUID) -> None:
         override = await self.repo.get(override_id)
@@ -706,12 +723,29 @@ class AppointmentService:
         )
 
     async def page(
-        self, *, ctx: RequestContext, page: int, page_size: int, clinic_id=None, doctor_id=None, patient_id=None, **filters
+        self,
+        *,
+        ctx: RequestContext,
+        page: int,
+        page_size: int,
+        clinic_id=None,
+        doctor_id=None,
+        patient_id=None,
+        period_today: dt.date | None = None,
+        **filters,
     ) -> dict:
         """Paged list + total + pill counts (API audit F-023); same role
         scoping as list()."""
         scope = await self._scope(ctx, clinic_id=clinic_id, doctor_id=doctor_id, patient_id=patient_id)
-        return await self.repo.page(page=page, page_size=page_size, **scope, **filters)
+        result = await self.repo.page(page=page, page_size=page_size, **scope, **filters)
+        if period_today:
+            # Tab badges count the whole caller scope (no doctor/search/date
+            # filter), as the admin tabs did client-side (API audit F-055).
+            base = await self._scope(ctx, clinic_id=clinic_id)
+            result["counts"]["by_period"] = await self.repo.period_counts(
+                period_today, **base, exclude_superseded=filters.get("exclude_superseded", False)
+            )
+        return result
 
     async def _scope(self, ctx: RequestContext, *, clinic_id=None, doctor_id=None, patient_id=None) -> dict:
         # v1: patient sees only their own, doctor only their own, staff

@@ -277,6 +277,50 @@ class PaymentRepository:
         )
         return [dict(r) for r in rows]
 
+    async def summary_by_clinic(self, clinic_id: UUID | None, *, region_id: UUID | None = None, recent: int = 5) -> dict:
+        """list_by_clinic reduced to totals per status + the latest few rows —
+        the dashboard used to download every clinic payment for this
+        (API audit F-050). Same join and scope as list_by_clinic; region_id
+        (clinic_id None) = every clinic of the region (regional dashboard, F-058)."""
+        if clinic_id:
+            where = "COALESCE(so.clinic_id, appt.clinic_id) = :scope_id "
+        else:
+            where = "COALESCE(so.clinic_id, appt.clinic_id) IN (SELECT clinic_id FROM clinics WHERE region_id = :scope_id) "
+        scope = (
+            "FROM payments p "
+            "LEFT JOIN store_orders so ON so.order_id = p.order_id "
+            "LEFT JOIN appointments appt ON appt.appointment_id = p.appointment_id "
+            f"WHERE {where}"
+        )
+        params = {"scope_id": str(clinic_id or region_id), "recent": recent}
+        by_status = (
+            (
+                await self.session.execute(
+                    text(f"SELECT p.status, count(*) AS count, COALESCE(sum(p.amount), 0) AS amount {scope}GROUP BY p.status"),
+                    params,
+                )
+            )
+            .mappings()
+            .all()
+        )
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        f"SELECT p.*, COALESCE(so.clinic_id, appt.clinic_id) AS clinic_id {scope}ORDER BY p.created_at DESC LIMIT :recent"
+                    ),
+                    params,
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return {
+            "total_count": sum(r["count"] for r in by_status),
+            "by_status": [dict(r) for r in by_status],
+            "recent": [dict(r) for r in rows],
+        }
+
     async def list_for_patient(self, patient_id: UUID) -> list[dict]:
         # Same two-hop join as list_by_clinic, scoped to patient_id instead of
         # clinic_id — appointment_type/appointment_date come along so the
@@ -387,7 +431,7 @@ class PaymentRepository:
             "a.status AS appointment_status, a.completed_at AS appointment_completed_at "
             f"{self._HISTORY_BASE}"
             f"WHERE {' AND '.join(where)} {scope_sql} "
-            "ORDER BY p.created_at DESC LIMIT :limit OFFSET :offset"
+            "ORDER BY p.created_at DESC, p.payment_id DESC LIMIT :limit OFFSET :offset"
         )
         rows = (await self.session.execute(text(query), params)).mappings().all()
         return [dict(r) for r in rows]

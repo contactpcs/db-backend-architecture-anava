@@ -1,6 +1,7 @@
+from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.config import get_settings
 from app.core.db import RequestContext, get_db
@@ -63,6 +64,45 @@ async def count_patients(
         clinic_id = UUID(ctx.clinic_id)
     count = await PatientService(db).count(registration_status=registration_status, approval_status=approval_status, clinic_id=clinic_id)
     return {"count": count}
+
+
+# approval_view -> _list_where filters. "approved" = the default patient list
+# (approved + staff-registered); "pending" = the approvals queue definition
+# (approval pending AND wizard complete, as staffService.getPendingCount).
+_APPROVAL_VIEWS: dict[str, dict] = {
+    "all": {"include_unapproved": True, "hide_unfinished_pending": True},  # = approved + pending + rejected
+    "approved": {},
+    "pending": {"approval_status": "pending", "registration_status": "registration_complete"},
+    "rejected": {"approval_status": "rejected"},
+}
+
+
+@router.get("/patients/page", response_model=s.PatientPageRead)
+async def page_patients(
+    search: str | None = None,
+    clinic_id: UUID | None = None,
+    approval_view: Literal["all", "approved", "pending", "rejected"] | None = None,
+    with_counts: bool = False,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
+) -> dict:
+    """GET /patients one page at a time, with server search (name, phone,
+    email, MRN, doctor) — the admin patients list used to download every
+    clinic patient and filter in the browser (API audit F-053). Same scoping
+    as GET /patients; registered before /patients/{patient_id}.
+    approval_view picks a super-admin tab; with_counts adds the four tab
+    counts over the caller's whole scope (API audit F-062 / BUG-APPR)."""
+    if clinic_id is None and ctx.role in ("clinic_admin", "receptionist"):
+        clinic_id = UUID(ctx.clinic_id)
+    svc = PatientService(db)
+    view = _APPROVAL_VIEWS[approval_view or "approved"]
+    items, total = await svc.list_page(limit=page_size, offset=(page - 1) * page_size, search=search or None, clinic_id=clinic_id, **view)
+    result = {"items": items, "total": total, "page": page, "page_size": page_size, "total_pages": -(-total // page_size)}
+    if with_counts:
+        result["counts"] = {k: await svc.count(**v) for k, v in _APPROVAL_VIEWS.items()}
+    return result
 
 
 @router.get("/patients", response_model=list[s.PatientRead])

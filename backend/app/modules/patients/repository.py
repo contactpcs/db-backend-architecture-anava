@@ -172,6 +172,7 @@ class PatientRepository:
         created_today: bool = False,
         gender: str | None = None,
         doctor_name: str | None = None,
+        hide_unfinished_pending: bool = False,
     ) -> tuple[str, dict]:
         """WHERE clause shared by list(), list_page() and count() so paged
         and full reads can never disagree on which patients exist."""
@@ -216,6 +217,9 @@ class PatientRepository:
         if doctor_name:
             clauses.append("(dp.first_name || ' ' || dp.last_name) = :doctor_name")
             params["doctor_name"] = doctor_name
+        if hide_unfinished_pending:
+            # Self-registration still mid-wizard: not yet a request anyone can act on.
+            clauses.append("NOT (pt.approval_status = 'pending' AND pt.registration_status <> 'registration_complete')")
         if created_today:
             # Clinic day = IST, same as scheduling's _now_ist_naive.
             clauses.append("(pt.created_at AT TIME ZONE 'Asia/Kolkata')::date = (now() AT TIME ZONE 'Asia/Kolkata')::date")

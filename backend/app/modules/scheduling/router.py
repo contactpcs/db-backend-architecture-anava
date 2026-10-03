@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 
 from app.core.db import RequestContext, get_db
-from app.core.exceptions import NotFoundError, PermissionError_
+from app.core.exceptions import BusinessRuleError, NotFoundError, PermissionError_
 from app.core.permissions import require_role
 from app.modules.scheduling import schemas as s
 from app.modules.scheduling.service import (
@@ -59,6 +59,23 @@ async def list_weekly_schedules(doctor_id: UUID, db=Depends(get_db), _ctx: Reque
     return await WeeklyScheduleService(db).list_for_doctor(doctor_id)
 
 
+@router.get("/doctor-weekly-schedules", response_model=list[s.DoctorWeeklySchedulesRead])
+async def list_clinic_weekly_schedules(
+    clinic_id: UUID | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))
+):
+    """Weekly schedules of every doctor in a clinic in one call — dashboards
+    used to call /doctors/{id}/weekly-schedules once per doctor (API audit
+    F-052). Clinic-bound roles always get their own clinic; a regional admin
+    without clinic_id gets every doctor of their region (F-058)."""
+    if ctx.clinic_id:
+        clinic_id = UUID(ctx.clinic_id)
+    if clinic_id is None and ctx.role == "regional_admin" and ctx.region_id:
+        return await WeeklyScheduleService(db).list_for_clinic(None, region_id=UUID(ctx.region_id))
+    if clinic_id is None:
+        raise BusinessRuleError("clinic_id is required", code="CLINIC_ID_REQUIRED")
+    return await WeeklyScheduleService(db).list_for_clinic(clinic_id)
+
+
 @router.post("/doctors/{doctor_id}/schedule-overrides", response_model=s.ScheduleOverrideRead, status_code=201)
 async def create_schedule_override(
     doctor_id: UUID,
@@ -78,6 +95,20 @@ async def list_schedule_overrides(
     _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     return await ScheduleOverrideService(db).list_for_doctor(doctor_id)
+
+
+@router.get("/doctor-schedule-overrides", response_model=list[s.DoctorScheduleOverridesRead])
+async def list_clinic_schedule_overrides(
+    clinic_id: UUID | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))
+):
+    """Schedule overrides of every doctor in a clinic in one call — the admin
+    appointments page called /doctors/{id}/schedule-overrides once per doctor
+    (API audit F-056). Clinic-bound roles always get their own clinic."""
+    if ctx.clinic_id:
+        clinic_id = UUID(ctx.clinic_id)
+    if clinic_id is None:
+        raise BusinessRuleError("clinic_id is required", code="CLINIC_ID_REQUIRED")
+    return await ScheduleOverrideService(db).list_for_clinic(clinic_id)
 
 
 @router.get("/doctors/{doctor_id}/availability", response_model=list[s.AvailabilitySlotRead])
@@ -200,6 +231,8 @@ async def page_appointments(
     date_to: date | None = None,
     search: str | None = None,
     exclude_superseded: bool = True,
+    date_order: Literal["asc", "desc"] = Query("asc", description="desc = newest date first (admin past tab)"),
+    period_today: date | None = Query(None, description="adds counts.by_period {past, today, upcoming} relative to this date"),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
     db=Depends(get_db),
@@ -225,6 +258,8 @@ async def page_appointments(
         date_to=date_to,
         search=search,
         exclude_superseded=exclude_superseded,
+        date_order=date_order,
+        period_today=period_today,
     )
     return {**result, "page": page, "page_size": page_size, "total_pages": max(1, -(-result["total"] // page_size))}
 

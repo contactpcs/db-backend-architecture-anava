@@ -46,6 +46,20 @@ async def list_payments(clinic_id: UUID | None = None, db=Depends(get_db), ctx: 
     return await PaymentService(db).list(clinic_id)
 
 
+@router.get("/payments/summary", response_model=s.PaymentSummaryRead)
+async def payments_summary(clinic_id: UUID | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
+    """Totals per status + 5 latest for one clinic — same access and scope as
+    GET /payments, without downloading every row (API audit F-050). A
+    regional admin without clinic_id gets their whole region (F-058)."""
+    if ctx.role in _CLINIC_PINNED_STAFF:
+        clinic_id = UUID(ctx.clinic_id)
+    if clinic_id is None and ctx.role == "regional_admin" and ctx.region_id:
+        return await PaymentService(db).summary(None, region_id=UUID(ctx.region_id))
+    if clinic_id is None:
+        raise BusinessRuleError("clinic_id is required", code="CLINIC_ID_REQUIRED")
+    return await PaymentService(db).summary(clinic_id)
+
+
 @router.get("/payments/history", response_model=list[s.PaymentHistoryDetailRead])
 async def list_payments_history(
     status: str | None = None,

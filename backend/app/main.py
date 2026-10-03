@@ -14,6 +14,7 @@ from app.core.db import RequestContext, engine
 from app.core.exceptions import AnavaException
 from app.core.middleware import ApiAuditMiddleware, AuthContextMiddleware, RequestIDMiddleware, count_audit_db_query
 from app.core.permissions import require_role
+from app.core.security import warm_jwks
 from app.modules.admin.router import router as admin_router
 from app.modules.anamnesis.router import router as anamnesis_router
 from app.modules.auth.router import router as auth_router
@@ -102,6 +103,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if settings.appointment_no_show_sweeper_enabled:
         tasks.append(asyncio.create_task(run_no_show_sweeper_forever()))
     tasks.append(asyncio.create_task(_log_redis_connectivity()))
+    tasks.append(asyncio.create_task(warm_jwks()))
     if settings.event_relay_enabled:
         tasks.append(asyncio.create_task(run_event_relay_forever()))
     yield

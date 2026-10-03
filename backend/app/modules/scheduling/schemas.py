@@ -31,6 +31,13 @@ class WeeklyScheduleRead(BaseModel):
     is_active: bool
 
 
+class DoctorWeeklySchedulesRead(BaseModel):
+    """GET /doctor-weekly-schedules — one entry per doctor of the clinic (API audit F-052)."""
+
+    doctor_id: UUID
+    schedules: list[WeeklyScheduleRead]
+
+
 class MyWeeklyScheduleItem(BaseModel):
     """Same shape as WeeklyScheduleCreate minus clinic_id — resolved from the
     caller doctor's own denormalized doctors.clinic_id, not chosen by the
@@ -88,6 +95,13 @@ class ScheduleOverrideRead(BaseModel):
     start_time: time | None = None
     end_time: time | None = None
     reason: str | None
+
+
+class DoctorScheduleOverridesRead(BaseModel):
+    """GET /doctor-schedule-overrides — one entry per doctor of the clinic (API audit F-056)."""
+
+    doctor_id: UUID
+    overrides: list[ScheduleOverrideRead]
 
 
 class AvailabilitySlotRead(BaseModel):
@@ -275,6 +289,8 @@ class AppointmentPageCounts(BaseModel):
     all: int
     by_status: dict[str, int]
     by_type: dict[str, int]
+    # Only when ?period_today= was passed (admin tabs, API audit F-055).
+    by_period: dict[str, int] | None = None
 
 
 class AppointmentPageRead(BaseModel):

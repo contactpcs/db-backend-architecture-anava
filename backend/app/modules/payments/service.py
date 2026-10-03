@@ -255,6 +255,9 @@ class PaymentService:
     async def list(self, clinic_id: UUID) -> builtins.list[dict]:
         return await self.repo.list_by_clinic(clinic_id)
 
+    async def summary(self, clinic_id: UUID | None, *, region_id: UUID | None = None) -> dict:
+        return await self.repo.summary_by_clinic(clinic_id, region_id=region_id)
+
     async def list_mine(self, patient_id: UUID) -> builtins.list[dict]:
         return await self.repo.list_for_patient(patient_id)
 

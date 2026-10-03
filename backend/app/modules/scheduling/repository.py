@@ -118,6 +118,32 @@ class WeeklyScheduleRepository:
         )
         return [dict(r) for r in rows]
 
+    async def list_for_clinic_doctors(self, clinic_id: UUID | None, *, region_id: UUID | None = None) -> list[dict]:
+        """list_for_doctor for every doctor GET /doctors?clinic_id returns, in
+        one query; d.doctor_id rides along because schedule rows key on the
+        doctor's profile_id (API audit F-052). region_id (clinic_id None) =
+        every doctor of the region's clinics (regional dashboard, F-058)."""
+        if clinic_id:
+            scope = "d.clinic_id = :scope_id"
+        else:
+            scope = "d.clinic_id IN (SELECT clinic_id FROM clinics WHERE region_id = :scope_id)"
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT d.doctor_id AS doctor_record_id, w.* FROM doctors d "
+                        "JOIN doctor_weekly_schedules w ON w.doctor_id = d.profile_id AND w.is_active = TRUE "
+                        f"WHERE {scope} AND d.deleted_at IS NULL "
+                        "ORDER BY d.doctor_id, w.day_of_week"
+                    ),
+                    {"scope_id": str(clinic_id or region_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
     async def replace_for_doctor(self, doctor_id: UUID, clinic_id: UUID, items: list[dict], *, created_by: UUID) -> list[dict]:
         """Delete-then-insert atomic replace (v1's upsert_weekly_schedule) —
         a doctor redrawing their whole week submits the full set at once,
@@ -147,6 +173,26 @@ class ScheduleOverrideRepository:
             params["from_date"] = from_date
         rows = (
             (await self.session.execute(text(f"SELECT * FROM doctor_schedule_overrides WHERE {clause} ORDER BY override_date"), params))
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def list_for_clinic_doctors(self, clinic_id: UUID) -> list[dict]:
+        """list_for_doctor for every doctor GET /doctors?clinic_id returns, in
+        one query; d.doctor_id rides along as doctor_record_id (API audit F-056)."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT d.doctor_id AS doctor_record_id, o.* FROM doctors d "
+                        "JOIN doctor_schedule_overrides o ON o.doctor_id = d.profile_id "
+                        "WHERE d.clinic_id = :clinic_id AND d.deleted_at IS NULL "
+                        "ORDER BY d.doctor_id, o.override_date"
+                    ),
+                    {"clinic_id": str(clinic_id)},
+                )
+            )
             .mappings()
             .all()
         )
@@ -397,11 +443,42 @@ class AppointmentRepository:
         )
         return [dict(r) for r in rows]
 
-    async def page(self, *, page: int, page_size: int, status: str | None = None, appointment_type: str | None = None, **scope) -> dict:
+    async def period_counts(self, today, **scope) -> dict[str, int]:
+        """past / today / upcoming totals relative to the caller's `today`
+        (admin appointments tabs, API audit F-055)."""
+        where, params = self._list_where(**scope)
+        row = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT count(*) FILTER (WHERE a.appointment_date < :today) AS past, "
+                        "count(*) FILTER (WHERE a.appointment_date = :today) AS today, "
+                        f"count(*) FILTER (WHERE a.appointment_date > :today) AS upcoming {_PAGE_COUNT_FROM} {where}"
+                    ),
+                    {**params, "today": today},
+                )
+            )
+            .mappings()
+            .one()
+        )
+        return dict(row)
+
+    async def page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        status: str | None = None,
+        appointment_type: str | None = None,
+        date_order: str = "asc",
+        **scope,
+    ) -> dict:
         """One page + total + per-status / per-type counts over the scope
         WITHOUT the status/type filter (the reception table's pill counts),
         in 2 queries (API audit F-023). Chronological: date, then start time
-        with unscheduled (NULL) first, matching the table's old client sort."""
+        with unscheduled (NULL) first, matching the table's old client sort;
+        date_order="desc" flips only the date (admin "past" tab)."""
+        date_dir = "DESC" if date_order == "desc" else "ASC"
         where, params = self._list_where(**scope)
         counts_sql = f"SELECT a.status, a.appointment_type, count(*) AS n {_PAGE_COUNT_FROM} {where} GROUP BY a.status, a.appointment_type"
         by_status: dict[str, int] = {}
@@ -418,7 +495,7 @@ class AppointmentRepository:
             (
                 await self.session.execute(
                     text(
-                        f"{_APPT_SELECT}{where} ORDER BY a.appointment_date, a.start_time NULLS FIRST, a.appointment_id "
+                        f"{_APPT_SELECT}{where} ORDER BY a.appointment_date {date_dir}, a.start_time NULLS FIRST, a.appointment_id "
                         "OFFSET :skip LIMIT :limit"
                     ),
                     params,

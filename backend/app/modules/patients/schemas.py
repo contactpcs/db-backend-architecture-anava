@@ -149,6 +149,18 @@ class PatientRead(BaseModel):
     profile_completion_missing_fields: list[str] = Field(default_factory=list)
 
 
+class PatientPageRead(BaseModel):
+    """GET /patients/page (API audit F-053)."""
+
+    items: list[PatientRead]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    # with_counts=true: {all, approved, pending, rejected} over the whole scope (F-062).
+    counts: dict[str, int] | None = None
+
+
 class PatientApprovalDecision(BaseModel):
     decision: str = Field(pattern="^(approved|rejected)$")
     rejection_reason: str | None = None
