@@ -191,7 +191,7 @@ async def live_pipeline_health(_ctx: RequestContext = Depends(require_role("supe
     if not settings.event_relay_enabled:
         verdict = "Relay is switched off (EVENT_RELAY_ENABLED=false) — no notifications are created."
     elif "error" in backlog:
-        verdict = "Relay cannot read the outbox — apply SQL/v1/93 and check the relay's DB login."
+        verdict = "Relay cannot read the outbox — apply SQL/v1/93 and 102, and check the relay's DB login."
     elif relay.get("last_drain_at_seconds_ago") is None or relay["last_drain_at_seconds_ago"] > 60:
         verdict = "Relay is not draining (no drain in the last minute) — see relay.last_error."
     elif backlog.get("undelivered", 0) > 50:
@@ -205,5 +205,7 @@ async def live_pipeline_health(_ctx: RequestContext = Depends(require_role("supe
             "Backend live chain OK. If popups still don't appear, check the browser: "
             "POST /events/ticket and GET /events/stream in the Network tab."
         )
+    if backlog.get("failed"):
+        verdict += f" Also: {backlog['failed']} event(s) gave up after retries — see last_error in ops.outbox_events."
     report["verdict"] = verdict
     return report

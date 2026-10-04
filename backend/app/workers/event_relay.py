@@ -36,6 +36,13 @@ settings = get_settings()
 POLL_INTERVAL_SECONDS = 5.0
 HEARTBEAT_SECONDS = 300.0
 
+# A failed event is retried after a doubling delay (30 s, 1, 2, 4 min). After
+# the last attempt it is parked (failed_at set, last_error kept) and never
+# picked up again, so one bad event cannot block the events behind it. To
+# replay a parked event see SQL/v1/102.
+MAX_ATTEMPTS = 5
+RETRY_BASE_SECONDS = 30.0
+
 # Live counters for the heartbeat log and GET /api/v1/health/live — the only
 # way to tell from outside whether the relay is idle because there is nothing
 # to do, or because it cannot see or write what it should.
@@ -52,7 +59,7 @@ RELAY_STATE: dict[str, Any] = {
 # Runs on the ordinary app login (anava_app, subject to RLS) as RLS role
 # 'system', set per transaction in drain_outbox()/relay_backlog(). The
 # policies that role needs — read the outbox and recipient lookups, mark
-# events published, write notifications — are SQL/v1/93. It used to connect
+# events published, write notifications — are SQL/v1/93 and 102. It used to connect
 # with the RDS master credentials instead, which put them in the API
 # container. Created once at import time (long-running worker).
 _relay_engine = get_worker_engine()
@@ -485,47 +492,41 @@ EVENT_HANDLERS = {
 }
 
 
-async def _process_event(session, event: dict) -> None:
+async def _process_event(session, event: dict) -> list[tuple[str, str]]:
+    """Writes the event's notifications. Returns the (recipient_id, message)
+    live pushes for the caller to send once the transaction has committed."""
     handler = EVENT_HANDLERS.get(event["event_type"])
     if not handler:
-        return
+        return []
     payload = json.loads(event["payload"]) if isinstance(event["payload"], str) else event["payload"]
-    notifications = await handler(session, payload)
     repo = NotificationRepository(session)
-    for note in notifications:
+    pushes = []
+    for note in await handler(session, payload):
         record = await repo.create(note)
-        # The notifications row is the durable record; the Redis push only
-        # makes it appear live. Redis being down must not roll the row back
-        # (the event is marked published either way, so it would be lost).
-        try:
-            await publish_to_user(
-                note["recipient_id"],
-                json.dumps(
-                    {
-                        "type": record["type"],
-                        "title": record["title"],
-                        "body": record["body"],
-                        "notification_id": str(record["notification_id"]),
-                    }
-                ),
-            )
-        except Exception as exc:
-            RELAY_STATE["live_push_failures_total"] += 1
-            logger.warning("event_relay_live_push_failed", recipient_id=str(note["recipient_id"]), error=repr(exc))
+        message = {
+            "type": record["type"],
+            "title": record["title"],
+            "body": record["body"],
+            "notification_id": str(record["notification_id"]),
+        }
+        pushes.append((str(note["recipient_id"]), json.dumps(message)))
+    return pushes
 
 
 async def drain_outbox(limit: int = 100) -> int:
-    """Processes up to `limit` unpublished events. Returns count processed.
+    """Processes up to `limit` due events. Returns count processed.
     Exposed separately from run_forever() so tests/scripts can drain
     synchronously without starting the long-running listener.
 
     One transaction per event, claimed with FOR UPDATE SKIP LOCKED: every API
     instance runs this relay (app/main.py lifespan), and SKIP LOCKED is what
     stops two of them sending the same notification twice. A handler failure
-    rolls back to a savepoint and is logged — the event is still marked
-    published, so one bad notification never blocks the queue behind it."""
+    rolls back to a savepoint, so a retry never leaves a second copy of a
+    notification; the event stays unpublished and is retried later (see
+    MAX_ATTEMPTS)."""
     processed = 0
     while processed < limit:
+        pushes: list[tuple[str, str]] = []
         async with _relay_session_factory() as session:
             async with session.begin():
                 # RLS role 'system' (SQL/v1/93): the relay acts for the platform,
@@ -537,7 +538,9 @@ async def drain_outbox(limit: int = 100) -> int:
                     (
                         await session.execute(
                             text(
-                                "SELECT * FROM outbox_events WHERE published_at IS NULL ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED"
+                                "SELECT * FROM outbox_events "
+                                "WHERE published_at IS NULL AND failed_at IS NULL AND next_attempt_at <= now() "
+                                "ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED"
                             )
                         )
                     )
@@ -549,15 +552,34 @@ async def drain_outbox(limit: int = 100) -> int:
                 event = dict(row)
                 try:
                     async with session.begin_nested():
-                        await _process_event(session, event)
+                        pushes = await _process_event(session, event)
                 except Exception as exc:
                     RELAY_STATE["handler_failures_total"] += 1
                     RELAY_STATE["last_error"] = f"{event['event_type']}: {exc!r}"[:500]
                     logger.exception("event_relay_handler_failed", outbox_id=str(event["outbox_id"]), event_type=event["event_type"])
-                await session.execute(
-                    text("UPDATE outbox_events SET published_at = NOW() WHERE outbox_id = :id"),
-                    {"id": event["outbox_id"]},
-                )
+                    await session.execute(
+                        text(
+                            "UPDATE outbox_events SET publish_attempts = publish_attempts + 1, last_error = :error, "
+                            "failed_at = CASE WHEN publish_attempts + 1 >= :max_attempts THEN now() END, "
+                            "next_attempt_at = now() + make_interval(secs => CAST(:base AS double precision) * power(2, publish_attempts)) "
+                            "WHERE outbox_id = :id"
+                        ),
+                        {"id": event["outbox_id"], "error": repr(exc)[:2000], "max_attempts": MAX_ATTEMPTS, "base": RETRY_BASE_SECONDS},
+                    )
+                else:
+                    await session.execute(
+                        text("UPDATE outbox_events SET published_at = now() WHERE outbox_id = :id"),
+                        {"id": event["outbox_id"]},
+                    )
+        # After the commit, so a popup always has a saved notification behind
+        # it. The row is the durable record; the push only makes it appear
+        # live, so a failed push is logged and not retried.
+        for recipient_id, message in pushes:
+            try:
+                await publish_to_user(recipient_id, message)
+            except Exception as exc:
+                RELAY_STATE["live_push_failures_total"] += 1
+                logger.warning("event_relay_live_push_failed", recipient_id=recipient_id, error=repr(exc))
         processed += 1
         RELAY_STATE["processed_total"] += 1
         RELAY_STATE["last_event_at"] = time.time()
@@ -569,7 +591,7 @@ async def relay_backlog() -> dict[str, Any]:
     """Undelivered outbox events as the relay itself sees them (same engine,
     same 'system' role) — 0 while events are clearly being created means the
     relay can't see them (RLS/login), a growing number means it isn't
-    draining."""
+    draining. `failed` counts events it gave up on (see MAX_ATTEMPTS)."""
     async with _relay_session_factory() as session:
         async with session.begin():
             await session.execute(text("SELECT set_config('app.current_user_role', 'system', true)"))
@@ -577,7 +599,10 @@ async def relay_backlog() -> dict[str, Any]:
                 (
                     await session.execute(
                         text(
-                            "SELECT count(*) AS n, EXTRACT(EPOCH FROM now() - min(created_at)) AS oldest_s, current_user AS db_login "
+                            "SELECT count(*) FILTER (WHERE failed_at IS NULL) AS n, "
+                            "count(*) FILTER (WHERE failed_at IS NOT NULL) AS failed, "
+                            "EXTRACT(EPOCH FROM now() - min(created_at) FILTER (WHERE failed_at IS NULL)) AS oldest_s, "
+                            "current_user AS db_login "
                             "FROM outbox_events WHERE published_at IS NULL"
                         )
                     )
@@ -585,7 +610,12 @@ async def relay_backlog() -> dict[str, Any]:
                 .mappings()
                 .one()
             )
-    return {"undelivered": int(row["n"]), "oldest_undelivered_seconds": row["oldest_s"], "db_login": row["db_login"]}
+    return {
+        "undelivered": int(row["n"]),
+        "failed": int(row["failed"]),
+        "oldest_undelivered_seconds": row["oldest_s"],
+        "db_login": row["db_login"],
+    }
 
 
 async def _heartbeat_forever() -> None:

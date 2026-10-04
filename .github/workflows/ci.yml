@@ -137,7 +137,10 @@ jobs:
           # Matching ^[0-9] states the rule positively: a migration is a
           # numbered file. A new snapshot or helper dropped into SQL/v1 later
           # cannot silently rejoin the build.
-          for f in $(printf '%s\n' SQL/v1/*.sql | LC_ALL=C sort); do
+          #
+          # sort -V orders by number (9, 10, 100). A plain byte sort puts
+          # 100_ before 10_, so 100+ ran before the functions they depend on.
+          for f in $(printf '%s\n' SQL/v1/*.sql | sort -V); do
             base=$(basename "$f")
             [ "$base" = "run_all.sql" ] && continue
             case "$base" in
