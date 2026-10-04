@@ -80,9 +80,6 @@ class Settings(BaseSettings):
     # notifications rows + live SSE pushes. Off = nobody is ever notified.
     event_relay_enabled: bool = True
 
-    # Redis
-    redis_url: str = "redis://localhost:6379/0"
-
     # Auth — local dev uses a fake JWT issuer shaped like Cognito's tokens.
     # In Stage 13 (real AWS cutover) these get replaced with the real Cognito
     # pool region/id/client-id and JWKS validation switches on automatically.

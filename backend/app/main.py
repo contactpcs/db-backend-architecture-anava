@@ -12,6 +12,7 @@ from sqlalchemy import event, text
 from app.config import get_settings
 from app.core.db import RequestContext, engine
 from app.core.exceptions import AnavaException
+from app.core.live import run_listener_forever
 from app.core.middleware import (
     ApiAuditMiddleware,
     AuthContextMiddleware,
@@ -57,22 +58,6 @@ structlog.configure(
 logger = structlog.get_logger()
 
 
-async def _log_redis_connectivity() -> None:
-    """One log line at startup saying whether Redis (live popups, logout
-    denylist, stream tickets) is reachable — otherwise a working Redis logs
-    nothing at all and an unreachable one only shows up as later warnings."""
-    import time as _time
-
-    from app.core.pubsub import get_redis
-
-    try:
-        t = _time.monotonic()
-        await asyncio.wait_for(get_redis().ping(), timeout=5)
-        logger.info("redis_connectivity_ok", ping_ms=round((_time.monotonic() - t) * 1000, 1))
-    except Exception as exc:
-        logger.error("redis_connectivity_failed", error=repr(exc), hint="live popups disabled; see GET /api/v1/health/live")
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Background jobs, both running in-process on every API instance. Each
@@ -100,6 +85,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                            pushes. Claims each event with FOR UPDATE SKIP
                            LOCKED instead of an advisory lock, so several
                            instances share the queue without double-sending.
+
+    live listener          this process's one Postgres LISTEN connection:
+                           delivers those pushes to its open SSE streams and
+                           keeps its copy of the logged-out tokens current
+                           (app/core/live.py). Needs no lock: every process
+                           must hear every message.
     """
     # Auth needs ops.auth_context (alembic 0054). Missing -> refuse to boot.
     # DB unreachable -> only warn; requests will surface it, and a DB blip at
@@ -118,7 +109,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         tasks.append(asyncio.create_task(run_hold_sweeper_forever()))
     if settings.appointment_no_show_sweeper_enabled:
         tasks.append(asyncio.create_task(run_no_show_sweeper_forever()))
-    tasks.append(asyncio.create_task(_log_redis_connectivity()))
+    tasks.append(asyncio.create_task(run_listener_forever()))
     tasks.append(asyncio.create_task(warm_jwks()))
     if settings.event_relay_enabled:
         tasks.append(asyncio.create_task(run_event_relay_forever()))

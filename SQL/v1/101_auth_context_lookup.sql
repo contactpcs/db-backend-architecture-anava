@@ -70,7 +70,7 @@ BEGIN
     -- so policies and any audit trigger see exactly what they saw before.
     IF v_role <> 'patient' AND ((NOT v_active AND NOT v_consent) OR v_active) THEN
         SELECT EXISTS (
-            SELECT 1 FROM core.consent_records c
+            SELECT 1 FROM compliance.consent_records c
              WHERE c.staff_id = v_id
                AND c.consent_type = 'staff_onboarding'
                AND c.status = 'signed'

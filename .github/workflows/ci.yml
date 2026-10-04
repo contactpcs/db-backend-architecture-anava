@@ -62,15 +62,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
       ENVIRONMENT: test
       # anava_app: scoped, RLS-enforced — what the app actually runs as.
@@ -78,7 +69,6 @@ jobs:
       # anava_migrate (the container's bootstrap superuser): DDL/schema role,
       # same purpose MIGRATION_DATABASE_URL serves against the real RDS.
       MIGRATION_DATABASE_URL: postgresql+asyncpg://anava_migrate:anava_test_password@localhost:5432/anava_test
-      REDIS_URL: redis://localhost:6379/0
       AUTH_MODE: local
       LOCAL_JWT_SECRET: ci-test-secret
       FILE_STORAGE_MODE: local

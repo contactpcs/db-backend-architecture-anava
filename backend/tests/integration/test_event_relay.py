@@ -1,40 +1,31 @@
 """The outbox relay against a real database, connected as the app login
-(RLS role 'system') exactly as it runs in the API: notifications get written,
-a failed event is retried without duplicating, and a hopeless one is parked.
+(RLS role 'system') exactly as it runs in the API: notifications get written
+and pushed live, a failed event is retried without duplicating, and a hopeless
+one is parked."""
 
-Needs the SQL/v1 schema, so it runs only where ENVIRONMENT=test (CI) — never
-against the database a developer's .env points at."""
-
+import asyncio
 import json
 import uuid
 
 import pytest
-from sqlalchemy import text
 
-from app.config import get_settings
-from app.core.db import get_migration_engine
+from app.core import live
 from app.workers import event_relay
+from tests.integration.conftest import needs_test_database
 
-pytestmark = pytest.mark.skipif(get_settings().environment != "test", reason="needs the CI test database")
+pytestmark = needs_test_database
 
 EVENT_TYPE = "test.relay"
 
 
 class Relay:
-    """Arranges and inspects rows over the admin connection (bypasses RLS)."""
-
-    def __init__(self, engine, recipient: str):
-        self.engine, self.recipient = engine, recipient
+    def __init__(self, admin, recipient: str, queue: asyncio.Queue):
+        self.admin, self.recipient, self.queue = admin, recipient, queue
         self.broken: set[str] = set()
-        self.pushed: list[str] = []
-
-    async def _run(self, sql: str, **params):
-        async with self.engine.begin() as conn:
-            return await conn.execute(text(sql), params)
 
     async def add_event(self, title: str) -> str:
         outbox_id = str(uuid.uuid4())
-        await self._run(
+        await self.admin(
             "INSERT INTO outbox_events (outbox_id, aggregate_type, aggregate_id, event_type, payload) "
             "VALUES (:id, 'test', :aggregate_id, :type, CAST(:payload AS JSONB))",
             id=outbox_id,
@@ -45,15 +36,23 @@ class Relay:
         return outbox_id
 
     async def event(self, outbox_id: str):
-        return (await self._run("SELECT * FROM outbox_events WHERE outbox_id = :id", id=outbox_id)).mappings().one()
+        return (await self.admin("SELECT * FROM outbox_events WHERE outbox_id = :id", id=outbox_id)).mappings().one()
 
     async def titles(self) -> list[str]:
-        rows = await self._run("SELECT title FROM notifications WHERE recipient_id = :r ORDER BY title", r=self.recipient)
+        rows = await self.admin("SELECT title FROM notifications WHERE recipient_id = :r ORDER BY title", r=self.recipient)
         return [row.title for row in rows]
+
+    async def pushed(self) -> list[str]:
+        """Titles pushed to the recipient's open stream since the last call."""
+        await asyncio.sleep(0.5)  # a NOTIFY arrives a few ms after its commit
+        titles = []
+        while not self.queue.empty():
+            titles.append(json.loads(self.queue.get_nowait())["title"])
+        return titles
 
     async def drain_due(self) -> None:
         """Skips the retry delay, then drains."""
-        await self._run("UPDATE outbox_events SET next_attempt_at = now() WHERE event_type = :type", type=EVENT_TYPE)
+        await self.admin("UPDATE outbox_events SET next_attempt_at = now() WHERE event_type = :type", type=EVENT_TYPE)
         await event_relay.drain_outbox()
 
     async def handler(self, session, payload: dict) -> list[dict]:
@@ -63,31 +62,23 @@ class Relay:
             notes.append({**notes[0], "recipient_id": str(uuid.uuid4())})
         return notes
 
-    async def publish(self, recipient_id: str, message: str) -> None:
-        self.pushed.append(json.loads(message)["title"])
-
 
 @pytest.fixture
-async def relay(monkeypatch):
-    engine = get_migration_engine()
+async def relay(admin, listener, monkeypatch):
     recipient = str(uuid.uuid4())
-    relay = Relay(engine, recipient)
-    await relay._run(
+    await admin(
         "INSERT INTO profiles (id, cognito_sub, email, first_name, last_name, role) VALUES (:id, :sub, :email, 'Relay', 'Test', 'doctor')",
         id=recipient,
         sub=f"test-{recipient}",
         email=f"{recipient}@example.com",
     )
-    monkeypatch.setitem(event_relay.EVENT_HANDLERS, EVENT_TYPE, relay.handler)
-    monkeypatch.setattr(event_relay, "publish_to_user", relay.publish)
-    yield relay
-    await relay._run("DELETE FROM notifications WHERE recipient_id = :r", r=recipient)
-    await relay._run("DELETE FROM outbox_events WHERE event_type = :type", type=EVENT_TYPE)
-    await relay._run("DELETE FROM profiles WHERE id = :r", r=recipient)
-    await engine.dispose()
-    # The relay's pool is created at import time; its connections belong to
-    # this test's event loop and must not be reused by the next one.
-    await event_relay._relay_engine.dispose()
+    with live.subscribe(recipient) as queue:
+        relay = Relay(admin, recipient, queue)
+        monkeypatch.setitem(event_relay.EVENT_HANDLERS, EVENT_TYPE, relay.handler)
+        yield relay
+    await admin("DELETE FROM notifications WHERE recipient_id = :r", r=recipient)
+    await admin("DELETE FROM outbox_events WHERE event_type = :type", type=EVENT_TYPE)
+    await admin("DELETE FROM profiles WHERE id = :r", r=recipient)
 
 
 async def test_event_becomes_one_notification_and_one_push(relay):
@@ -96,7 +87,7 @@ async def test_event_becomes_one_notification_and_one_push(relay):
     await event_relay.drain_outbox()
 
     assert await relay.titles() == ["booked"]
-    assert relay.pushed == ["booked"]
+    assert await relay.pushed() == ["booked"]
     assert (await relay.event(outbox_id))["published_at"] is not None
 
 
@@ -113,7 +104,7 @@ async def test_failed_event_is_retried_without_duplicates_and_does_not_block_the
     assert event["next_attempt_at"] > event["created_at"]
     assert (await relay.event(behind))["published_at"] is not None
     assert await relay.titles() == ["behind"]  # the half-written "flaky" row was rolled back
-    assert relay.pushed == ["behind"]  # and nothing was pushed for it
+    assert await relay.pushed() == ["behind"]  # and so was its push
 
     await event_relay.drain_outbox()  # not due yet: left alone
     assert (await relay.event(flaky))["publish_attempts"] == 1
@@ -123,6 +114,7 @@ async def test_failed_event_is_retried_without_duplicates_and_does_not_block_the
 
     assert (await relay.event(flaky))["published_at"] is not None
     assert await relay.titles() == ["behind", "flaky"]
+    assert await relay.pushed() == ["flaky"]
 
 
 async def test_event_is_parked_after_the_last_attempt(relay):
@@ -136,4 +128,5 @@ async def test_event_is_parked_after_the_last_attempt(relay):
     assert event["failed_at"] is not None and event["published_at"] is None
     assert event["publish_attempts"] == event_relay.MAX_ATTEMPTS  # the extra drain did not touch it
     assert await relay.titles() == []
+    assert await relay.pushed() == []
     assert (await event_relay.relay_backlog())["failed"] >= 1

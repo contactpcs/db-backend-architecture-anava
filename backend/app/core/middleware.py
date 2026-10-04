@@ -201,7 +201,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                 claims = await verify_token(token)
                 # Logged-out tokens are still cryptographically valid until they
                 # expire; the denylist is what makes logout take effect at once.
-                if await is_access_token_revoked(claims["jti"]):
+                if is_access_token_revoked(claims["jti"]):
                     raise AuthenticationError("This session has been signed out", code="TOKEN_REVOKED")
                 cognito_sub = claims["sub"]
             ctx = await _load_profile_and_scope(cognito_sub, request_id=request_id, ip_address=client_ip)
