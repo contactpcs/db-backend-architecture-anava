@@ -29,6 +29,13 @@ from app.core.exceptions import AnavaException, ConflictError
 logger = structlog.get_logger()
 
 
+def contact_taken_error(method: str, contact: str) -> ConflictError:
+    return ConflictError(
+        f"{'Email' if method == 'email' else 'Phone number'} {contact!r} already in use",
+        code="EMAIL_ALREADY_EXISTS" if method == "email" else "PHONE_ALREADY_EXISTS",
+    )
+
+
 async def reject_if_contact_taken(db, method: str, contact: str) -> None:
     """Refuse a signup whose email/phone already belongs to a profile here —
     before any OTP goes out. Cognito knows nothing about our own uniqueness.
@@ -41,10 +48,7 @@ async def reject_if_contact_taken(db, method: str, contact: str) -> None:
     async with as_system(db):
         taken = (await db.execute(text(f"SELECT 1 FROM profiles WHERE {where}"), {"value": contact})).first()
     if taken is not None:
-        raise ConflictError(
-            f"{'Email' if method == 'email' else 'Phone number'} {contact!r} already in use",
-            code="EMAIL_ALREADY_EXISTS" if method == "email" else "PHONE_ALREADY_EXISTS",
-        )
+        raise contact_taken_error(method, contact)
 
 
 async def start_patient_signup(
@@ -99,6 +103,7 @@ async def confirm_and_register(
     registration: dict,
     self_registered: bool,
     registered_by: UUID | None = None,
+    signup_ip: str | None = None,
 ) -> tuple[dict, dict]:
     """Verify the OTP and create the patient in ONE request.
 
@@ -146,7 +151,9 @@ async def confirm_and_register(
         "email": contact if method == "email" else f"pending-{uuid4()}@no-email.local",
         "phone": contact if method == "mobile" else None,
     }
-    patient = await PatientService(db).register(data, self_registered=self_registered, cognito_sub=cognito_sub, registered_by=registered_by)
+    patient = await PatientService(db).register(
+        data, self_registered=self_registered, cognito_sub=cognito_sub, registered_by=registered_by, signup_ip=signup_ip
+    )
     verified_column = "email_verified" if method == "email" else "phone_verified"
     await db.execute(text(f"UPDATE profiles SET {verified_column} = TRUE WHERE id = :id"), {"id": patient["profile_id"]})
     await db.commit()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import json
 from uuid import UUID
 
 from sqlalchemy import text
@@ -35,6 +36,7 @@ class PatientRepository:
         approval_status: str = "not_required",
         cognito_sub: str | None = None,
         registered_by: UUID | None = None,
+        signup_ip: str | None = None,
         guardian_name: str | None = None,
         guardian_relationship: str | None = None,
         guardian_contact: str | None = None,
@@ -92,9 +94,9 @@ class PatientRepository:
             self.session,
             text(
                 "INSERT INTO patients (profile_id, primary_clinic_id, emergency_contact_name, emergency_contact_phone, "
-                "self_registered, approval_status, registered_by, guardian_name, guardian_relationship, guardian_contact) "
+                "self_registered, approval_status, registered_by, signup_ip, guardian_name, guardian_relationship, guardian_contact) "
                 "VALUES (:profile_id, :clinic_id, :ec_name, :ec_phone, :self_registered, :approval_status, :registered_by, "
-                ":guardian_name, :guardian_relationship, :guardian_contact) RETURNING *"
+                "CAST(:signup_ip AS INET), :guardian_name, :guardian_relationship, :guardian_contact) RETURNING *"
             ),
             {
                 "profile_id": profile["id"],
@@ -104,6 +106,7 @@ class PatientRepository:
                 "self_registered": self_registered,
                 "approval_status": approval_status,
                 "registered_by": str(registered_by) if registered_by else None,
+                "signup_ip": signup_ip,
                 "guardian_name": guardian_name,
                 "guardian_relationship": guardian_relationship,
                 "guardian_contact": guardian_contact,
@@ -142,6 +145,8 @@ class PatientRepository:
         "dp.first_name || ' ' || dp.last_name AS doctor_name, "
         "dp.phone AS doctor_phone, dd.specialization AS doctor_specialization, "
         "cl.clinic_name AS clinic_name, cl.city AS clinic_city, "
+        # 'System' = approved by the registration checks, not a person (105).
+        "CASE WHEN pt.approval_method = 'auto' THEN 'System' ELSE ap.first_name || ' ' || ap.last_name END AS approved_by_name, "
         # Real-time, not the daily-batch patients.last_clinical_contact_at
         # (app/workers/retention_purge.py) — a doctor needs today's completed
         # visit to show up immediately, not after tomorrow's worker run.
@@ -150,7 +155,8 @@ class PatientRepository:
         "FROM patients pt JOIN profiles p ON p.id = pt.profile_id "
         "LEFT JOIN profiles dp ON dp.id = pt.primary_doctor_id "
         "LEFT JOIN doctors dd ON dd.profile_id = pt.primary_doctor_id "
-        "LEFT JOIN clinics cl ON cl.clinic_id = pt.primary_clinic_id"
+        "LEFT JOIN clinics cl ON cl.clinic_id = pt.primary_clinic_id "
+        "LEFT JOIN profiles ap ON ap.id = pt.approved_by"
     )
 
     async def get(self, patient_id: UUID) -> dict | None:
@@ -305,7 +311,13 @@ class PatientRepository:
         )
 
     async def set_approval(
-        self, patient_id: UUID, *, approval_status: str, decided_by: UUID | None, rejection_reason: str | None
+        self,
+        patient_id: UUID,
+        *,
+        approval_status: str,
+        decided_by: UUID | None,
+        rejection_reason: str | None,
+        method: str | None = None,
     ) -> dict | None:
         """approved_by/approved_at and rejected_by/rejected_at (94) are each
         written only by their own decision — approving never touches the
@@ -313,15 +325,16 @@ class PatientRepository:
         approved keeps both halves of that history instead of one
         overwriting the other. rejection_reason is cleared on approval: it
         describes the CURRENT rejection, not a past one a re-approval just
-        superseded."""
+        superseded. method (105) says who approved: 'manual' = decided_by,
+        'auto' = the registration checks, with decided_by empty."""
         if approval_status == "approved":
             return await fetch_optional(
                 self.session,
                 text(
-                    "UPDATE patients SET approval_status = 'approved', approved_by = :decided_by, "
+                    "UPDATE patients SET approval_status = 'approved', approval_method = :method, approved_by = :decided_by, "
                     "approved_at = NOW(), rejection_reason = NULL WHERE patient_id = :id RETURNING *"
                 ),
-                {"decided_by": str(decided_by) if decided_by else None, "id": str(patient_id)},
+                {"method": method, "decided_by": str(decided_by) if decided_by else None, "id": str(patient_id)},
             )
         return await fetch_optional(
             self.session,
@@ -334,6 +347,12 @@ class PatientRepository:
                 "reason": rejection_reason,
                 "id": str(patient_id),
             },
+        )
+
+    async def set_risk_flags(self, patient_id: UUID, flags: builtins.list[str]) -> None:
+        await self.session.execute(
+            text("UPDATE patients SET risk_flags = CAST(:flags AS JSONB) WHERE patient_id = :id"),
+            {"flags": json.dumps(flags), "id": str(patient_id)},
         )
 
     async def complete_registration(self, patient_id: UUID, doctor_id: UUID | None) -> dict | None:

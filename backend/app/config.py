@@ -80,6 +80,27 @@ class Settings(BaseSettings):
     # notifications rows + live SSE pushes. Off = nobody is ever notified.
     event_relay_enabled: bool = True
 
+    # Self-registered patients (Documents/design_signup_auto_approval.md).
+    # Off = every self-registration waits for a receptionist, as before; the
+    # risk checks still run and their flags are stored either way.
+    auto_approve_self_registration: bool = False
+    signup_start_limit_per_ip_per_hour: int = 15
+    signup_contact_limit_per_hour: int = 10
+    signup_otp_limit_per_ip_per_hour: int = 10
+    signup_ip_velocity_limit_per_day: int = 24
+    signup_min_wizard_seconds: int = 30
+    signup_max_age_years: int = 150
+    # First entry is assumed for a number typed without a country code.
+    signup_allowed_phone_country_codes: list[str] = ["+91"]
+    # Key for the one-way hash of emails/phones in ops.signup_security_log.
+    # Required outside local/test (validated below).
+    signup_hash_secret: str | None = None
+    # Behind the load balancer every connection comes from the balancer, so
+    # the caller's address has to be read from X-Forwarded-For. Turn on ONLY
+    # where the API is reachable through the balancer alone — anyone who can
+    # reach it directly could otherwise send that header themselves.
+    trust_forwarded_for: bool = False
+
     # Auth — local dev uses a fake JWT issuer shaped like Cognito's tokens.
     # In Stage 13 (real AWS cutover) these get replaced with the real Cognito
     # pool region/id/client-id and JWKS validation switches on automatically.
@@ -169,6 +190,12 @@ class Settings(BaseSettings):
     def _require_local_jwt_secret_in_local_mode(self) -> "Settings":
         if self.auth_mode == "local" and not self.local_jwt_secret:
             raise ValueError("local_jwt_secret must be set when auth_mode='local'")
+        return self
+
+    @model_validator(mode="after")
+    def _require_signup_hash_secret_outside_local(self) -> "Settings":
+        if self.environment not in ("local", "test") and not self.signup_hash_secret:
+            raise ValueError("signup_hash_secret must be set outside local/test environments")
         return self
 
 

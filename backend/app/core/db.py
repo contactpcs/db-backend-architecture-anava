@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from functools import cache
 
 from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
@@ -161,6 +162,21 @@ async def as_system(session: AsyncSession) -> AsyncIterator[None]:
         yield
     finally:
         await session.execute(text_set_local("app.current_user_role", previous or ""))
+
+
+@asynccontextmanager
+async def system_transaction() -> AsyncIterator[AsyncConnection]:
+    """One short transaction of its own as RLS role 'system', committed when
+    the block ends whatever then happens to the request's own transaction.
+
+    For rows written before any user identity exists (stream tickets,
+    logged-out tokens, the signup security log), whose policies admit only
+    'system'."""
+    from sqlalchemy import text
+
+    async with engine.begin() as conn:
+        await conn.execute(text("SELECT set_config('app.current_user_role', 'system', true)"))
+        yield conn
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

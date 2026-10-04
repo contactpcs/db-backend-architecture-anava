@@ -19,8 +19,8 @@ class FakeRepo:
     def __init__(self):
         self.calls: list[dict] = []
 
-    async def set_approval(self, patient_id, *, approval_status, decided_by, rejection_reason):
-        self.calls.append({"status": approval_status, "by": decided_by, "reason": rejection_reason})
+    async def set_approval(self, patient_id, *, approval_status, decided_by, rejection_reason, method):
+        self.calls.append({"status": approval_status, "by": decided_by, "reason": rejection_reason, "method": method})
 
 
 class FakeSession:
@@ -95,3 +95,10 @@ def test_reapprove_reactivates_without_signing_out(monkeypatch):
     decide(svc, "approved")
     assert svc.session.executed[0]["active"] is True
     assert signed_out == []
+
+
+def test_staff_decision_is_recorded_as_manual(monkeypatch):
+    svc, _ = make_service(monkeypatch, "pending")
+    decide(svc, "approved")
+    assert svc.repo.calls[0]["method"] == "manual"
+    assert svc.repo.calls[0]["by"] is not None

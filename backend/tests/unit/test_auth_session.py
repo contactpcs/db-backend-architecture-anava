@@ -18,7 +18,7 @@ def database_down(monkeypatch):
         raise ConnectionError("database down")
         yield
 
-    monkeypatch.setattr(sess, "_system_transaction", unreachable)
+    monkeypatch.setattr(sess, "system_transaction", unreachable)
 
 
 # ── refresh cookie ───────────────────────────────────────────────────────────

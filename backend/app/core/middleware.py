@@ -14,12 +14,28 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.config import get_settings
 from app.core.auth_session import consume_stream_ticket, is_access_token_revoked
 from app.core.db import RequestContext, engine, set_request_context
 from app.core.exceptions import AnavaException, AuthenticationError, PermissionError_
 from app.core.security import verify_token
 
 logger = structlog.get_logger()
+settings = get_settings()
+
+
+def client_ip(request: Request) -> str | None:
+    """The caller's address. Behind the load balancer every connection comes
+    from the balancer itself; with trust_forwarded_for the address is the
+    LAST entry of X-Forwarded-For — the one the balancer appended. Anything a
+    client puts in that header itself sits to the left of it, so it cannot be
+    forged this way."""
+    if settings.trust_forwarded_for:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.rsplit(",", 1)[-1].strip()
+    return request.client.host if request.client else None
+
 
 # Paths that never require auth. Kept short and explicit rather than a regex —
 # an accidentally-too-broad pattern here is a real security bug.
@@ -166,7 +182,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
         # feeds the DB audit trigger — see RequestIDMiddleware's own comment.
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
         request.state.request_id = request_id
-        client_ip = request.client.host if request.client else None
+        caller_ip = client_ip(request)
 
         if request.url.path in PUBLIC_PATHS:
             return await call_next(request)
@@ -204,7 +220,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                 if is_access_token_revoked(claims["jti"]):
                     raise AuthenticationError("This session has been signed out", code="TOKEN_REVOKED")
                 cognito_sub = claims["sub"]
-            ctx = await _load_profile_and_scope(cognito_sub, request_id=request_id, ip_address=client_ip)
+            ctx = await _load_profile_and_scope(cognito_sub, request_id=request_id, ip_address=caller_ip)
         except AnavaException as exc:
             return JSONResponse(
                 status_code=exc.status_code,

@@ -17,17 +17,15 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import secrets
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import Request, Response
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core import live
-from app.core.db import engine
+from app.core.db import system_transaction
 
 logger = structlog.get_logger()
 settings = get_settings()
@@ -37,15 +35,6 @@ REFRESH_COOKIE_NAME = "anava_refresh"
 # /auth/refresh and /auth/logout and to nothing else, so the refresh token
 # never travels with an ordinary API call.
 REFRESH_COOKIE_PATH = "/api/v1/auth"
-
-
-@asynccontextmanager
-async def _system_transaction() -> AsyncIterator[AsyncConnection]:
-    """One short transaction as RLS role 'system', the only role the policies
-    on ops.revoked_access_tokens and ops.sse_tickets admit."""
-    async with engine.begin() as conn:
-        await conn.execute(text("SELECT set_config('app.current_user_role', 'system', true)"))
-        yield conn
 
 
 # ─── refresh-token cookie ────────────────────────────────────────────────────
@@ -119,7 +108,7 @@ async def revoke_access_token(jti: str | None, exp: int) -> None:
         return
     live.mark_revoked(jti, exp)
     try:
-        async with _system_transaction() as conn:
+        async with system_transaction() as conn:
             await conn.execute(text("DELETE FROM revoked_access_tokens WHERE expires_at < now()"))
             await conn.execute(
                 text("INSERT INTO revoked_access_tokens (jti, expires_at) VALUES (:jti, to_timestamp(:exp)) ON CONFLICT (jti) DO NOTHING"),
@@ -148,7 +137,7 @@ async def issue_stream_ticket(cognito_sub: str) -> str:
     Only its hash is stored. Raises if the database is unreachable; the
     caller turns that into a 503 the client just retries later."""
     ticket = secrets.token_urlsafe(32)
-    async with _system_transaction() as conn:
+    async with system_transaction() as conn:
         await conn.execute(text("DELETE FROM sse_tickets WHERE expires_at < now()"))
         await conn.execute(
             text(
@@ -165,7 +154,7 @@ async def consume_stream_ticket(ticket: str) -> str | None:
     None for unknown/expired/already-used tickets, and when the database is
     unreachable."""
     try:
-        async with _system_transaction() as conn:
+        async with system_transaction() as conn:
             result = await conn.execute(
                 text("DELETE FROM sse_tickets WHERE ticket_hash = :hash AND expires_at > now() RETURNING cognito_sub"),
                 {"hash": _ticket_hash(ticket)},

@@ -144,6 +144,12 @@ class PatientRead(BaseModel):
     approval_status: str = "not_required"
     approved_by: UUID | None = None
     approved_at: datetime | None = None
+    # 'auto' = approved by the registration checks (approved_by is then
+    # empty and approved_by_name reads 'System'), 'manual' = by staff.
+    approval_method: str | None = None
+    approved_by_name: str | None = None
+    # Checks a self-registration failed; empty = passed them all.
+    risk_flags: list[str] = Field(default_factory=list)
     rejection_reason: str | None = None
     profile_completion_percentage: int = 0
     profile_completion_missing_fields: list[str] = Field(default_factory=list)

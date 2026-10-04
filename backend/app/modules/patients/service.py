@@ -8,11 +8,13 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.core.db import RequestContext
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, NotFoundError, ValidationError, profile_conflict_error
 from app.core.profile_completion import PATIENT_FIELDS, compute_completion_percentage, compute_missing_fields
 from app.core.resolve import resolve_patient_profile_id as _resolve_profile_id
+from app.modules.patients.registration_risk import assess_registration, record_review
 from app.modules.patients.repository import (
     DoctorPatientAssignmentRepository,
     PatientClinicalNoteRepository,
@@ -21,6 +23,8 @@ from app.modules.patients.repository import (
     PrescribedMedicineRepository,
 )
 from app.modules.staff.service import DoctorService
+
+settings = get_settings()
 
 
 def _is_minor(dob: date | None) -> bool:
@@ -70,7 +74,13 @@ class PatientService:
         self.assignments = DoctorPatientAssignmentRepository(session)
 
     async def register(
-        self, data: dict, *, self_registered: bool = False, cognito_sub: str | None = None, registered_by: UUID | None = None
+        self,
+        data: dict,
+        *,
+        self_registered: bool = False,
+        cognito_sub: str | None = None,
+        registered_by: UUID | None = None,
+        signup_ip: str | None = None,
     ) -> dict:
         clinic = (
             (
@@ -130,6 +140,7 @@ class PatientService:
                 approval_status="pending" if self_registered else "not_required",
                 cognito_sub=cognito_sub,
                 registered_by=registered_by,
+                signup_ip=signup_ip,
                 guardian_name=data.get("guardian_name"),
                 guardian_relationship=data.get("guardian_relationship"),
                 guardian_contact=data.get("guardian_contact"),
@@ -252,6 +263,7 @@ class PatientService:
             approval_status=decision,
             decided_by=decided_by,
             rejection_reason=rejection_reason,
+            method="manual",
         )
         # is_active mirrors the CURRENT decision either way — approving flips
         # it on (including re-approving a rejected patient), rejecting flips
@@ -273,7 +285,7 @@ class PatientService:
             aggregate_type="patient",
             aggregate_id=patient_id,
             event_type="patient_registration_decided",
-            payload={"patient_id": str(patient_id), "decision": decision},
+            payload={"patient_id": str(patient_id), "decision": decision, "method": "manual"},
         )
         return await self.get(patient_id)
 
@@ -388,10 +400,13 @@ class PatientService:
         # receptionist approval gate to wait on — activate them the moment
         # they finish the same registration-test sequence self-registered
         # patients go through (disease selection, anamnesis, general PRS).
-        # Self-registered patients (approval_status='pending') stay inactive
-        # here; decide_approval() is what activates them.
+        # Self-registered patients (approval_status='pending') are approved
+        # here only if every registration check passes; otherwise they stay
+        # inactive until a receptionist's decide_approval().
         if patient["approval_status"] == "not_required":
             await self.session.execute(text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(patient["profile_id"])})
+        elif patient["self_registered"] and patient["approval_status"] == "pending":
+            await self._review_self_registration(patient_id)
         updated = await self.repo.get(patient_id)
         await emit_event(
             self.session,
@@ -408,6 +423,28 @@ class PatientService:
             payload={"patient_id": str(patient_id), "doctor_id": str(doctor["doctor_id"])},
         )
         return updated  # type: ignore[return-value]
+
+    async def _review_self_registration(self, patient_id: UUID) -> None:
+        """Runs the registration checks (registration_risk.py) and stores their
+        flags. With auto_approve_self_registration on and no flag raised, the
+        patient is approved here and now, by the system; in every other case
+        they wait in the receptionist's queue as before, flags attached.
+        Never rejects."""
+        patient = await self.get(patient_id)
+        flags, digest = await assess_registration(self.session, patient)
+        await self.repo.set_risk_flags(patient_id, flags)
+        auto_approved = settings.auto_approve_self_registration and not flags
+        if auto_approved:
+            await self.repo.set_approval(patient_id, approval_status="approved", decided_by=None, rejection_reason=None, method="auto")
+            await self.session.execute(text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(patient["profile_id"])})
+            await emit_event(
+                self.session,
+                aggregate_type="patient",
+                aggregate_id=patient_id,
+                event_type="patient_registration_decided",
+                payload={"patient_id": str(patient_id), "decision": "approved", "method": "auto"},
+            )
+        await record_review(self.session, patient, flags, digest, auto_approved=auto_approved)
 
 
 class FollowUpService:

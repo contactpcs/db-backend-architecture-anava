@@ -270,6 +270,9 @@ def _registration_item(r: dict) -> s.RegistrationListItem:
             ["approve", "reject"] if r["approval_status"] == "pending" else ["approve"] if r["approval_status"] == "rejected" else ["view"]
         ),
         rejection_reason=r.get("rejection_reason") if r["approval_status"] == "rejected" else None,
+        risk_flags=r.get("risk_flags") or [],
+        approval_method=r.get("approval_method"),
+        approved_by_name=r.get("approved_by_name"),
     )
 
 

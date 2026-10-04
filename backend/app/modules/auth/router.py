@@ -24,6 +24,7 @@ from app.core.exceptions import (
     ValidationError,
     profile_conflict_error,
 )
+from app.core.middleware import client_ip
 from app.core.permissions import get_current_context, require_role
 from app.core.security import create_local_token, verify_token
 from app.modules.auth.schemas import (
@@ -46,6 +47,13 @@ from app.modules.auth.schemas import (
     VerifyChannelStart,
 )
 from app.modules.auth.signup import confirm_and_register, reject_if_contact_taken, start_patient_signup
+from app.modules.auth.signup_security import (
+    cognito_username,
+    guard_otp_attempt,
+    guard_signup_resend,
+    guard_signup_start,
+    public_ip,
+)
 
 _RECEPTIONIST_SIGNUP_ROLES = ("receptionist", "clinic_admin", "regional_admin", "super_admin")
 
@@ -245,7 +253,7 @@ def _bearer_token(request: Request) -> str:
 
 
 @router.post("/patients/signup/start", status_code=204)
-async def patient_signup_start(body: PatientSignupStart, db=Depends(get_db)) -> None:
+async def patient_signup_start(body: PatientSignupStart, request: Request, db=Depends(get_db)) -> None:
     """Step 1 of the real patient signup wizard — starts Cognito's SignUp,
     which auto-sends the OTP to whichever channel (email or phone) the
     patient chose. 404s in local mode (use /auth/register there instead —
@@ -254,10 +262,12 @@ async def patient_signup_start(body: PatientSignupStart, db=Depends(get_db)) -> 
         raise NotFoundError("Not found", code="NOT_FOUND")
     if body.password is not None and body.password != body.confirm_password:
         raise ValidationError("Passwords do not match", code="PASSWORD_MISMATCH")
-    await reject_if_contact_taken(db, body.method, body.contact)
+    # Rate limits, contact checks and the already-registered check, each
+    # recorded in ops.signup_security_log (auth/signup_security.py).
+    contact = await guard_signup_start(ip=client_ip(request), method=body.method, contact=body.contact)
     await start_patient_signup(
         db,
-        contact=body.contact,
+        contact=contact,
         method=body.method,
         first_name=body.first_name,
         last_name=body.last_name,
@@ -268,16 +278,16 @@ async def patient_signup_start(body: PatientSignupStart, db=Depends(get_db)) -> 
 
 
 @router.post("/patients/signup/resend", status_code=204)
-async def patient_signup_resend(body: PatientSignupResend) -> None:
+async def patient_signup_resend(body: PatientSignupResend, request: Request) -> None:
     if settings.auth_mode != "cognito":
         raise NotFoundError("Not found", code="NOT_FOUND")
     from app.core.cognito import resend_confirmation_code
 
-    resend_confirmation_code(body.contact)
+    resend_confirmation_code(await guard_signup_resend(ip=client_ip(request), contact=body.contact))
 
 
 @router.post("/patients/signup/verify", status_code=204)
-async def patient_signup_verify(body: PatientSignupVerify) -> None:
+async def patient_signup_verify(body: PatientSignupVerify, request: Request) -> None:
     """Step 2 — verifies the OTP the patient just entered. Doesn't touch our
     DB at all; the wizard only writes a profiles/patients row once the
     password is set too (see /signup/complete)."""
@@ -285,25 +295,30 @@ async def patient_signup_verify(body: PatientSignupVerify) -> None:
         raise NotFoundError("Not found", code="NOT_FOUND")
     from app.core.cognito import confirm_sign_up
 
-    confirm_sign_up(username=body.contact, code=body.code)
+    await guard_otp_attempt(ip=client_ip(request))
+    confirm_sign_up(username=cognito_username(body.contact), code=body.code)
 
 
 @router.post("/patients/signup/confirm", response_model=PublicPatientRegisterResponse, status_code=201)
-async def patient_signup_confirm(body: PatientSignupConfirm, response: Response, db=Depends(get_db)) -> PublicPatientRegisterResponse:
+async def patient_signup_confirm(
+    body: PatientSignupConfirm, request: Request, response: Response, db=Depends(get_db)
+) -> PublicPatientRegisterResponse:
     """Step 2 of the current flow (password was chosen at /signup/start):
     verifies the OTP, creates the profile/patient, and logs the patient in —
     all in this one request, so an abandoned signup can never leave a
     verified Cognito user with no account here (see auth/signup.py)."""
     if settings.auth_mode != "cognito":
         raise NotFoundError("Not found", code="NOT_FOUND")
+    await guard_otp_attempt(ip=client_ip(request))
     patient, auth = await confirm_and_register(
         db,
-        contact=body.contact,
+        contact=cognito_username(body.contact),
         method=body.method,
         code=body.code,
         password=body.password,
         registration=_registration_fields(body),
         self_registered=True,
+        signup_ip=public_ip(client_ip(request)),
     )
     return PublicPatientRegisterResponse(access_token=_start_session(response, auth), patient_id=patient["patient_id"])
 
@@ -328,7 +343,9 @@ def _registration_fields(body) -> dict:
 
 
 @router.post("/patients/signup/complete", response_model=PublicPatientRegisterResponse, status_code=201)
-async def patient_signup_complete(body: PatientSignupComplete, response: Response, db=Depends(get_db)) -> PublicPatientRegisterResponse:
+async def patient_signup_complete(
+    body: PatientSignupComplete, request: Request, response: Response, db=Depends(get_db)
+) -> PublicPatientRegisterResponse:
     """Step 3 — sets the real password (overwriting SignUp's throwaway one),
     creates our own profiles/patients row with the now-real Cognito sub, and
     auto-logs the patient in. The channel they signed up with is already
@@ -341,7 +358,8 @@ async def patient_signup_complete(body: PatientSignupComplete, response: Respons
     from app.core.cognito import initiate_auth, set_patient_password
     from app.modules.patients.service import PatientService
 
-    cognito_sub = set_patient_password(username=body.contact, password=body.password)
+    contact = cognito_username(body.contact)
+    cognito_sub = set_patient_password(username=contact, password=body.password)
 
     # profiles.email is NOT NULL UNIQUE — a mobile-only signup has no real
     # email yet (it's added+verified later via /verify-channel/*), so this
@@ -358,20 +376,22 @@ async def patient_signup_complete(body: PatientSignupComplete, response: Respons
         "country": body.country,
         "pincode": body.pincode,
         "primary_clinic_id": str(body.primary_clinic_id),
-        "email": body.contact if body.method == "email" else f"pending-{uuid4()}@no-email.local",
-        "phone": body.contact if body.method == "mobile" else None,
+        "email": contact if body.method == "email" else f"pending-{uuid4()}@no-email.local",
+        "phone": contact if body.method == "mobile" else None,
         "guardian_name": body.guardian_name,
         "guardian_relationship": body.guardian_relationship,
         "guardian_contact": body.guardian_contact,
     }
-    patient = await PatientService(db).register(data, self_registered=True, cognito_sub=cognito_sub)
+    patient = await PatientService(db).register(
+        data, self_registered=True, cognito_sub=cognito_sub, signup_ip=public_ip(client_ip(request))
+    )
     if body.method == "email":
         await db.execute(text("UPDATE profiles SET email_verified = TRUE WHERE id = :id"), {"id": patient["profile_id"]})
     else:
         await db.execute(text("UPDATE profiles SET phone_verified = TRUE WHERE id = :id"), {"id": patient["profile_id"]})
     await db.commit()
 
-    result = initiate_auth(username=body.contact, password=body.password)
+    result = initiate_auth(username=contact, password=body.password)
     return PublicPatientRegisterResponse(access_token=_start_session(response, result), patient_id=patient["patient_id"])
 
 

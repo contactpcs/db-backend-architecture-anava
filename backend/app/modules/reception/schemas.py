@@ -174,6 +174,12 @@ class RegistrationListItem(BaseModel):
     # Only ever set when status == 'rejected' — why the Rejected tab's row
     # was turned down. Cleared (NULL) the moment it's approved (94).
     rejection_reason: str | None = None
+    # Why the registration checks held this one back for review (105);
+    # empty when it passed them all.
+    risk_flags: list[str] = Field(default_factory=list)
+    # 'auto' = approved by those checks, shown as approved_by_name 'System'.
+    approval_method: str | None = None
+    approved_by_name: str | None = None
 
 
 class RegistrationListResponse(BaseModel):
