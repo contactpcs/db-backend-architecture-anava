@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.core.db import RequestContext, get_db
 from app.core.permissions import require_role
+from app.core.resolve import attach_actor
 from app.core.scoping import assert_owns_profile, assert_patient_self
 from app.modules.anamnesis import schemas as s
 from app.modules.anamnesis.service import AnamnesisCatalogService, AnamnesisService
@@ -30,13 +31,15 @@ async def start_anamnesis(
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     await assert_patient_self(ctx, db, patient_id)
-    return await AnamnesisService(db).start(
+    assessment = await AnamnesisService(db).start(
         patient_id,
         submitted_by=UUID(ctx.user_id),
         taken_by=body.taken_by,
         assessment_stage=body.assessment_stage,
         appointment_id=body.appointment_id,
+        by_staff=ctx.role != "patient",
     )
+    return (await attach_actor(db, [assessment], "submitted_by"))[0]
 
 
 @router.get("/patients/{patient_id}/anamnesis", response_model=s.AnamnesisAssessmentRead)
@@ -47,7 +50,8 @@ async def get_current_anamnesis(
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     await assert_patient_self(ctx, db, patient_id)
-    return await AnamnesisService(db).get_current(patient_id, assessment_stage)
+    assessment = await AnamnesisService(db).get_current(patient_id, assessment_stage)
+    return (await attach_actor(db, [assessment], "submitted_by"))[0]
 
 
 @router.get("/anamnesis/{anamnesis_id}/responses", response_model=list[s.AnamnesisResponseRead])
@@ -69,4 +73,5 @@ async def submit_anamnesis_responses(
     assessment = await AnamnesisService(db).get_by_id(anamnesis_id)
     assert_owns_profile(ctx, assessment["patient_id"])
     items = [item.model_dump() for item in body.responses]
-    return await AnamnesisService(db).submit_responses(anamnesis_id, items=items, complete=body.complete)
+    updated = await AnamnesisService(db).submit_responses(anamnesis_id, items=items, complete=body.complete)
+    return (await attach_actor(db, [updated], "submitted_by"))[0]

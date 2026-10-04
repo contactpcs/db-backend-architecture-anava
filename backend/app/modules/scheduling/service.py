@@ -870,8 +870,14 @@ class AppointmentService:
                 return
             if ctx.role == "doctor" and str(appt["doctor_id"]) != ctx.user_id:
                 raise PermissionError_("You can only update your own appointments", code="NOT_YOUR_APPOINTMENT")
-            if ctx.role not in ("doctor", "super_admin"):
-                raise PermissionError_("Only the treating doctor can perform this action", code="DOCTOR_ONLY_ACTION")
+            # A clinical assistant may start and complete a consultation at
+            # their clinic without waiting on the doctor (requirement
+            # 2026-10-04), so the visit's anamnesis / PRS can be taken.
+            # appointment_audit_logs records who did it and in what role.
+            if ctx.role not in ("doctor", "clinical_assistant", "super_admin"):
+                raise PermissionError_(
+                    "Only the treating doctor or a clinical assistant can perform this action", code="DOCTOR_ONLY_ACTION"
+                )
             return
 
         # appt["doctor_id"] is NULL on a device session, so this comparison is

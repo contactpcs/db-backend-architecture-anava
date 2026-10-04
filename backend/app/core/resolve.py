@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
@@ -40,3 +41,22 @@ async def resolve_ca_profile_id(session: AsyncSession, ca_id: UUID) -> UUID:
     if not ca:
         raise NotFoundError("Clinical assistant not found", code="CA_NOT_FOUND")
     return ca["profile_id"]
+
+
+async def attach_actor(session: AsyncSession, rows: list[dict], id_key: str) -> list[dict]:
+    """Adds <id_key>_name / <id_key>_role to each row: the person behind the
+    profiles.id stored in rows[id_key] (who took the anamnesis, who
+    administered the PRS). One query for the whole list."""
+    ids = list({str(r[id_key]) for r in rows if r.get(id_key)})
+    people: dict[str, dict] = {}
+    if ids:
+        found = await session.execute(
+            text("SELECT id, first_name || ' ' || last_name AS name, role FROM profiles WHERE id = ANY(CAST(:ids AS UUID[]))"),
+            {"ids": ids},
+        )
+        people = {str(p["id"]): dict(p) for p in found.mappings().all()}
+    out = []
+    for row in rows:
+        person = people.get(str(row.get(id_key)), {})
+        out.append({**row, f"{id_key}_name": person.get("name"), f"{id_key}_role": person.get("role")})
+    return out

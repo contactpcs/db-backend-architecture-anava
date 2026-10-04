@@ -100,6 +100,11 @@ class AssessmentInstanceRead(BaseModel):
     patient_id: UUID
     session_id: UUID | None
     appointment_id: UUID | None = None
+    # The staff member who took it on the patient's behalf (NULL = the
+    # patient answered it themselves).
+    administered_by: UUID | None = None
+    administered_by_name: str | None = None
+    administered_by_role: str | None = None
     assessment_stage: str
     status: str
     # Voided instances (e.g. race duplicates, migration 95) stay listed for

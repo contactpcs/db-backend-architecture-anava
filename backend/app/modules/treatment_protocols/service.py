@@ -27,12 +27,13 @@ import datetime as dt
 from typing import Any
 from uuid import UUID
 
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import RequestContext
 from app.core.events import emit_event
-from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, ValidationError
+from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, PermissionError_, ValidationError
 from app.core.resolve import resolve_doctor_profile_id as _resolve_doctor_profile_id
 from app.core.resolve import resolve_patient_profile_id as _resolve_patient_profile_id
 from app.core.scoping import assert_clinic_scope, assert_owns_profile
@@ -534,6 +535,15 @@ class ProtocolService:
     async def create(self, body: s.ProtocolCreate, ctx: RequestContext) -> dict:
         """Step 8. Creates the protocol and every appointment in one
         transaction, so a partially-booked course can never exist."""
+        # 106: a clinical assistant amends, never creates. A protocol with no
+        # supersedes_protocol_id starts a new lineage (version x.0), which is
+        # a prescription only a doctor issues. rls_protocol_plan_insert
+        # refuses the same row; this names the reason as a 403.
+        if ctx.role == "clinical_assistant" and body.supersedes_protocol_id is None:
+            raise PermissionError_(
+                "A clinical assistant can amend an existing protocol but cannot create a new one",
+                code="CA_CANNOT_CREATE_PROTOCOL",
+            )
         # 45 re-parented the protocol onto protocol_instances; 48 made that
         # the only parent. Resolve it into patient/doctor/clinic once.
         parent = await self._resolve_parent(body)
@@ -1006,12 +1016,31 @@ class ProtocolService:
             if follow_up and follow_up > fields["session_count"]:
                 raise ValidationError("follow_up_every_n cannot exceed session_count", code="FOLLOW_UP_TOO_LARGE")
         updated = await self.repo.update(protocol_id, fields)
+        # Who edited which field. The audit trigger stores the whole old/new
+        # row, but audit_logs is admin-only; this is the copy the doctor's
+        # activity timeline reads (emit_event stamps actor id and role).
+        changes = {k: {"from": row.get(k), "to": v} for k, v in fields.items() if row.get(k) != v}
+        if updated and changes:
+            await emit_event(
+                self.session,
+                aggregate_type="treatment_protocol",
+                aggregate_id=protocol_id,
+                event_type="treatment_protocol.updated",
+                payload=jsonable_encoder({"protocol_id": str(protocol_id), "instance_id": str(row["instance_id"]), "changes": changes}),
+            )
         return updated or row
 
     async def activate(self, protocol_id: UUID, ctx: RequestContext) -> dict:
         """The 'Push' action from step 8."""
         row = await self.get_or_404(protocol_id)
         await assert_clinic_scope(ctx, self.session, row["clinic_id"])
+        # 106: a clinical assistant may push only an amendment they authored.
+        # Activating a doctor's first draft would be issuing the protocol.
+        if ctx.role == "clinical_assistant" and (row.get("supersedes_protocol_id") is None or str(row["set_by"]) != str(ctx.user_id)):
+            raise PermissionError_(
+                "A clinical assistant can only activate their own amendment",
+                code="CA_CANNOT_ACTIVATE_PROTOCOL",
+            )
         if row["status"] == "active":
             raise ConflictError("Protocol is already active", code="PROTOCOL_ALREADY_ACTIVE")
         if row["status"] != "draft":

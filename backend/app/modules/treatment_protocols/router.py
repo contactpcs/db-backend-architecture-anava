@@ -47,6 +47,10 @@ _READERS = (*_ALL_STAFF, "patient")
 # Prescribing roles. A clinical assistant runs the device but does not set
 # the protocol.
 _PRESCRIBERS = ("super_admin", "clinic_admin", "doctor")
+# 106: a clinical assistant may amend an existing protocol, edit a draft and
+# activate their own amendment - never create, cancel or complete one. The
+# per-action rule is in ProtocolService and mirrored by RLS.
+_AMENDERS = (*_PRESCRIBERS, "clinical_assistant")
 # Who may file a PRS score: the CA administering the session, the doctor,
 # and the patient answering on their own device.
 _PRS_WRITERS = ("super_admin", "clinic_admin", "doctor", "clinical_assistant", "patient")
@@ -387,10 +391,11 @@ async def set_protocol_instance_status(
 async def create_protocol(
     body: s.ProtocolCreate,
     db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role(*_PRESCRIBERS)),
+    ctx: RequestContext = Depends(require_role(*_AMENDERS)),
 ):
     """Creates the protocol as a draft and generates its whole course of
-    appointments in the same transaction."""
+    appointments in the same transaction. A clinical assistant must send
+    supersedes_protocol_id (an amendment)."""
     return await ProtocolService(db).create(body, ctx)
 
 
@@ -434,7 +439,7 @@ async def update_protocol(
     protocol_id: UUID,
     body: s.ProtocolUpdate,
     db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role(*_PRESCRIBERS)),
+    ctx: RequestContext = Depends(require_role(*_AMENDERS)),
 ):
     """Draft-only. An active protocol is amended by cancelling and
     re-issuing, not edited in place."""
@@ -455,7 +460,7 @@ async def list_protocol_sessions(
 async def activate_protocol(
     protocol_id: UUID,
     db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role(*_PRESCRIBERS)),
+    ctx: RequestContext = Depends(require_role(*_AMENDERS)),
 ):
     """The 'Push Treatment Protocol' action. Makes the protocol live and
     visible to the care team."""

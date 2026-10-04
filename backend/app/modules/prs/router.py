@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.db import RequestContext, get_db
 from app.core.permissions import require_role
+from app.core.resolve import attach_actor
 from app.core.scoping import assert_owns_profile, assert_patient_self
 from app.modules.prs import schemas as s
 from app.modules.prs.service import (
@@ -66,7 +67,8 @@ async def list_patient_prs_instances(
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     await assert_patient_self(ctx, db, patient_id)
-    return await PrsAssessmentService(db).list_for_patient(patient_id, assessment_stage=assessment_stage)
+    instances = await PrsAssessmentService(db).list_for_patient(patient_id, assessment_stage=assessment_stage)
+    return await attach_actor(db, instances, "administered_by")
 
 
 @router.get("/patients/{patient_id}/scores-summary")
@@ -139,7 +141,7 @@ async def set_assessment_language(
 async def get_assessment(instance_id: str, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
     instance = await PrsAssessmentService(db).get(instance_id)
     assert_owns_profile(ctx, instance["patient_id"])
-    return instance
+    return (await attach_actor(db, [instance], "administered_by"))[0]
 
 
 @router.get("/prs-assessment-instances/{instance_id}/responses", response_model=list[s.ResponseRead])
