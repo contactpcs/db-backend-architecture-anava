@@ -1,9 +1,12 @@
+import time
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import cache
 
+from sqlalchemy import event
+from sqlalchemy.exc import DisconnectionError
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncEngine,
@@ -21,14 +24,49 @@ _connect_args: dict = {}
 _ssl_context = build_ssl_context()
 if _ssl_context is not None:
     _connect_args["ssl"] = _ssl_context
+if settings.db_prepared_statement_cache_size is not None:
+    # Both the SQLAlchemy dialect's cache and asyncpg's own.
+    _connect_args["prepared_statement_cache_size"] = settings.db_prepared_statement_cache_size
+    _connect_args["statement_cache_size"] = settings.db_prepared_statement_cache_size
+if settings.db_plan_cache_mode:
+    _connect_args["server_settings"] = {"plan_cache_mode": settings.db_plan_cache_mode}
 
 engine: AsyncEngine = create_async_engine(
     settings.database_url,
     pool_size=settings.db_pool_size,
     max_overflow=settings.db_max_overflow,
-    pool_pre_ping=True,
+    pool_timeout=settings.db_pool_timeout_seconds,
+    # Liveness is checked by _ping_if_idle below instead of on every checkout.
+    pool_pre_ping=False,
     connect_args=_connect_args,
 )
+
+
+@event.listens_for(engine.sync_engine, "checkin")
+def _note_checkin(dbapi_connection, connection_record) -> None:
+    connection_record.info["checked_in_at"] = time.monotonic()
+
+
+@event.listens_for(engine.sync_engine, "checkout")
+def _ping_if_idle(dbapi_connection, connection_record, connection_proxy) -> None:
+    """pool_pre_ping, but only for a connection that has been idle long enough
+    to have plausibly been dropped (RDS idle timeout, failover, a network
+    blip). One that was in use moments ago is handed out as is: pinging it
+    again cost a database round trip on every checkout, two per request.
+
+    A brand-new connection has no checkin time and is not pinged either.
+    Raising DisconnectionError makes the pool discard this connection and
+    retry the checkout with a fresh one, exactly as pool_pre_ping does."""
+    checked_in_at = connection_record.info.get("checked_in_at")
+    if checked_in_at is None or time.monotonic() - checked_in_at < settings.db_ping_after_idle_seconds:
+        return
+    try:
+        alive = engine.sync_engine.dialect.do_ping(dbapi_connection)
+    except Exception as exc:  # noqa: BLE001 - any failure to ping means the connection is unusable
+        raise DisconnectionError("pooled connection failed its liveness check") from exc
+    if not alive:
+        raise DisconnectionError("pooled connection failed its liveness check")
+
 
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
 

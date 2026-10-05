@@ -28,6 +28,17 @@ class Settings(BaseSettings):
     # by default; raise it via env only on a bigger instance or behind RDS Proxy.
     db_pool_size: int = 5
     db_max_overflow: int = 5
+    # How long a request waits for a free pooled connection before it is
+    # refused with 503 SERVER_BUSY (SQLAlchemy's default is 30 s, which under
+    # overload just stacks up requests the caller has already given up on).
+    db_pool_timeout_seconds: float = 10.0
+    # A pooled connection is liveness-checked before use only when it has sat
+    # idle for at least this long. Checking on every checkout cost two extra
+    # database round trips per request (one for the auth lookup, one for the
+    # endpoint). Kept short so that after a database restart or failover
+    # (which takes far longer than this) every pooled connection is checked
+    # again before use. 0 = check on every checkout, the previous behaviour.
+    db_ping_after_idle_seconds: float = 5.0
     # RDS requires/expects SSL; local Docker Postgres doesn't have it configured.
     db_require_ssl: bool = False
     # AWS's RDS certs chain up to Amazon's own root CAs, which aren't always
@@ -149,6 +160,18 @@ class Settings(BaseSettings):
     # middleware is not even registered, nothing is written.
     api_audit: bool = False
     api_audit_log: str = r"D:\PCS\Documents\API_Audit\raw\traffic.jsonl"
+    # Performance probe (core/perf_probe.py): per-request time split into
+    # pool wait / database / other, plus pool and event-loop samples. Only for
+    # load-test investigations. Off = no hook installed, zero overhead.
+    perf_probe: bool = False
+    perf_probe_dir: str = r"D:\PCS\Documents\Perf_Test\probe"
+    # None = the driver default (100 prepared statements cached per
+    # connection). Exposed for load-test experiments only.
+    db_prepared_statement_cache_size: int | None = None
+    # Postgres plan_cache_mode for request connections. None = server default
+    # ("auto": plan a statement from scratch on its first five runs on each
+    # connection, then reuse). "force_generic_plan" = plan once per connection.
+    db_plan_cache_mode: str | None = None
 
     # Payments — Razorpay test-mode keys, set once available (Stage 10).
     # Empty in early development; payments module runs in stub mode until set.

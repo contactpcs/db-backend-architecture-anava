@@ -9,6 +9,7 @@ from urllib.parse import parse_qs
 
 import structlog
 from sqlalchemy import text
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -139,10 +140,14 @@ async def _load_profile_and_scope(cognito_sub: str, *, request_id: str, ip_addre
     closed-clinic / inactive-region checks that used to be up to 9 separate
     statements here (API audit). Live data every request — not a cache.
 
-    Own transaction, committed before any rejection is raised, so a consent
-    self-heal write sticks even when the request is then refused (as the old
-    separate heal connection did)."""
-    async with engine.begin() as conn:
+    Runs in autocommit mode: the one statement is its own transaction, so a
+    consent self-heal write is committed before any rejection is raised and
+    sticks even when the request is then refused (as the old separate heal
+    connection did). The function's set_config(..., true) calls last for that
+    statement, which is all it needs them for. An explicit BEGIN and COMMIT
+    around a single statement were two extra round trips on every request."""
+    async with engine.connect() as plain:
+        conn = await plain.execution_options(isolation_level="AUTOCOMMIT")
         row = (await conn.execute(text("SELECT * FROM ops.auth_context(:sub)"), {"sub": cognito_sub})).first()
     if row is None:
         raise PermissionError_("Profile not found", code="PROFILE_NOT_FOUND")
@@ -159,6 +164,17 @@ async def _load_profile_and_scope(cognito_sub: str, *, request_id: str, ip_addre
         consent_signed=row.consent,
         request_id=request_id,
         ip_address=ip_address,
+    )
+
+
+def server_busy_response() -> JSONResponse:
+    """No database connection came free within db_pool_timeout_seconds: the
+    server is overloaded. A quick, honest 503 the client can retry beats
+    holding the request (and everything queued behind it) for longer."""
+    return JSONResponse(
+        status_code=503,
+        headers={"Retry-After": "2"},
+        content={"error": {"code": "SERVER_BUSY", "message": "The server is busy. Please try again in a moment.", "details": None}},
     )
 
 
@@ -226,6 +242,11 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                 status_code=exc.status_code,
                 content={"error": {"code": exc.code, "message": exc.message, "details": exc.details}},
             )
+        except PoolTimeoutError:
+            # Raised here it never reaches main.py's exception handlers
+            # (those sit inside this middleware), so answer it directly.
+            logger.warning("db_pool_timeout", path=request.url.path, stage="auth_context")
+            return server_busy_response()
 
         if not ctx.is_active:
             allowed_prefixes = PATIENT_SELF_REGISTRATION_PATH_PREFIXES if ctx.role == "patient" else CONSENT_FLOW_PATH_PREFIXES

@@ -8,8 +8,10 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import event, text
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from app.config import get_settings
+from app.core import perf_probe
 from app.core.db import RequestContext, engine
 from app.core.exceptions import AnavaException
 from app.core.live import run_listener_forever
@@ -19,6 +21,7 @@ from app.core.middleware import (
     RequestIDMiddleware,
     assert_auth_context_function,
     count_audit_db_query,
+    server_busy_response,
 )
 from app.core.permissions import require_role
 from app.core.security import warm_jwks
@@ -114,6 +117,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     tasks.append(asyncio.create_task(warm_jwks()))
     if settings.event_relay_enabled:
         tasks.append(asyncio.create_task(run_event_relay_forever()))
+    if settings.perf_probe:
+        tasks.append(asyncio.create_task(perf_probe.run_sampler(engine, settings.perf_probe_dir)))
     yield
     for task in tasks:
         task.cancel()
@@ -144,6 +149,10 @@ if settings.api_audit:
     # inside CORS for the reason above (preflights are skipped anyway).
     event.listen(engine.sync_engine, "before_cursor_execute", count_audit_db_query)
     app.add_middleware(ApiAuditMiddleware, log_path=settings.api_audit_log)
+if settings.perf_probe:
+    # Outside everything except CORS, so its total is the whole request.
+    perf_probe.install(engine)
+    app.add_middleware(perf_probe.PerfProbeMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origins,
@@ -159,6 +168,14 @@ async def anava_exception_handler(request: Request, exc: AnavaException) -> JSON
         status_code=exc.status_code,
         content={"error": {"code": exc.code, "message": exc.message, "details": exc.details}},
     )
+
+
+@app.exception_handler(PoolTimeoutError)
+async def pool_timeout_handler(request: Request, exc: PoolTimeoutError) -> JSONResponse:
+    """An endpoint waited db_pool_timeout_seconds for a database connection and
+    got none: overload. Without this it surfaced as a bare 500."""
+    logger.warning("db_pool_timeout", path=request.url.path, stage="endpoint")
+    return server_busy_response()
 
 
 @app.exception_handler(HTTPException)
