@@ -255,12 +255,14 @@ class DeviceSessionService:
         header = await self._header_or_404(appointment_id)
         assert_transition(header["session_status"], "in_progress", _TRANSITIONS, entity="device session", code="INVALID_SESSION_TRANSITION")
         # The appointment write below goes straight to the repository, past
-        # the scheduling FSM — so its rule (only a checked-in visit can start)
-        # is enforced here. Without it a session started unpaid or before the
-        # patient arrived.
-        if appt["status"] != "checked_in":
-            if appt["status"] == "paid":
-                raise BusinessRuleError("Check the patient in before starting the session", code="CHECK_IN_REQUIRED")
+        # the scheduling FSM — so its rule (only a paid or checked-in visit
+        # can start) is enforced here. Without it a session started unpaid.
+        # A paid visit the CA starts directly is checked in first, so
+        # checked_in_at is still stamped and the paid -> checked_in ->
+        # in_progress history stays intact.
+        if appt["status"] == "paid":
+            await self.appointments.update_status(appointment_id, status="checked_in")
+        elif appt["status"] != "checked_in":
             raise BusinessRuleError(
                 f"This session can't be started while the appointment is '{appt['status']}'",
                 code="APPOINTMENT_NOT_READY",
@@ -510,7 +512,9 @@ class DeviceSessionService:
         created = await self.activities.create(
             {
                 "device_session_record_id": str(header["device_session_record_id"]),
-                "activities": body.activities,
+                # chk_dsa_activities_not_empty needs at least one entry — a
+                # free-text-only log is recorded under "other".
+                "activities": body.activities or ["other"],
                 "free_text": body.free_text,
                 "note": body.note,
                 "recorded_by": ctx.user_id,
