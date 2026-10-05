@@ -70,6 +70,7 @@ COMMENT ON TABLE ops."signup_security_log" IS
 COMMENT ON COLUMN ops."signup_security_log"."reason" IS
     'Which rule blocked or flagged it (ip_rate_limit, disposable_email, duplicate_patient, ...). NULL when allowed or auto_approved.';
 
+ALTER TABLE ops."signup_security_log" DROP CONSTRAINT IF EXISTS "fk_signup_security_log_patient";
 ALTER TABLE ops."signup_security_log" ADD CONSTRAINT "fk_signup_security_log_patient"
     FOREIGN KEY ("patient_id") REFERENCES core."patients" ("patient_id") ON DELETE RESTRICT;
 
