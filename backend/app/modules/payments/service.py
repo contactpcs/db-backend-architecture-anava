@@ -6,7 +6,7 @@ from uuid import UUID
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import RequestContext
+from app.core.db import RequestContext, as_system
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, NotFoundError, PermissionError_
 from app.core.scoping import assert_clinic_scope, assert_owns_profile
@@ -596,14 +596,19 @@ class PaymentService:
                 changed_by_role=ctx.role,
             )
 
-        return await self.update_status(
-            payment_id,
-            status="paid",
-            payment_method="cash",
-            _changed_by=UUID(ctx.user_id),
-            _changed_by_role=ctx.role,
-            _source="staff_action",
-        )
+        # as_system: rls_payments_update admits only super_admin/clinic_admin/
+        # system, so a receptionist's (or regional_admin's) UPDATE matched 0
+        # rows and update_status asserted. The route's role list and
+        # _get_appointment_for_pay's clinic scope already authorized this.
+        async with as_system(self.session):
+            return await self.update_status(
+                payment_id,
+                status="paid",
+                payment_method="cash",
+                _changed_by=UUID(ctx.user_id),
+                _changed_by_role=ctx.role,
+                _source="staff_action",
+            )
 
     async def verify_payment(
         self, payment_id: UUID, *, razorpay_order_id: str, razorpay_payment_id: str, razorpay_signature: str, ctx: RequestContext
