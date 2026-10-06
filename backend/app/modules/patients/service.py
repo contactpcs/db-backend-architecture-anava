@@ -175,6 +175,12 @@ class PatientService:
             raise NotFoundError("Patient not found", code="PATIENT_NOT_FOUND")
         return _attach_completion(patient)
 
+    async def get_clinic(self, patient_id: UUID) -> dict:
+        clinic = await self.repo.get_clinic(patient_id)
+        if not clinic:
+            raise NotFoundError("No clinic found for this patient", code="PATIENT_CLINIC_NOT_FOUND")
+        return clinic
+
     async def list(self, **filters) -> builtins.list[dict]:
         patients = await self.repo.list(**filters)
         return [_attach_completion(p) for p in patients]

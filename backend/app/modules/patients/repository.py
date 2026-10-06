@@ -165,6 +165,16 @@ class PatientRepository:
     async def get_by_profile_id(self, profile_id: UUID) -> dict | None:
         return await fetch_optional(self.session, text(f"{self._SELECT_WITH_PROFILE} WHERE pt.profile_id = :pid"), {"pid": str(profile_id)})
 
+    async def get_clinic(self, patient_id: UUID) -> dict | None:
+        """The patient's primary clinic row. c.* rather than named columns so
+        this still works on a database without 109's columns (the response
+        schema defaults them to null)."""
+        return await fetch_optional(
+            self.session,
+            text("SELECT c.* FROM patients pt JOIN clinics c ON c.clinic_id = pt.primary_clinic_id WHERE pt.patient_id = :id"),
+            {"id": str(patient_id)},
+        )
+
     def _list_where(
         self,
         *,

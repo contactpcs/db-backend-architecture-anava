@@ -155,6 +155,24 @@ class PatientRead(BaseModel):
     profile_completion_missing_fields: list[str] = Field(default_factory=list)
 
 
+class PatientClinicRead(BaseModel):
+    """GET /patients/{patient_id}/clinic — what a patient needs to find and
+    contact their clinic, nothing internal (no status, admin or region ids).
+    full_address / pincode / google_maps_url default to null so a database
+    without 109_clinic_google_maps_url.sql still answers."""
+
+    clinic_id: UUID
+    clinic_name: str
+    full_address: str | None = None
+    address: str | None
+    city: str | None
+    state: str | None
+    pincode: str | None = None
+    phone: str | None
+    email: str | None
+    google_maps_url: str | None = None
+
+
 class PatientPageRead(BaseModel):
     """GET /patients/page (API audit F-053)."""
 
