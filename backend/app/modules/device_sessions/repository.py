@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import builtins
 import json
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -19,6 +20,28 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.sql_helpers import fetch_one, fetch_optional, insert_returning, update_returning
+
+
+def _child_list(table: str, order_by: str) -> str:
+    return f"(SELECT COALESCE(json_agg(t ORDER BY t.{order_by}), '[]'::json)::text FROM {table} t WHERE t.device_session_record_id = :id)"
+
+
+# Every child collection of one session in ONE statement (was 9 separate
+# queries; scales stay separate - they need _SESSION_SCALE_SELECT's joins and
+# may have just been seeded). API audit F-015. Same tables, filters and
+# ORDER BYs as each repository's own list_for_session/get_for_session.
+_SESSION_CHILDREN_SQL = (
+    "SELECT "
+    f"{_child_list('device_session_symptoms', 'recorded_at')} AS symptoms, "
+    f"{_child_list('device_session_adverse_events', 'recorded_at')} AS adverse_events, "
+    f"{_child_list('device_session_notes', 'recorded_at')} AS notes, "
+    f"{_child_list('device_session_activities', 'recorded_at')} AS activities, "
+    f"{_child_list('device_session_media', 'captured_at')} AS media, "
+    f"{_child_list('device_session_events', 'occurred_at')} AS events, "
+    f"{_child_list('device_session_sos_events', 'raised_at')} AS sos_events, "
+    "(SELECT row_to_json(t)::text FROM device_session_feedback t WHERE t.device_session_record_id = :id LIMIT 1) AS feedback, "
+    "(SELECT row_to_json(t)::text FROM tvns_session_settings t WHERE t.device_session_record_id = :id LIMIT 1) AS tvns_settings"
+)
 
 
 class DeviceSessionRepository:
@@ -37,6 +60,39 @@ class DeviceSessionRepository:
             text("SELECT * FROM device_sessions WHERE device_session_record_id = :id"),
             {"id": str(device_session_record_id)},
         )
+
+    async def summaries_for_protocol(self, protocol_id: UUID) -> builtins.list[dict]:
+        """Per device-session record of one protocol: status, feedback answers,
+        adverse-event count, clinic — one query (API audit F-043; the
+        treatment plan used to fetch the full detail of every session)."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT ds.appointment_id, ds.session_status, a.clinic_id, "
+                        "  (SELECT f.answers::text FROM device_session_feedback f "
+                        "   WHERE f.device_session_record_id = ds.device_session_record_id LIMIT 1) AS feedback_answers, "
+                        "  (SELECT count(*) FROM device_session_adverse_events e "
+                        "   WHERE e.device_session_record_id = ds.device_session_record_id) AS adverse_event_count "
+                        "FROM device_sessions ds JOIN appointments a ON a.appointment_id = ds.appointment_id "
+                        "WHERE a.protocol_id = :pid"
+                    ),
+                    {"pid": str(protocol_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [{**dict(r), "feedback_answers": json.loads(r["feedback_answers"]) if r["feedback_answers"] else None} for r in rows]
+
+    async def children(self, device_session_record_id: UUID) -> dict:
+        """symptoms/adverse_events/notes/activities/media/events/sos_events
+        lists + feedback/tvns_settings rows for one session, one round trip."""
+        row = (await self.session.execute(text(_SESSION_CHILDREN_SQL), {"id": str(device_session_record_id)})).mappings().one()
+        # Aggregates come back ::text so json.loads(parse_float=Decimal) keeps
+        # numeric columns exactly as the per-table reads returned them
+        # (Decimal('25.00'), not the driver's own decoded float 25.0).
+        return {k: json.loads(v, parse_float=Decimal) if isinstance(v, str) else v for k, v in row.items()}
 
     async def get_by_appointment(self, appointment_id: UUID) -> dict | None:
         return await fetch_optional(
@@ -386,6 +442,34 @@ class DeviceSessionScaleRepository:
                         "FROM protocol_scales WHERE protocol_id = :id ORDER BY display_order"
                     ),
                     {"id": str(protocol_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def scale_summaries_for_patient(self, patient_id: UUID) -> builtins.list[dict]:
+        """Scale counts per device session for one patient, in one grouped
+        query — what the patient device-sessions list shows per row (API
+        audit F-012; it used to call /device-sessions/{id}/scales per row).
+        LEFT JOIN so a session with no scales seeded yet still appears with
+        zero counts, exactly as the per-session read returned []."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT ds.appointment_id, "
+                        "  count(ss.protocol_scale_id) AS total, "
+                        "  count(*) FILTER (WHERE ss.status = 'completed') AS completed, "
+                        "  COALESCE(bool_or(ss.delivery_mode = 'patient_app' AND ss.status <> 'completed'), false) AS actionable "
+                        "FROM device_sessions ds "
+                        "JOIN appointments a ON a.appointment_id = ds.appointment_id "
+                        "LEFT JOIN device_session_scales ss ON ss.device_session_record_id = ds.device_session_record_id "
+                        "WHERE a.patient_id = :patient_id "
+                        "GROUP BY ds.appointment_id"
+                    ),
+                    {"patient_id": str(patient_id)},
                 )
             )
             .mappings()

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.db import RequestContext, get_db
 from app.core.permissions import require_role
+from app.core.resolve import attach_actor
 from app.core.scoping import assert_owns_profile, assert_patient_self
 from app.modules.prs import schemas as s
 from app.modules.prs.service import (
@@ -37,6 +38,16 @@ async def assign_scale(body: s.PatientScaleAssignmentCreate, db=Depends(get_db),
     return await PatientScaleAssignmentService(db).create(assigned_by=UUID(ctx.user_id), **body.model_dump())
 
 
+@router.post("/patient-scale-assignments/bulk", response_model=list[s.PatientScaleAssignmentRead], status_code=201)
+async def assign_scales_bulk(
+    body: s.PatientScaleAssignmentBulkCreate, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))
+):
+    """Several scales in one request and one transaction — the assign
+    screens used to POST once per scale, and a mid-way failure left the
+    patient with only some of them (API audit F-042)."""
+    return await PatientScaleAssignmentService(db).create_many(assigned_by=UUID(ctx.user_id), **body.model_dump())
+
+
 @router.get("/patients/{patient_id}/scale-assignments", response_model=list[s.PatientScaleAssignmentRead])
 async def list_scale_assignments(
     patient_id: UUID,
@@ -56,7 +67,21 @@ async def list_patient_prs_instances(
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     await assert_patient_self(ctx, db, patient_id)
-    return await PrsAssessmentService(db).list_for_patient(patient_id, assessment_stage=assessment_stage)
+    instances = await PrsAssessmentService(db).list_for_patient(patient_id, assessment_stage=assessment_stage)
+    return await attach_actor(db, instances, "administered_by")
+
+
+@router.get("/patients/{patient_id}/scores-summary")
+async def get_patient_scores_summary(
+    patient_id: UUID,
+    assessment_stage: str | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    # One call for the scores card/results lists — replaces 4 calls per
+    # completed instance the frontend used to make (API audit fix F-002).
+    await assert_patient_self(ctx, db, patient_id)
+    return await PrsAssessmentService(db).scores_summary(patient_id, assessment_stage=assessment_stage)
 
 
 @router.get("/patients/{patient_id}/disease-composite", response_model=s.DiseaseCompositeRead)
@@ -93,6 +118,7 @@ async def start_assessment(
         initiated_by=initiated_by,
         language_code=body.language_code,
         appointment_id=body.appointment_id,
+        scale_id=body.scale_id,
     )
 
 
@@ -115,7 +141,7 @@ async def set_assessment_language(
 async def get_assessment(instance_id: str, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
     instance = await PrsAssessmentService(db).get(instance_id)
     assert_owns_profile(ctx, instance["patient_id"])
-    return instance
+    return (await attach_actor(db, [instance], "administered_by"))[0]
 
 
 @router.get("/prs-assessment-instances/{instance_id}/responses", response_model=list[s.ResponseRead])
@@ -165,4 +191,4 @@ async def submit_responses(
 async def get_results(instance_id: str, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
     instance = await PrsAssessmentService(db).get(instance_id)
     assert_owns_profile(ctx, instance["patient_id"])
-    return await PrsAssessmentService(db).results(instance_id)
+    return await PrsAssessmentService(db).results(instance_id, instance)

@@ -1,9 +1,14 @@
+import time
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from functools import cache
 
+from sqlalchemy import event
+from sqlalchemy.exc import DisconnectionError
 from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
@@ -19,14 +24,49 @@ _connect_args: dict = {}
 _ssl_context = build_ssl_context()
 if _ssl_context is not None:
     _connect_args["ssl"] = _ssl_context
+if settings.db_prepared_statement_cache_size is not None:
+    # Both the SQLAlchemy dialect's cache and asyncpg's own.
+    _connect_args["prepared_statement_cache_size"] = settings.db_prepared_statement_cache_size
+    _connect_args["statement_cache_size"] = settings.db_prepared_statement_cache_size
+if settings.db_plan_cache_mode:
+    _connect_args["server_settings"] = {"plan_cache_mode": settings.db_plan_cache_mode}
 
 engine: AsyncEngine = create_async_engine(
     settings.database_url,
     pool_size=settings.db_pool_size,
     max_overflow=settings.db_max_overflow,
-    pool_pre_ping=True,
+    pool_timeout=settings.db_pool_timeout_seconds,
+    # Liveness is checked by _ping_if_idle below instead of on every checkout.
+    pool_pre_ping=False,
     connect_args=_connect_args,
 )
+
+
+@event.listens_for(engine.sync_engine, "checkin")
+def _note_checkin(dbapi_connection, connection_record) -> None:
+    connection_record.info["checked_in_at"] = time.monotonic()
+
+
+@event.listens_for(engine.sync_engine, "checkout")
+def _ping_if_idle(dbapi_connection, connection_record, connection_proxy) -> None:
+    """pool_pre_ping, but only for a connection that has been idle long enough
+    to have plausibly been dropped (RDS idle timeout, failover, a network
+    blip). One that was in use moments ago is handed out as is: pinging it
+    again cost a database round trip on every checkout, two per request.
+
+    A brand-new connection has no checkin time and is not pinged either.
+    Raising DisconnectionError makes the pool discard this connection and
+    retry the checkout with a fresh one, exactly as pool_pre_ping does."""
+    checked_in_at = connection_record.info.get("checked_in_at")
+    if checked_in_at is None or time.monotonic() - checked_in_at < settings.db_ping_after_idle_seconds:
+        return
+    try:
+        alive = engine.sync_engine.dialect.do_ping(dbapi_connection)
+    except Exception as exc:  # noqa: BLE001 - any failure to ping means the connection is unusable
+        raise DisconnectionError("pooled connection failed its liveness check") from exc
+    if not alive:
+        raise DisconnectionError("pooled connection failed its liveness check")
+
 
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
 
@@ -37,17 +77,42 @@ def get_migration_engine() -> AsyncEngine:
     (profiles, prs_diseases/scales/questions/options, admins, ...). Those
     policies require rls_user_role() = 'super_admin' (or similar), which is
     only ever set by AuthContextMiddleware inside a real HTTP request — a
-    bare script has no such context. NOTE: as of this review, `engine`'s
-    connecting role is NOT actually a scoped NOBYPASSRLS role in the
-    deployed environment (see app/config.py's database_url comment and
-    app/core/scoping.py's docstring) — it bypasses RLS entirely, so this
-    INSERT would silently succeed rather than being rejected. Bootstrapping/seeding the very first
-    data into a fresh system is inherently a privileged, one-time operation
-    — use the master connection for it, the same one alembic uses for DDL.
+    bare script has no such context. `engine` connects as anava_app, which
+    is NOT a superuser and does NOT bypass RLS (verified 2026-09-28:
+    rolsuper=false, rolbypassrls=false), so such an INSERT is rejected.
+    Bootstrapping/seeding the very first data into a fresh system is
+    inherently a privileged, one-time operation — use the master connection
+    for it, the same one alembic uses for DDL. Never use it from code that
+    runs inside the API process: that is what get_worker_engine() is for.
     Discovered the hard way migrating to RDS: seed_dev_profile.py failed with
     InsufficientPrivilegeError until pointed at this instead of `engine`."""
     return create_async_engine(
         settings.migration_database_url or settings.database_url,
+        connect_args=_connect_args,
+    )
+
+
+@cache
+def get_worker_engine() -> AsyncEngine:
+    """For the background workers that run inside the API process (outbox
+    relay, hold sweeper, no-show sweeper). Same login as request traffic —
+    anava_app, subject to RLS — acting as RLS role 'system' via SET LOCAL in
+    each transaction; the policies admitting 'system' are SQL/v1/25, 31, 93.
+    A small pool of its own, so a busy worker never starves request handling.
+    Cached: all three workers share ONE pool — they used to build three
+    separate 3+2 pools, which (with the API pool) let a single process hold
+    ~31 connections and exhausted the 79-slot RDS instance with just two
+    backends running (TooManyConnectionsError, 2026-09-28).
+
+    Replaces get_migration_engine() for these workers so the API container
+    never needs the RDS master credentials. Only partition maintenance and
+    the retention purge still need them (they run DDL) — run those as a
+    separate scheduled task, not inside the API."""
+    return create_async_engine(
+        settings.database_url,
+        pool_size=3,
+        max_overflow=2,
+        pool_pre_ping=True,
         connect_args=_connect_args,
     )
 
@@ -85,16 +150,17 @@ async def _apply_rls_context(session: AsyncSession) -> None:
     ctx = get_request_context()
     if ctx is None:
         return
-    await session.execute(text_set_local("app.current_user_id", ctx.user_id))
-    await session.execute(text_set_local("app.current_user_role", ctx.role))
-    if ctx.clinic_id:
-        await session.execute(text_set_local("app.current_clinic_id", ctx.clinic_id))
-    if ctx.region_id:
-        await session.execute(text_set_local("app.current_region_id", ctx.region_id))
-    if ctx.request_id:
-        await session.execute(text_set_local("app.request_id", ctx.request_id))
-    if ctx.ip_address:
-        await session.execute(text_set_local("app.client_ip", ctx.ip_address))
+    settings_to_apply = {
+        "app.current_user_id": ctx.user_id,
+        "app.current_user_role": ctx.role,
+        "app.current_clinic_id": ctx.clinic_id,
+        "app.current_region_id": ctx.region_id,
+        "app.request_id": ctx.request_id,
+        "app.client_ip": ctx.ip_address,
+    }
+    # One round trip for every GUC instead of one per setting (was up to 6
+    # per request). Unset values stay unset, as before — never set to ''.
+    await session.execute(text_set_locals({k: v for k, v in settings_to_apply.items() if v}))
 
 
 def text_set_local(setting_name: str, value: str):
@@ -102,6 +168,18 @@ def text_set_local(setting_name: str, value: str):
 
     # set_config(..., true) = LOCAL (transaction-scoped), matches 15_rls_policies.sql assumption
     return text("SELECT set_config(:name, :value, true)").bindparams(name=setting_name, value=value)
+
+
+def text_set_locals(values: dict[str, str]):
+    """Several SET LOCALs in one statement (one DB round trip). Names and
+    values are both bound parameters, never interpolated."""
+    from sqlalchemy import text
+
+    calls = ", ".join(f"set_config(:n{i}, :v{i}, true)" for i in range(len(values)))
+    params = {}
+    for i, (name, value) in enumerate(values.items()):
+        params[f"n{i}"], params[f"v{i}"] = name, value
+    return text(f"SELECT {calls}").bindparams(**params)
 
 
 @asynccontextmanager
@@ -122,6 +200,21 @@ async def as_system(session: AsyncSession) -> AsyncIterator[None]:
         yield
     finally:
         await session.execute(text_set_local("app.current_user_role", previous or ""))
+
+
+@asynccontextmanager
+async def system_transaction() -> AsyncIterator[AsyncConnection]:
+    """One short transaction of its own as RLS role 'system', committed when
+    the block ends whatever then happens to the request's own transaction.
+
+    For rows written before any user identity exists (stream tickets,
+    logged-out tokens, the signup security log), whose policies admit only
+    'system'."""
+    from sqlalchemy import text
+
+    async with engine.begin() as conn:
+        await conn.execute(text("SELECT set_config('app.current_user_role', 'system', true)"))
+        yield conn
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

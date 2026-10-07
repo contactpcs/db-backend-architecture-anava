@@ -7,15 +7,27 @@ import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
+from sqlalchemy import event, text
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from app.config import get_settings
+from app.core import perf_probe
 from app.core.db import RequestContext, engine
 from app.core.exceptions import AnavaException
-from app.core.middleware import AuthContextMiddleware, RequestIDMiddleware
+from app.core.live import run_listener_forever
+from app.core.middleware import (
+    ApiAuditMiddleware,
+    AuthContextMiddleware,
+    RequestIDMiddleware,
+    assert_auth_context_function,
+    count_audit_db_query,
+    server_busy_response,
+)
 from app.core.permissions import require_role
+from app.core.security import warm_jwks
 from app.modules.admin.router import router as admin_router
 from app.modules.anamnesis.router import router as anamnesis_router
+from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
 from app.modules.clinical.router import router as clinical_router
 from app.modules.consent.router import router as consent_router
@@ -36,6 +48,7 @@ from app.workers.event_relay import run_forever as run_event_relay_forever
 from app.workers.hold_sweeper import run_hold_sweeper_forever
 from app.workers.no_show_sweeper import run_no_show_sweeper_forever
 from app.workers.retention_purge import run_partition_maintenance_forever
+from app.workers.upload_promoter import run_upload_promoter_forever
 
 settings = get_settings()
 
@@ -48,22 +61,6 @@ structlog.configure(
     ]
 )
 logger = structlog.get_logger()
-
-
-async def _log_redis_connectivity() -> None:
-    """One log line at startup saying whether Redis (live popups, logout
-    denylist, stream tickets) is reachable — otherwise a working Redis logs
-    nothing at all and an unreachable one only shows up as later warnings."""
-    import time as _time
-
-    from app.core.pubsub import get_redis
-
-    try:
-        t = _time.monotonic()
-        await asyncio.wait_for(get_redis().ping(), timeout=5)
-        logger.info("redis_connectivity_ok", ping_ms=round((_time.monotonic() - t) * 1000, 1))
-    except Exception as exc:
-        logger.error("redis_connectivity_failed", error=repr(exc), hint="live popups disabled; see GET /api/v1/health/live")
 
 
 @asynccontextmanager
@@ -93,7 +90,28 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                            pushes. Claims each event with FOR UPDATE SKIP
                            LOCKED instead of an advisory lock, so several
                            instances share the queue without double-sending.
+
+    upload promoter        moves a patient upload out of quarantine once
+                           GuardDuty has scanned it (s3 mode only; assumes the
+                           anava-upload-promoter role for the copy —
+                           app/workers/upload_promoter.py).
+
+    live listener          this process's one Postgres LISTEN connection:
+                           delivers those pushes to its open SSE streams and
+                           keeps its copy of the logged-out tokens current
+                           (app/core/live.py). Needs no lock: every process
+                           must hear every message.
     """
+    # Auth needs ops.auth_context (alembic 0054). Missing -> refuse to boot.
+    # DB unreachable -> only warn; requests will surface it, and a DB blip at
+    # deploy time must not keep the API down.
+    try:
+        await assert_auth_context_function()
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        logger.warning("auth_context_check_skipped", error=repr(exc))
+
     tasks: list[asyncio.Task] = []
     if settings.partition_maintenance_enabled:
         tasks.append(asyncio.create_task(run_partition_maintenance_forever()))
@@ -101,9 +119,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         tasks.append(asyncio.create_task(run_hold_sweeper_forever()))
     if settings.appointment_no_show_sweeper_enabled:
         tasks.append(asyncio.create_task(run_no_show_sweeper_forever()))
-    tasks.append(asyncio.create_task(_log_redis_connectivity()))
+    if settings.file_storage_mode == "s3" and settings.upload_promoter_enabled:
+        tasks.append(asyncio.create_task(run_upload_promoter_forever()))
+    tasks.append(asyncio.create_task(run_listener_forever()))
+    tasks.append(asyncio.create_task(warm_jwks()))
     if settings.event_relay_enabled:
         tasks.append(asyncio.create_task(run_event_relay_forever()))
+    if settings.perf_probe:
+        tasks.append(asyncio.create_task(perf_probe.run_sampler(engine, settings.perf_probe_dir)))
     yield
     for task in tasks:
         task.cancel()
@@ -111,7 +134,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await task
 
 
-app = FastAPI(title="Anava Clinic Backend", version="0.1.0", lifespan=lifespan)
+_docs_on = settings.api_docs_enabled if settings.api_docs_enabled is not None else settings.environment == "local"
+# Production must not publish the full API map (every route, parameter and
+# schema) to anonymous callers — docs are served only when enabled.
+app = FastAPI(
+    title="Anava Clinic Backend",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url="/docs" if _docs_on else None,
+    redoc_url="/redoc" if _docs_on else None,
+    openapi_url="/openapi.json" if _docs_on else None,
+)
 
 # Starlette wraps middleware in reverse add-order (last added = outermost),
 # so CORSMiddleware must be added LAST — otherwise AuthContextMiddleware
@@ -119,6 +152,15 @@ app = FastAPI(title="Anava Clinic Backend", version="0.1.0", lifespan=lifespan)
 # and the browser never sees an Access-Control-Allow-Origin header.
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(AuthContextMiddleware)
+if settings.api_audit:
+    # Outside AuthContextMiddleware so its early 401/403s are recorded too,
+    # inside CORS for the reason above (preflights are skipped anyway).
+    event.listen(engine.sync_engine, "before_cursor_execute", count_audit_db_query)
+    app.add_middleware(ApiAuditMiddleware, log_path=settings.api_audit_log)
+if settings.perf_probe:
+    # Outside everything except CORS, so its total is the whole request.
+    perf_probe.install(engine)
+    app.add_middleware(perf_probe.PerfProbeMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origins,
@@ -134,6 +176,14 @@ async def anava_exception_handler(request: Request, exc: AnavaException) -> JSON
         status_code=exc.status_code,
         content={"error": {"code": exc.code, "message": exc.message, "details": exc.details}},
     )
+
+
+@app.exception_handler(PoolTimeoutError)
+async def pool_timeout_handler(request: Request, exc: PoolTimeoutError) -> JSONResponse:
+    """An endpoint waited db_pool_timeout_seconds for a database connection and
+    got none: overload. Without this it surfaced as a bare 500."""
+    logger.warning("db_pool_timeout", path=request.url.path, stage="endpoint")
+    return server_busy_response()
 
 
 @app.exception_handler(HTTPException)
@@ -152,6 +202,15 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 async def health() -> dict[str, str]:
     """Liveness — process is up. No dependency checks, no auth."""
     return {"status": "ok"}
+
+
+@app.get("/health/version")
+async def health_version() -> dict[str, int]:
+    """What the deploy workflow checks after a release: how many API paths
+    this build serves — the same number /openapi.json's "paths" gave, which
+    production no longer exposes. A bare count, nothing sensitive."""
+    # Built in-process (and cached by FastAPI) even though the URL is off.
+    return {"paths": len(app.openapi()["paths"])}
 
 
 @app.get("/health/ready")
@@ -180,6 +239,7 @@ app.include_router(inventory_router, prefix="/api/v1", tags=["inventory"])
 app.include_router(notifications_router, prefix="/api/v1", tags=["notifications"])
 app.include_router(reception_router, prefix="/api/v1/reception", tags=["reception"])
 app.include_router(reports_router, prefix="/api/v1", tags=["reports"])
+app.include_router(audit_router, prefix="/api/v1", tags=["audit"])
 
 
 @app.get("/api/v1/_internal/whoami")

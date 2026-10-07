@@ -60,6 +60,20 @@ class PatientSignupStart(BaseModel):
     guardian_name: str | None = None
     guardian_relationship: str | None = None
     guardian_contact: str | None = None
+    # Current flow: the password is chosen BEFORE the OTP and goes straight
+    # into Cognito SignUp. Omitted = legacy flow (Android app): OTP first,
+    # password set later via /signup/complete.
+    password: str | None = Field(default=None, min_length=8)
+    confirm_password: str | None = None
+
+
+class PatientSignupConfirm(PatientSignupStart):
+    """Step 2 of the current flow — the same form as Start (the wizard is
+    stateless server-side) plus the OTP. Verifies, creates the account and
+    logs in, in one request."""
+
+    password: str = Field(min_length=8)
+    code: str
 
 
 class PatientSignupResend(BaseModel):
@@ -208,6 +222,8 @@ class CurrentUserRead(BaseModel):
     last_name: str
     role: str
     clinic_id: UUID | None = None
+    clinic_name: str | None = None
+    clinic_city: str | None = None
     region_id: UUID | None = None
     is_active: bool = True
     consent_signed: bool = True
@@ -219,6 +235,12 @@ class CurrentUserRead(BaseModel):
     self_registered: bool = False
     patient_id: UUID | None = None
     registration_status: str | None = None
+    # role=='patient' only. 'rejected' is why is_active is False here despite
+    # registration_status=='registration_complete' — the frontend's own
+    # "sign your consent" gate (driven by consent_signed) would otherwise be
+    # the only explanation offered, which is wrong for this case (94).
+    approval_status: str | None = None
+    rejection_reason: str | None = None
     # doctors.doctor_id (public ID) — role=='doctor' only. FK columns store
     # profiles.id everywhere, but /doctors/{doctor_id}/... path params expect
     # this public ID, not profiles.id — the frontend has no other way to

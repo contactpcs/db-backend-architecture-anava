@@ -8,17 +8,23 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.core.db import RequestContext
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, NotFoundError, ValidationError, profile_conflict_error
 from app.core.profile_completion import PATIENT_FIELDS, compute_completion_percentage, compute_missing_fields
 from app.core.resolve import resolve_patient_profile_id as _resolve_profile_id
+from app.modules.patients.registration_risk import assess_registration, record_review
 from app.modules.patients.repository import (
     DoctorPatientAssignmentRepository,
+    PatientClinicalNoteRepository,
     PatientRepository,
     PatientTransferRepository,
+    PrescribedMedicineRepository,
 )
 from app.modules.staff.service import DoctorService
+
+settings = get_settings()
 
 
 def _is_minor(dob: date | None) -> bool:
@@ -68,7 +74,13 @@ class PatientService:
         self.assignments = DoctorPatientAssignmentRepository(session)
 
     async def register(
-        self, data: dict, *, self_registered: bool = False, cognito_sub: str | None = None, registered_by: UUID | None = None
+        self,
+        data: dict,
+        *,
+        self_registered: bool = False,
+        cognito_sub: str | None = None,
+        registered_by: UUID | None = None,
+        signup_ip: str | None = None,
     ) -> dict:
         clinic = (
             (
@@ -128,6 +140,7 @@ class PatientService:
                 approval_status="pending" if self_registered else "not_required",
                 cognito_sub=cognito_sub,
                 registered_by=registered_by,
+                signup_ip=signup_ip,
                 guardian_name=data.get("guardian_name"),
                 guardian_relationship=data.get("guardian_relationship"),
                 guardian_contact=data.get("guardian_contact"),
@@ -162,9 +175,23 @@ class PatientService:
             raise NotFoundError("Patient not found", code="PATIENT_NOT_FOUND")
         return _attach_completion(patient)
 
+    async def get_clinic(self, patient_id: UUID) -> dict:
+        clinic = await self.repo.get_clinic(patient_id)
+        if not clinic:
+            raise NotFoundError("No clinic found for this patient", code="PATIENT_CLINIC_NOT_FOUND")
+        return clinic
+
     async def list(self, **filters) -> builtins.list[dict]:
         patients = await self.repo.list(**filters)
         return [_attach_completion(p) for p in patients]
+
+    async def list_page(self, *, limit: int, offset: int, **filters) -> tuple[builtins.list[dict], int]:
+        """One SQL page + total (see repository.list_page). No completion
+        fields — list views don't show them."""
+        return await self.repo.list_page(limit=limit, offset=offset, **filters)
+
+    async def count(self, **filters) -> int:
+        return await self.repo.count(**filters)
 
     async def update(self, patient_id: UUID, fields: dict) -> dict:
         await self.get(patient_id)  # 404 if missing
@@ -222,27 +249,49 @@ class PatientService:
         """Receptionist review gate for self-registered patients — only
         reachable once the patient has finished the whole 6-step wizard
         themselves (Master Doc per this feature's design: receptionist only
-        sees the request after registration_complete, not partway through)."""
+        sees the request after registration_complete, not partway through).
+
+        'approved' is terminal (a real patient, already active — nothing
+        left to decide). 'rejected' is NOT terminal: the receptionist can
+        reconsider and approve it later, so the only decision this refuses
+        outright is repeating the SAME one twice (a second reject, or
+        approving an already-approved patient)."""
         patient = await self.get(patient_id)
         if patient["registration_status"] != "registration_complete":
             raise BusinessRuleError("Patient hasn't completed registration yet", code="REGISTRATION_INCOMPLETE")
-        if patient["approval_status"] != "pending":
-            raise BusinessRuleError(f"Approval already {patient['approval_status']}", code="APPROVAL_ALREADY_DECIDED")
+        if patient["approval_status"] == decision:
+            raise BusinessRuleError(f"Approval already {decision}", code="APPROVAL_ALREADY_DECIDED")
+        if patient["approval_status"] == "approved":
+            raise BusinessRuleError("Approval already approved", code="APPROVAL_ALREADY_DECIDED")
 
         await self.repo.set_approval(
             patient_id,
             approval_status=decision,
-            approved_by=decided_by,
+            decided_by=decided_by,
             rejection_reason=rejection_reason,
+            method="manual",
         )
-        if decision == "approved":
-            await self.session.execute(text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(patient["profile_id"])})
+        # is_active mirrors the CURRENT decision either way — approving flips
+        # it on (including re-approving a rejected patient), rejecting flips
+        # it back off (already off from registration, but explicit here
+        # covers the only other way in: a rejection reversing a re-approval).
+        await self.session.execute(
+            text("UPDATE profiles SET is_active = :active WHERE id = :id"),
+            {"active": decision == "approved", "id": str(patient["profile_id"])},
+        )
+        if decision == "rejected":
+            # End any session they already have, so they land back on login
+            # and see the rejection reason there instead of silently stalling
+            # on the "pending approval" screen. Best-effort; no-op locally.
+            from app.core.auth_session import sign_out_profile
+
+            await sign_out_profile(self.session, patient["profile_id"])
         await emit_event(
             self.session,
             aggregate_type="patient",
             aggregate_id=patient_id,
             event_type="patient_registration_decided",
-            payload={"patient_id": str(patient_id), "decision": decision},
+            payload={"patient_id": str(patient_id), "decision": decision, "method": "manual"},
         )
         return await self.get(patient_id)
 
@@ -357,10 +406,13 @@ class PatientService:
         # receptionist approval gate to wait on — activate them the moment
         # they finish the same registration-test sequence self-registered
         # patients go through (disease selection, anamnesis, general PRS).
-        # Self-registered patients (approval_status='pending') stay inactive
-        # here; decide_approval() is what activates them.
+        # Self-registered patients (approval_status='pending') are approved
+        # here only if every registration check passes; otherwise they stay
+        # inactive until a receptionist's decide_approval().
         if patient["approval_status"] == "not_required":
             await self.session.execute(text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(patient["profile_id"])})
+        elif patient["self_registered"] and patient["approval_status"] == "pending":
+            await self._review_self_registration(patient_id)
         updated = await self.repo.get(patient_id)
         await emit_event(
             self.session,
@@ -377,6 +429,28 @@ class PatientService:
             payload={"patient_id": str(patient_id), "doctor_id": str(doctor["doctor_id"])},
         )
         return updated  # type: ignore[return-value]
+
+    async def _review_self_registration(self, patient_id: UUID) -> None:
+        """Runs the registration checks (registration_risk.py) and stores their
+        flags. With auto_approve_self_registration on and no flag raised, the
+        patient is approved here and now, by the system; in every other case
+        they wait in the receptionist's queue as before, flags attached.
+        Never rejects."""
+        patient = await self.get(patient_id)
+        flags, digest = await assess_registration(self.session, patient)
+        await self.repo.set_risk_flags(patient_id, flags)
+        auto_approved = settings.auto_approve_self_registration and not flags
+        if auto_approved:
+            await self.repo.set_approval(patient_id, approval_status="approved", decided_by=None, rejection_reason=None, method="auto")
+            await self.session.execute(text("UPDATE profiles SET is_active = TRUE WHERE id = :id"), {"id": str(patient["profile_id"])})
+            await emit_event(
+                self.session,
+                aggregate_type="patient",
+                aggregate_id=patient_id,
+                event_type="patient_registration_decided",
+                payload={"patient_id": str(patient_id), "decision": "approved", "method": "auto"},
+            )
+        await record_review(self.session, patient, flags, digest, auto_approved=auto_approved)
 
 
 class FollowUpService:
@@ -677,3 +751,112 @@ class PatientVisitService:
             "prs_instances": prs_instances,
             "protocols": protocols,
         }
+
+
+class PrescribedMedicineService:
+    """Doctor-prescribed medicines for a patient (SQL/v1/96). Stopping one
+    never deletes it — stop/resume only flips its status, so the patient's
+    medication history stays whole."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repo = PrescribedMedicineRepository(session)
+        self.patients = PatientService(session)
+
+    async def list(self, patient_id: UUID) -> builtins.list[dict]:
+        patient = await self.patients.get(patient_id)
+        return await self.repo.list_for_patient(patient["profile_id"])
+
+    async def create(self, patient_id: UUID, data: dict, *, prescribed_by: UUID) -> dict:
+        patient = await self.patients.get(patient_id)
+        appointment_id = data.get("appointment_id")
+        if appointment_id is not None:
+            owner = (
+                await self.session.execute(
+                    text("SELECT patient_id FROM appointments WHERE appointment_id = :id"), {"id": str(appointment_id)}
+                )
+            ).scalar()
+            if owner is None:
+                raise NotFoundError("Appointment not found", code="APPOINTMENT_NOT_FOUND")
+            if str(owner) != str(patient["profile_id"]):
+                raise ValidationError("Appointment belongs to a different patient", code="APPOINTMENT_PATIENT_MISMATCH")
+        created = await self.repo.create(
+            {
+                "patient_id": str(patient["profile_id"]),
+                "clinic_id": str(patient["primary_clinic_id"]),
+                "prescribed_by": str(prescribed_by),
+                "appointment_id": str(appointment_id) if appointment_id else None,
+                "medicine_name": data["medicine_name"].strip(),
+                "dose": data.get("dose"),
+                "timing": data.get("timing"),
+                "meal_instruction": data.get("meal_instruction"),
+                "duration": data.get("duration"),
+                "note": data.get("note"),
+            }
+        )
+        await emit_event(
+            self.session,
+            aggregate_type="prescribed_medicine",
+            aggregate_id=created["medicine_id"],
+            event_type="medicine_prescribed",
+            payload={"medicine_id": str(created["medicine_id"]), "patient_id": str(patient_id)},
+        )
+        return created
+
+    async def get(self, medicine_id: UUID) -> dict:
+        row = await self.repo.get(medicine_id)
+        if not row:
+            raise NotFoundError("Prescribed medicine not found", code="MEDICINE_NOT_FOUND")
+        return row
+
+    async def set_status(self, medicine_id: UUID, *, status: str, changed_by: UUID) -> dict:
+        row = await self.get(medicine_id)
+        if row["status"] == status:
+            return row
+        updated = await self.repo.set_status(medicine_id, status=status, changed_by=changed_by)
+        return updated or row
+
+
+class PatientClinicalNoteService:
+    """Doctor's clinical notes for a patient (SQL/v1/99) — a free-form,
+    categorized, chronological note log. Append-only: no edit/delete."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repo = PatientClinicalNoteRepository(session)
+        self.patients = PatientService(session)
+
+    async def list(self, patient_id: UUID) -> builtins.list[dict]:
+        patient = await self.patients.get(patient_id)
+        return await self.repo.list_for_patient(patient["profile_id"])
+
+    async def create(self, patient_id: UUID, data: dict, *, doctor_id: UUID) -> dict:
+        patient = await self.patients.get(patient_id)
+        appointment_id = data.get("appointment_id")
+        if appointment_id is not None:
+            owner = (
+                await self.session.execute(
+                    text("SELECT patient_id FROM appointments WHERE appointment_id = :id"), {"id": str(appointment_id)}
+                )
+            ).scalar()
+            if owner is None:
+                raise NotFoundError("Appointment not found", code="APPOINTMENT_NOT_FOUND")
+            if str(owner) != str(patient["profile_id"]):
+                raise ValidationError("Appointment belongs to a different patient", code="APPOINTMENT_PATIENT_MISMATCH")
+        created = await self.repo.create(
+            {
+                "patient_id": str(patient["profile_id"]),
+                "doctor_id": str(doctor_id),
+                "appointment_id": str(appointment_id) if appointment_id else None,
+                "category": data["category"],
+                "note_text": data["note_text"].strip(),
+            }
+        )
+        await emit_event(
+            self.session,
+            aggregate_type="patient_clinical_note",
+            aggregate_id=created["note_id"],
+            event_type="clinical_note_added",
+            payload={"note_id": str(created["note_id"]), "patient_id": str(patient_id)},
+        )
+        return created

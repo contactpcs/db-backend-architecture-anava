@@ -1,6 +1,6 @@
 """Outbox relay (Architecture ADR-006 / Section 25.2). Drains outbox_events,
 resolves who should be notified for each event type, writes notifications
-rows, and publishes to each recipient's Redis channel for the SSE feed.
+rows, and sends each recipient a live push for the SSE feed (core/live.py).
 
 Run continuously: `python -m app.workers.event_relay`
 Uses Postgres LISTEN/NOTIFY (SQL/17_outbox_events.sql trigger) to wake
@@ -26,8 +26,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import get_settings
-from app.core.db import get_migration_engine
-from app.core.pubsub import publish_to_user
+from app.core.db import get_worker_engine
+from app.core.live import USER_STREAM
 from app.modules.notifications.repository import NotificationRepository
 
 logger = structlog.get_logger()
@@ -35,6 +35,13 @@ settings = get_settings()
 
 POLL_INTERVAL_SECONDS = 5.0
 HEARTBEAT_SECONDS = 300.0
+
+# A failed event is retried after a doubling delay (30 s, 1, 2, 4 min). After
+# the last attempt it is parked (failed_at set, last_error kept) and never
+# picked up again, so one bad event cannot block the events behind it. To
+# replay a parked event see SQL/v1/102.
+MAX_ATTEMPTS = 5
+RETRY_BASE_SECONDS = 30.0
 
 # Live counters for the heartbeat log and GET /api/v1/health/live — the only
 # way to tell from outside whether the relay is idle because there is nothing
@@ -45,47 +52,37 @@ RELAY_STATE: dict[str, Any] = {
     "last_event_at": None,
     "processed_total": 0,
     "handler_failures_total": 0,
-    "live_push_failures_total": 0,
     "last_error": None,
 }
 
-# rls_notif_insert requires rls_user_role() to be a real staff role — set by
-# AuthContextMiddleware inside an HTTP request. This worker has no request
-# (no HTTP call, no JWT, nothing to impersonate) — it's writing on behalf of
-# the system for an arbitrary recipient, not as any one staff member, so
-# there's no role to set even if we wanted to. Same "bare script, no RLS
-# context, scoped anava_app role rejects the INSERT regardless" issue
-# get_migration_engine()'s docstring describes for seed scripts — the fix is
-# the same: use the master connection, not the scoped one, for this
-# system-level write. Created once at import time (this is a long-running
-# worker, not a short script) rather than per drain cycle.
-_relay_engine = get_migration_engine()
+# Runs on the ordinary app login (anava_app, subject to RLS) as RLS role
+# 'system', set per transaction in drain_outbox()/relay_backlog(). The
+# policies that role needs — read the outbox and recipient lookups, mark
+# events published, write notifications — are SQL/v1/93 and 102. It used to connect
+# with the RDS master credentials instead, which put them in the API
+# container. Created once at import time (long-running worker).
+_relay_engine = get_worker_engine()
 _relay_session_factory = async_sessionmaker(_relay_engine, expire_on_commit=False, autoflush=False)
 
 
-async def _handle_appointment_booked(session, payload: dict[str, Any]) -> list[dict]:
-    """Notifies the doctor a new appointment landed on their calendar, and the
-    patient that their booking went through.
+async def _booking(session, appointment_id: str | None) -> dict[str, Any] | None:
+    """The appointment, plus the words the booking messages are built from:
+    who it is for, what kind of visit, and when.
 
-    Reads the row itself rather than trusting payload shape — the two emit
-    sites (staff booking on a patient's behalf vs. a patient's own
-    book_initial/book_follow_up) send different payloads, and the old
-    doctor_id-from-payload version silently no-opped for the patient
-    self-booking path (its payload carries no doctor_id at all), so a patient
-    booking their own appointment got told nothing. appointment_id is the one
-    thing both emit sites always send.
-
-    Worded by status, not a separate 'confirmed' state — this app's status
-    vocabulary has no such value; 'paid' IS confirmed (payment bypassed or
-    already settled), 'selected' means the slot is held pending payment.
-    """
-    appointment_id = payload.get("appointment_id")
+    Read from the row rather than the event payload: the emit sites (staff
+    booking on a patient's behalf, a patient's own booking, a slot claim, a
+    payment) send different payloads, and appointment_id is the one thing all
+    of them always send."""
     if not appointment_id:
-        return []
+        return None
     row = (
         (
             await session.execute(
-                text("SELECT patient_id, doctor_id, status, appointment_type FROM appointments WHERE appointment_id = :id"),
+                text(
+                    "SELECT a.patient_id, a.doctor_id, a.status, a.appointment_type, a.appointment_date, a.start_time, "
+                    "p.first_name, p.last_name "
+                    "FROM appointments a JOIN profiles p ON p.id = a.patient_id WHERE a.appointment_id = :id"
+                ),
                 {"id": appointment_id},
             )
         )
@@ -93,71 +90,87 @@ async def _handle_appointment_booked(session, payload: dict[str, Any]) -> list[d
         .first()
     )
     if not row:
+        return None
+    scheduled = row["appointment_date"] and row["start_time"]
+    return {
+        **row,
+        "appointment_id": appointment_id,
+        "patient": f"{row['first_name']} {row['last_name']}".strip(),
+        "kind": (row["appointment_type"] or "appointment").replace("_", " ").capitalize(),
+        "when": f"{row['appointment_date']:%a, %d %b %Y} at {row['start_time']:%I:%M %p}" if scheduled else "a time still to be set",
+    }
+
+
+def _booking_note(booking: dict[str, Any], recipient: str, title: str, body: str) -> dict:
+    return {
+        "recipient_id": str(booking[recipient]),
+        "type": "appointment",
+        "title": title,
+        "body": body,
+        "entity_type": "appointment",
+        "entity_id": booking["appointment_id"],
+    }
+
+
+def _slot_booked_for_doctor(booking: dict[str, Any]) -> dict:
+    return _booking_note(booking, "doctor_id", "Slot booked", f"{booking['patient']} booked {booking['when']} ({booking['kind']}).")
+
+
+async def _handle_appointment_booked(session, payload: dict[str, Any]) -> list[dict]:
+    """Tells the doctor and the patient about a new booking.
+
+    Worded by status, not a separate 'confirmed' state — this app's status
+    vocabulary has no such value; 'paid' IS confirmed (payment bypassed or
+    already settled), 'selected' means the slot is held pending payment. A
+    held slot is confirmed later by _handle_appointment_paid.
+    """
+    booking = await _booking(session, payload.get("appointment_id"))
+    if not booking:
         return []
+    confirmed = booking["status"] == "paid"
+    kind, when = booking["kind"], booking["when"]
 
     notifications = []
-    if row["doctor_id"]:
+    if booking["doctor_id"]:
         notifications.append(
-            {
-                "recipient_id": str(row["doctor_id"]),
-                "type": "appointment",
-                "title": "New appointment booked",
-                "body": f"Appointment {appointment_id} was booked on your calendar.",
-                "entity_type": "appointment",
-                "entity_id": appointment_id,
-            }
+            _slot_booked_for_doctor(booking)
+            if confirmed
+            else _booking_note(
+                booking,
+                "doctor_id",
+                "New booking, awaiting payment",
+                f"{booking['patient']} is holding {when} ({kind}). It is confirmed once paid.",
+            )
         )
-    kind = (row["appointment_type"] or "").replace("_", " ").title()
     notifications.append(
-        {
-            "recipient_id": str(row["patient_id"]),
-            "type": "appointment",
-            "title": "Your appointment is confirmed" if row["status"] == "paid" else "Your appointment is booked",
-            "body": (
-                f"{kind} appointment confirmed."
-                if row["status"] == "paid"
-                else f"{kind} appointment held — complete payment to confirm your slot."
-            ),
-            "entity_type": "appointment",
-            "entity_id": appointment_id,
-        }
+        _booking_note(booking, "patient_id", "Your slot is booked", f"{kind} on {when} is confirmed.")
+        if confirmed
+        else _booking_note(booking, "patient_id", "Your slot is held", f"{kind} on {when} is held for you. Complete payment to confirm it.")
     )
     return notifications
 
 
 async def _handle_appointment_paid(session, payload: dict[str, Any]) -> list[dict]:
-    """Notifies the patient their payment landed and the visit is confirmed.
-    Fires from AppointmentService.mark_paid() ('selected' -> 'paid') — the
-    hold-then-pay path _handle_appointment_booked's 'booked' message already
-    covered as pending. payment_completed (payments/service.py) fires for the
-    identical real-world moment but is deliberately NOT given a handler here
-    too — mark_paid() is called from the same payment-success codepath, so
-    wiring both would double-notify the same patient for one event."""
-    appointment_id = payload.get("appointment_id")
-    if not appointment_id:
+    """Tells the patient their payment landed, and the doctor that the held
+    slot is now booked. Fires from AppointmentService.mark_paid()
+    ('selected' -> 'paid'). payment_completed (payments/service.py) fires for
+    the identical real-world moment but is deliberately NOT given a handler
+    here too — mark_paid() is called from the same payment-success codepath,
+    so wiring both would double-notify for one event."""
+    booking = await _booking(session, payload.get("appointment_id"))
+    if not booking:
         return []
-    row = (
-        (
-            await session.execute(
-                text("SELECT patient_id, appointment_date, start_time FROM appointments WHERE appointment_id = :id"),
-                {"id": appointment_id},
-            )
+    notifications = [
+        _booking_note(
+            booking,
+            "patient_id",
+            "Payment successful — your slot is booked",
+            f"{booking['kind']} on {booking['when']} is confirmed.",
         )
-        .mappings()
-        .first()
-    )
-    if not row:
-        return []
-    return [
-        {
-            "recipient_id": str(row["patient_id"]),
-            "type": "appointment",
-            "title": "Payment received — appointment confirmed",
-            "body": f"Your appointment on {row['appointment_date']} at {row['start_time']} is confirmed.",
-            "entity_type": "appointment",
-            "entity_id": appointment_id,
-        }
     ]
+    if booking["doctor_id"]:
+        notifications.append(_slot_booked_for_doctor(booking))
+    return notifications
 
 
 async def _handle_registration_completed(session, payload: dict[str, Any]) -> list[dict]:
@@ -490,44 +503,40 @@ EVENT_HANDLERS = {
 
 
 async def _process_event(session, event: dict) -> None:
+    """Writes the event's notifications and queues a live push for each. The
+    push is a NOTIFY in this same transaction, so Postgres delivers it only
+    if the notification is committed (core/live.py)."""
     handler = EVENT_HANDLERS.get(event["event_type"])
     if not handler:
         return
     payload = json.loads(event["payload"]) if isinstance(event["payload"], str) else event["payload"]
-    notifications = await handler(session, payload)
     repo = NotificationRepository(session)
-    for note in notifications:
+    for note in await handler(session, payload):
         record = await repo.create(note)
-        # The notifications row is the durable record; the Redis push only
-        # makes it appear live. Redis being down must not roll the row back
-        # (the event is marked published either way, so it would be lost).
-        try:
-            await publish_to_user(
-                note["recipient_id"],
-                json.dumps(
-                    {
-                        "type": record["type"],
-                        "title": record["title"],
-                        "body": record["body"],
-                        "notification_id": str(record["notification_id"]),
-                    }
-                ),
-            )
-        except Exception as exc:
-            RELAY_STATE["live_push_failures_total"] += 1
-            logger.warning("event_relay_live_push_failed", recipient_id=str(note["recipient_id"]), error=repr(exc))
+        # A NOTIFY payload is capped at 8000 bytes; the row keeps the full text.
+        message = {
+            "type": record["type"],
+            "title": record["title"][:200],
+            "body": record["body"] and record["body"][:1000],
+            "notification_id": str(record["notification_id"]),
+        }
+        await session.execute(
+            text("SELECT pg_notify(:channel, :payload)"),
+            {"channel": USER_STREAM, "payload": f"{note['recipient_id']} {json.dumps(message, ensure_ascii=False)}"},
+        )
 
 
 async def drain_outbox(limit: int = 100) -> int:
-    """Processes up to `limit` unpublished events. Returns count processed.
+    """Processes up to `limit` due events. Returns count processed.
     Exposed separately from run_forever() so tests/scripts can drain
     synchronously without starting the long-running listener.
 
     One transaction per event, claimed with FOR UPDATE SKIP LOCKED: every API
     instance runs this relay (app/main.py lifespan), and SKIP LOCKED is what
     stops two of them sending the same notification twice. A handler failure
-    rolls back to a savepoint and is logged — the event is still marked
-    published, so one bad notification never blocks the queue behind it."""
+    rolls back to a savepoint, so a retry never leaves a second copy of a
+    notification; the event stays unpublished and is retried later (see
+    MAX_ATTEMPTS)."""
     processed = 0
     while processed < limit:
         async with _relay_session_factory() as session:
@@ -541,7 +550,9 @@ async def drain_outbox(limit: int = 100) -> int:
                     (
                         await session.execute(
                             text(
-                                "SELECT * FROM outbox_events WHERE published_at IS NULL ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED"
+                                "SELECT * FROM outbox_events "
+                                "WHERE published_at IS NULL AND failed_at IS NULL AND next_attempt_at <= now() "
+                                "ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED"
                             )
                         )
                     )
@@ -558,10 +569,20 @@ async def drain_outbox(limit: int = 100) -> int:
                     RELAY_STATE["handler_failures_total"] += 1
                     RELAY_STATE["last_error"] = f"{event['event_type']}: {exc!r}"[:500]
                     logger.exception("event_relay_handler_failed", outbox_id=str(event["outbox_id"]), event_type=event["event_type"])
-                await session.execute(
-                    text("UPDATE outbox_events SET published_at = NOW() WHERE outbox_id = :id"),
-                    {"id": event["outbox_id"]},
-                )
+                    await session.execute(
+                        text(
+                            "UPDATE outbox_events SET publish_attempts = publish_attempts + 1, last_error = :error, "
+                            "failed_at = CASE WHEN publish_attempts + 1 >= :max_attempts THEN now() END, "
+                            "next_attempt_at = now() + make_interval(secs => CAST(:base AS double precision) * power(2, publish_attempts)) "
+                            "WHERE outbox_id = :id"
+                        ),
+                        {"id": event["outbox_id"], "error": repr(exc)[:2000], "max_attempts": MAX_ATTEMPTS, "base": RETRY_BASE_SECONDS},
+                    )
+                else:
+                    await session.execute(
+                        text("UPDATE outbox_events SET published_at = now() WHERE outbox_id = :id"),
+                        {"id": event["outbox_id"]},
+                    )
         processed += 1
         RELAY_STATE["processed_total"] += 1
         RELAY_STATE["last_event_at"] = time.time()
@@ -573,7 +594,7 @@ async def relay_backlog() -> dict[str, Any]:
     """Undelivered outbox events as the relay itself sees them (same engine,
     same 'system' role) — 0 while events are clearly being created means the
     relay can't see them (RLS/login), a growing number means it isn't
-    draining."""
+    draining. `failed` counts events it gave up on (see MAX_ATTEMPTS)."""
     async with _relay_session_factory() as session:
         async with session.begin():
             await session.execute(text("SELECT set_config('app.current_user_role', 'system', true)"))
@@ -581,7 +602,10 @@ async def relay_backlog() -> dict[str, Any]:
                 (
                     await session.execute(
                         text(
-                            "SELECT count(*) AS n, EXTRACT(EPOCH FROM now() - min(created_at)) AS oldest_s, current_user AS db_login "
+                            "SELECT count(*) FILTER (WHERE failed_at IS NULL) AS n, "
+                            "count(*) FILTER (WHERE failed_at IS NOT NULL) AS failed, "
+                            "EXTRACT(EPOCH FROM now() - min(created_at) FILTER (WHERE failed_at IS NULL)) AS oldest_s, "
+                            "current_user AS db_login "
                             "FROM outbox_events WHERE published_at IS NULL"
                         )
                     )
@@ -589,7 +613,12 @@ async def relay_backlog() -> dict[str, Any]:
                 .mappings()
                 .one()
             )
-    return {"undelivered": int(row["n"]), "oldest_undelivered_seconds": row["oldest_s"], "db_login": row["db_login"]}
+    return {
+        "undelivered": int(row["n"]),
+        "failed": int(row["failed"]),
+        "oldest_undelivered_seconds": row["oldest_s"],
+        "db_login": row["db_login"],
+    }
 
 
 async def _heartbeat_forever() -> None:
@@ -605,7 +634,6 @@ async def _heartbeat_forever() -> None:
             "event_relay_heartbeat",
             processed_total=RELAY_STATE["processed_total"],
             handler_failures_total=RELAY_STATE["handler_failures_total"],
-            live_push_failures_total=RELAY_STATE["live_push_failures_total"],
             **backlog,
         )
 
@@ -614,8 +642,10 @@ async def _listen_and_drain() -> None:
     dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     conn = await asyncpg.connect(dsn)
     wake = asyncio.Event()
-    await conn.add_listener("outbox_new_event", lambda *_: wake.set())
     try:
+        # Inside the try so a failed add_listener still closes the connection
+        # instead of leaking one slot per relay restart.
+        await conn.add_listener("outbox_new_event", lambda *_: wake.set())
         while True:
             n = await drain_outbox()
             if n:

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import builtins
+import json
 from uuid import UUID
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
@@ -19,6 +21,16 @@ from app.modules.prs.repository import (
 )
 from app.modules.prs.scoring_rules import compute_scale_score
 from app.modules.scheduling.repository import AppointmentRepository
+
+
+def _json_field(value, fallback):
+    """JSONB columns arrive as str from raw text() queries."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return fallback
+    return value if value is not None else fallback
 
 
 def _is_skipped(q: dict, questions: list[dict], given_by_qid: dict[str, str]) -> bool:
@@ -90,6 +102,32 @@ class PatientScaleAssignmentService:
             assignment_reason=assignment_reason,
         )
 
+    async def create_many(
+        self,
+        *,
+        patient_id: UUID,
+        scale_ids: builtins.list[str],
+        disease_id: str,
+        assessment_stage: str,
+        assigned_by: UUID,
+        assignment_reason: str,
+    ) -> builtins.list[dict]:
+        """Same rows create() makes, one per scale, in the request's single
+        transaction — all assigned or none (API audit F-042). Duplicate ids
+        in the request are created once."""
+        profile_id = await _resolve_profile_id(self.repo.session, patient_id)
+        return [
+            await self.repo.create(
+                patient_id=profile_id,
+                scale_id=scale_id,
+                disease_id=disease_id,
+                assessment_stage=assessment_stage,
+                assigned_by=assigned_by,
+                assignment_reason=assignment_reason,
+            )
+            for scale_id in dict.fromkeys(scale_ids)
+        ]
+
     async def list(self, patient_id: UUID, *, assessment_stage: str | None = None) -> builtins.list[dict]:
         profile_id = await _resolve_profile_id(self.repo.session, patient_id)
         return await self.repo.list(patient_id=profile_id, assessment_stage=assessment_stage)
@@ -150,6 +188,54 @@ class PrsAssessmentService:
         profile_id = await _resolve_profile_id(self.session, patient_id)
         return await self.scale_results.latest_for_patient(profile_id, disease_id)
 
+    async def scores_summary(self, patient_id: UUID, *, assessment_stage: str | None = None) -> dict:
+        """Every PRS instance of a patient with its scores, in a fixed number
+        of queries. Same shape the frontend used to compose itself from
+        /prs-instances + per completed instance /results, /prs-assessment-
+        instances/{id}, /prs-catalog/diseases and /disease-composite (4 calls
+        per instance — API audit fix F-002). Score fields come from the
+        current as-of disease composite, exactly as the old composition did;
+        in-progress instances carry no scores."""
+        profile_id = await _resolve_profile_id(self.session, patient_id)
+        rows = await self.instances.list_for_patient_with_disease_name(profile_id, assessment_stage=assessment_stage)
+        completed = [r["instance_id"] for r in rows if r["status"] == "completed"]
+        scales_by_instance: dict[str, list[dict]] = {}
+        for sr in await self.scale_results.list_for_instances(completed):
+            scales_by_instance.setdefault(sr["instance_id"], []).append(
+                {
+                    **sr,
+                    "scale_result_id": sr.get("scale_result_id") or sr["scale_id"],
+                    "scale_code": sr["scale_code"] or sr["scale_id"].split("/")[0],
+                    "scale_name": sr["scale_name"] or sr["scale_code"] or sr["scale_id"].split("/")[0],
+                    "subscale_scores": _json_field(sr.get("subscale_scores"), {}),
+                    "risk_flags": _json_field(sr.get("risk_flags"), []),
+                }
+            )
+        composites = await self.scale_results.latest_composites_for_patient(profile_id) if completed else {}
+
+        instances = []
+        for r in rows:
+            item = {
+                "instance_id": r["instance_id"],
+                "disease_id": r["disease_id"] or "",
+                "status": r["status"],
+                "completed_at": r["completed_at"],
+                "appointment_id": r["appointment_id"],
+            }
+            if r["status"] == "completed":
+                comp = composites.get(r["disease_id"]) or {}
+                value = comp.get("calculated_value")
+                item.update(
+                    disease_name=r["disease_name"] or r["disease_id"],
+                    disease_score=float(value) if value is not None else None,
+                    percentage=float(value) if value is not None else None,
+                    severity_level=comp.get("severity_level"),
+                    severity_label=comp.get("severity_label"),
+                    scale_summaries=scales_by_instance.get(r["instance_id"], []),
+                )
+            instances.append(item)
+        return {"instances": instances, "total": len(instances), "diseases": len({i["disease_id"] for i in instances})}
+
     async def list_for_patient(self, patient_id: UUID, *, assessment_stage: str | None = None) -> list[dict]:
         """Used by the admin/staff patient-detail view to show a patient's
         PRS history (e.g. their general_registration assessment) without
@@ -207,27 +293,42 @@ class PrsAssessmentService:
             )
         return result
 
-    async def _compose_scales(self, instance: dict, *, language_code: str) -> list[dict]:
+    async def _compose_scales(self, instance: dict, *, language_code: str, only_scale_id: str | None = None) -> list[dict]:
         """Shared by start() and set_language() — same scales[] shape (each
         with its questions/options translated into language_code), so a
         language switch re-renders through the identical response shape the
         frontend already handles from start()."""
-        profile_id = instance["patient_id"]
-        assignment_repo = PatientScaleAssignmentRepository(self.session)
-        assignments = await assignment_repo.list(
-            patient_id=profile_id, assessment_stage=instance["assessment_stage"], disease_id=instance["disease_id"]
-        )
-        # patient_scale_assignments has no uniqueness constraint on
-        # (patient, scale, disease, stage) — re-assigning the same scale
-        # (e.g. a CA re-sending it, or two separate callers targeting the
-        # same scale) creates another row rather than upserting one. A
-        # plain list comprehension over every row duplicated the scale in
-        # the composed list, which the frontend then rendered twice with
-        # the same scale_id (React key collisions) and let the patient
-        # partially answer one copy while the other stayed unanswered,
-        # blocking the assessment from ever reading as complete. dict.
-        # fromkeys preserves first-seen order while deduping.
-        scale_ids = list(dict.fromkeys(a["scale_id"] for a in assignments))
+        # A device session administers ONE specific scale at a time
+        # (device_session_scales seeds one row per due scale — see
+        # treatment_protocols.service), not "every scale mapped to this
+        # disease." Without only_scale_id, an appointment-scoped instance
+        # for a scale that isn't in patient_scale_assignments (device-session
+        # scales never are — they come from protocol_scales, not the
+        # standalone assignment flow) fell through to the disease-catalog
+        # fallback below and pulled in ALL of the disease's scales (e.g. 7
+        # for ATAXIA) instead of the 1 actually being administered. The
+        # instance could then never reach 'completed' from a single scale's
+        # worth of answers, and the appointment_id-scoped resume path in
+        # start() would keep it stuck 'in_progress' forever.
+        if only_scale_id is not None:
+            scale_ids = [only_scale_id]
+        else:
+            profile_id = instance["patient_id"]
+            assignment_repo = PatientScaleAssignmentRepository(self.session)
+            assignments = await assignment_repo.list(
+                patient_id=profile_id, assessment_stage=instance["assessment_stage"], disease_id=instance["disease_id"]
+            )
+            # patient_scale_assignments has no uniqueness constraint on
+            # (patient, scale, disease, stage) — re-assigning the same scale
+            # (e.g. a CA re-sending it, or two separate callers targeting the
+            # same scale) creates another row rather than upserting one. A
+            # plain list comprehension over every row duplicated the scale in
+            # the composed list, which the frontend then rendered twice with
+            # the same scale_id (React key collisions) and let the patient
+            # partially answer one copy while the other stayed unanswered,
+            # blocking the assessment from ever reading as complete. dict.
+            # fromkeys preserves first-seen order while deduping.
+            scale_ids = list(dict.fromkeys(a["scale_id"] for a in assignments))
         if not scale_ids:
             # general_registration has no disease to look up (disease
             # selection removed from registration — 70_remove_disease_
@@ -259,7 +360,7 @@ class PrsAssessmentService:
         # scales status for that, never this is_completed field (checked:
         # only the standalone [permissionId] page consumes it).
         completed_scale_ids = await self.scale_results.completed_scale_ids_for_standalone_patient(
-            instance["patient_id"], instance["assessment_stage"]
+            instance["patient_id"], instance["assessment_stage"], disease_id=instance["disease_id"]
         )
 
         scales = []
@@ -300,6 +401,7 @@ class PrsAssessmentService:
         initiated_by: str = "patient",
         language_code: str = "en",
         appointment_id=None,
+        scale_id: str | None = None,
     ) -> dict:
         """Composed in one round trip: resumes an in-progress instance for
         this patient/disease/stage instead of creating a duplicate, then
@@ -308,10 +410,24 @@ class PrsAssessmentService:
         may have overridden the set) with full question+option data and each
         scale's completion state. Previously this only ever created a bare
         instance row and returned scales=[] — nothing downstream could
-        render an actual question without a second, never-built endpoint."""
+        render an actual question without a second, never-built endpoint.
+
+        scale_id, when given, scopes the whole instance to just that one
+        scale (see _compose_scales) — the device-session "administer this
+        scale" flow, which has no patient_scale_assignments row for the
+        scale it wants and would otherwise fall back to every scale mapped
+        to the disease."""
         if disease_id is None and assessment_stage != "general_registration":
             raise ValidationError(f"disease_id is required for assessment_stage={assessment_stage!r}", code="DISEASE_ID_REQUIRED")
         profile_id = await _resolve_profile_id(self.session, patient_id)
+        # Staff (doctor / clinical assistant) take a PRS only under an
+        # appointment, so every staff-taken PRS belongs to a visit and shows
+        # in that visit's tab for the whole care team. The patient's own PRS
+        # and the registration intake are not tied to a visit.
+        staff_visit_prs = initiated_by != "patient" and assessment_stage != "general_registration"
+        if staff_visit_prs and appointment_id is None:
+            raise ValidationError("A PRS taken by staff needs its appointment_id", code="PRS_APPOINTMENT_REQUIRED")
+        appt = None
         if appointment_id is not None:
             appt = await AppointmentRepository(self.session).get(appointment_id)
             if not appt:
@@ -364,16 +480,46 @@ class PrsAssessmentService:
             is_resumed = True
             is_readonly_completed = True
         else:
-            instance = await self.instances.create(
-                disease_id=disease_id,
-                patient_id=profile_id,
-                session_id=session_id,
-                initiated_by=initiated_by,
-                administered_by=administered_by,
-                assessment_stage=assessment_stage,
-                language_code=language_code,
-                appointment_id=appointment_id,
-            )
+            # Only a NEW instance is gated: reopening one already taken under
+            # this appointment (above) stays possible after the visit ends.
+            # A device session's scales are exempt - they may be answered
+            # after the session completes (protocol_scales cadence).
+            if staff_visit_prs and appt and appt["appointment_type"] != "device_session" and appt["status"] != "in_progress":
+                raise BusinessRuleError("Start the consultation before taking the PRS", code="CONSULTATION_NOT_STARTED")
+            try:
+                # Savepoint: two concurrent starts both land here; for
+                # general_registration uq_prs_one_general_registration (95)
+                # rejects the second insert, and that must not abort the
+                # request — it resumes the instance the winner created.
+                async with self.session.begin_nested():
+                    instance = await self.instances.create(
+                        disease_id=disease_id,
+                        patient_id=profile_id,
+                        session_id=session_id,
+                        initiated_by=initiated_by,
+                        administered_by=administered_by,
+                        assessment_stage=assessment_stage,
+                        language_code=language_code,
+                        appointment_id=appointment_id,
+                    )
+            except IntegrityError:
+                winner = await self.instances.find_in_progress(
+                    patient_id=profile_id, disease_id=disease_id, assessment_stage=assessment_stage
+                ) or await self.instances.find_completed_standalone(
+                    patient_id=profile_id, disease_id=disease_id, assessment_stage=assessment_stage
+                )
+                if winner is None:
+                    raise
+                instance = winner
+                is_resumed = True
+                is_readonly_completed = winner["status"] == "completed"
+                scales = await self._compose_scales(instance, language_code=instance["language_code"], only_scale_id=scale_id)
+                return {
+                    "instance_id": instance["instance_id"],
+                    "is_resumed": is_resumed,
+                    "is_readonly_completed": is_readonly_completed,
+                    "scales": scales,
+                }
             await emit_event(
                 self.session,
                 aggregate_type="prs_assessment_instance",
@@ -384,7 +530,7 @@ class PrsAssessmentService:
 
         # Resumed instance keeps whatever language it was already set to
         # (the patient picks language via set_language(), not by re-starting).
-        scales = await self._compose_scales(instance, language_code=instance["language_code"])
+        scales = await self._compose_scales(instance, language_code=instance["language_code"], only_scale_id=scale_id)
         return {
             "instance_id": instance["instance_id"],
             "is_resumed": is_resumed,
@@ -431,7 +577,10 @@ class PrsAssessmentService:
             # retry, not a resubmission.
             if instance["appointment_id"] is None:
                 already_completed = await self.scale_results.completed_scale_ids_for_standalone_patient(
-                    instance["patient_id"], instance["assessment_stage"], exclude_instance_id=instance_id
+                    instance["patient_id"],
+                    instance["assessment_stage"],
+                    disease_id=instance["disease_id"],
+                    exclude_instance_id=instance_id,
                 )
                 if finalize_scale_id in already_completed:
                     raise BusinessRuleError(
@@ -567,8 +716,15 @@ class PrsAssessmentService:
         )
         await self.scale_results.ensure_baseline(patient_id, disease_id)
 
-    async def results(self, instance_id: str) -> dict:
-        await self.get(instance_id)
+    async def results(self, instance_id: str, instance: dict | None = None) -> dict:
+        """Scale results + final result, plus the instance row and the
+        current as-of disease composite — the results page used to fetch
+        those two separately (API audit F-014). instance: pass it when the
+        caller already loaded it (the router does, for its ownership check)."""
+        instance = instance or await self.get(instance_id)
         scale_results = await self.scale_results.list_for_instance(instance_id)
         final = await self.scale_results.final_result(instance_id)
-        return {"scale_results": scale_results, "final_result": final}
+        composite = None
+        if instance.get("disease_id"):
+            composite = await self.scale_results.latest_for_patient(instance["patient_id"], instance["disease_id"])
+        return {"scale_results": scale_results, "final_result": final, "instance": instance, "disease_composite": composite}

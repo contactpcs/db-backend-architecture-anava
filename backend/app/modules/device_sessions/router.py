@@ -52,6 +52,29 @@ async def list_my_pending_device_session_scales(
     return await DeviceSessionService(db).list_pending_for_caller(ctx)
 
 
+@router.get("/me/device-session-scale-summaries", response_model=list[s.SessionScaleSummaryRead])
+async def list_my_device_session_scale_summaries(
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("patient")),
+):
+    """Scale counts (total / completed / actionable) for every one of the
+    caller's device sessions in one call — the patient device-sessions list
+    used to call /device-sessions/{id}/scales once per row (API audit F-012)."""
+    return await DeviceSessionService(db).scale_summaries_for_caller(ctx)
+
+
+@router.get("/treatment-protocols/{protocol_id}/device-session-summaries", response_model=list[s.DeviceSessionSummaryRead])
+async def list_protocol_device_session_summaries(
+    protocol_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
+):
+    """Status, feedback answers and adverse-event count for every device
+    session of a protocol — what the doctor's treatment plan tallies. Was one
+    full GET /device-sessions/{id} per completed session (API audit F-043)."""
+    return await DeviceSessionService(db).summaries_for_protocol(protocol_id, ctx)
+
+
 @router.get("/device-sessions/{appointment_id}", response_model=s.DeviceSessionDetail)
 async def get_device_session(
     appointment_id: UUID,

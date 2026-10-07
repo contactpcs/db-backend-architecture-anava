@@ -29,6 +29,16 @@ from app.core.sql_helpers import fetch_one, fetch_optional, insert_returning
 #                           a.doctor_id is always set in practice); this is
 #                           now just an alias of a.doctor_id/dp, kept as its
 #                           own field so callers don't have to know that.
+# Lean FROM for page counts — same aliases the shared WHERE uses, without
+# _APPT_SELECT's per-row subqueries.
+_PAGE_COUNT_FROM = (
+    "FROM appointments a "
+    "JOIN profiles pp ON pp.id = a.patient_id "
+    "LEFT JOIN profiles dp ON dp.id = a.doctor_id "
+    "LEFT JOIN patients pt ON pt.profile_id = a.patient_id"
+)
+SUPERSEDED_CANCELLATION_REASON = "Superseded by protocol amendment"
+
 _APPT_SELECT = (
     "SELECT a.*, pp.first_name || ' ' || pp.last_name AS patient_name, "
     "dp.first_name || ' ' || dp.last_name AS doctor_name, "
@@ -59,6 +69,10 @@ _APPT_SELECT = (
     # appointment reads are the one endpoint patients can already call.
     "tp.version_major AS protocol_version_major, "
     "tp.version_minor AS protocol_version_minor, "
+    # The protocol's own status (active/completed/superseded/...) — the
+    # patient device-sessions page needs only this from the protocol and
+    # used to fetch the whole protocol per row for it (API audit F-011).
+    "tp.status AS protocol_status, "
     # What a protocol-born row is FOR, so a patient running several protocols
     # side by side (90) can tell their sessions apart: device, the conditions
     # it treats, which course it belongs to, and the prescribing doctor (a
@@ -104,6 +118,32 @@ class WeeklyScheduleRepository:
         )
         return [dict(r) for r in rows]
 
+    async def list_for_clinic_doctors(self, clinic_id: UUID | None, *, region_id: UUID | None = None) -> list[dict]:
+        """list_for_doctor for every doctor GET /doctors?clinic_id returns, in
+        one query; d.doctor_id rides along because schedule rows key on the
+        doctor's profile_id (API audit F-052). region_id (clinic_id None) =
+        every doctor of the region's clinics (regional dashboard, F-058)."""
+        if clinic_id:
+            scope = "d.clinic_id = :scope_id"
+        else:
+            scope = "d.clinic_id IN (SELECT clinic_id FROM clinics WHERE region_id = :scope_id)"
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT d.doctor_id AS doctor_record_id, w.* FROM doctors d "
+                        "JOIN doctor_weekly_schedules w ON w.doctor_id = d.profile_id AND w.is_active = TRUE "
+                        f"WHERE {scope} AND d.deleted_at IS NULL "
+                        "ORDER BY d.doctor_id, w.day_of_week"
+                    ),
+                    {"scope_id": str(clinic_id or region_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
     async def replace_for_doctor(self, doctor_id: UUID, clinic_id: UUID, items: list[dict], *, created_by: UUID) -> list[dict]:
         """Delete-then-insert atomic replace (v1's upsert_weekly_schedule) —
         a doctor redrawing their whole week submits the full set at once,
@@ -133,6 +173,26 @@ class ScheduleOverrideRepository:
             params["from_date"] = from_date
         rows = (
             (await self.session.execute(text(f"SELECT * FROM doctor_schedule_overrides WHERE {clause} ORDER BY override_date"), params))
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def list_for_clinic_doctors(self, clinic_id: UUID) -> list[dict]:
+        """list_for_doctor for every doctor GET /doctors?clinic_id returns, in
+        one query; d.doctor_id rides along as doctor_record_id (API audit F-056)."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT d.doctor_id AS doctor_record_id, o.* FROM doctors d "
+                        "JOIN doctor_schedule_overrides o ON o.doctor_id = d.profile_id "
+                        "WHERE d.clinic_id = :clinic_id AND d.deleted_at IS NULL "
+                        "ORDER BY d.doctor_id, o.override_date"
+                    ),
+                    {"clinic_id": str(clinic_id)},
+                )
+            )
             .mappings()
             .all()
         )
@@ -216,7 +276,12 @@ class AppointmentRepository:
         return row is not None
 
     async def list_for_patient(
-        self, patient_profile_id: UUID, *, include_past: bool = False, statuses: builtins.list[str] | None = None
+        self,
+        patient_profile_id: UUID,
+        *,
+        include_past: bool = False,
+        statuses: builtins.list[str] | None = None,
+        appointment_type: str | None = None,
     ) -> builtins.list[dict]:
         """Every appointment of every type for one patient, protocol-generated
         'planned' rows included — those are exactly what the patient needs to
@@ -228,6 +293,9 @@ class AppointmentRepository:
         if statuses:
             clauses.append("a.status = ANY(:statuses)")
             params["statuses"] = statuses
+        if appointment_type:
+            clauses.append("a.appointment_type = :appointment_type")
+            params["appointment_type"] = appointment_type
         rows = (
             (
                 await self.session.execute(
@@ -275,8 +343,8 @@ class AppointmentRepository:
         )
         return [dict(r) for r in rows]
 
-    async def list(
-        self,
+    @staticmethod
+    def _list_where(
         *,
         clinic_id: UUID | None = None,
         region_id: UUID | None = None,
@@ -284,11 +352,16 @@ class AppointmentRepository:
         patient_id: UUID | None = None,
         status: str | None = None,
         appointment_type: str | None = None,
+        exclude_appointment_type: str | None = None,
         date_from=None,
         date_to=None,
-        skip: int = 0,
-        limit: int = 100,
-    ) -> builtins.list[dict]:
+        doctor_name: str | None = None,
+        search: str | None = None,
+        exclude_superseded: bool = False,
+    ) -> tuple[str, dict[str, Any]]:
+        """WHERE shared by list(), page() and page counts. Aliases: a =
+        appointments, pp = patient profile, dp = doctor profile, pt = patients
+        (all present in _APPT_SELECT and in _PAGE_COUNT_FROM)."""
         clauses: builtins.list[str] = []
         params: dict[str, Any] = {}
         if clinic_id:
@@ -312,24 +385,130 @@ class AppointmentRepository:
             # caller from pulling every appointment and discarding most of it.
             clauses.append("a.appointment_type = :appointment_type")
             params["appointment_type"] = appointment_type
+        if exclude_appointment_type:
+            # The doctor's calendar wants everything EXCEPT device sessions
+            # (a CA runs those) — used to download them all and drop them
+            # client-side, pushing real visits past the row limit (F-028).
+            clauses.append("a.appointment_type <> :exclude_appointment_type")
+            params["exclude_appointment_type"] = exclude_appointment_type
         if date_from:
             clauses.append("a.appointment_date >= :date_from")
             params["date_from"] = date_from
         if date_to:
             clauses.append("a.appointment_date <= :date_to")
             params["date_to"] = date_to
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        if doctor_name:
+            clauses.append("(dp.first_name || ' ' || dp.last_name) = :doctor_name")
+            params["doctor_name"] = doctor_name
+        if search:
+            # Name / MRN / doctor / session number always; appointment and
+            # patient UUIDs only for >= 8 chars, so a short query like "12"
+            # (a session number) doesn't match every id containing "12".
+            fields = [
+                "(pp.first_name || ' ' || pp.last_name) ILIKE :search",
+                "pt.mrn ILIKE :search",
+                "(dp.first_name || ' ' || dp.last_name) ILIKE :search",
+                "CAST(a.session_number AS text) ILIKE :search",
+            ]
+            if len(search.strip()) >= 8:
+                fields += ["a.appointment_id::text ILIKE :search", "pt.patient_id::text ILIKE :search"]
+            clauses.append(f"({' OR '.join(fields)})")
+            params["search"] = f"%{search.strip()}%"
+        if exclude_superseded:
+            # Protocol-amendment auto-cancellations: the old version's slots,
+            # not a cancellation anyone should see (frontend isSupersededCancellation).
+            clauses.append("NOT (a.status = 'cancelled' AND a.cancellation_reason IS NOT DISTINCT FROM :superseded)")
+            params["superseded"] = SUPERSEDED_CANCELLATION_REASON
+        return (f"WHERE {' AND '.join(clauses)}" if clauses else ""), params
+
+    async def list(
+        self,
+        *,
+        skip: int = 0,
+        limit: int = 100,
+        order: str = "asc",
+        **filters,
+    ) -> builtins.list[dict]:
+        where, params = self._list_where(**filters)
         params["skip"], params["limit"] = skip, limit
+        # appointment_id tiebreak keeps OFFSET paging stable across pages.
+        # "desc" lets callers that page through a large clinic see the most
+        # recent appointments first instead of the oldest `limit` rows.
+        direction = "DESC" if order == "desc" else "ASC"
+        order_by = f"a.appointment_date {direction}, a.start_time {direction} NULLS LAST, a.appointment_id"
+        rows = (
+            (await self.session.execute(text(f"{_APPT_SELECT}{where} ORDER BY {order_by} OFFSET :skip LIMIT :limit"), params))
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def period_counts(self, today, **scope) -> dict[str, int]:
+        """past / today / upcoming totals relative to the caller's `today`
+        (admin appointments tabs, API audit F-055)."""
+        where, params = self._list_where(**scope)
+        row = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT count(*) FILTER (WHERE a.appointment_date < :today) AS past, "
+                        "count(*) FILTER (WHERE a.appointment_date = :today) AS today, "
+                        f"count(*) FILTER (WHERE a.appointment_date > :today) AS upcoming {_PAGE_COUNT_FROM} {where}"
+                    ),
+                    {**params, "today": today},
+                )
+            )
+            .mappings()
+            .one()
+        )
+        return dict(row)
+
+    async def page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        status: str | None = None,
+        appointment_type: str | None = None,
+        date_order: str = "asc",
+        **scope,
+    ) -> dict:
+        """One page + total + per-status / per-type counts over the scope
+        WITHOUT the status/type filter (the reception table's pill counts),
+        in 2 queries (API audit F-023). Chronological: date, then start time
+        with unscheduled (NULL) first, matching the table's old client sort;
+        date_order="desc" flips only the date (admin "past" tab)."""
+        date_dir = "DESC" if date_order == "desc" else "ASC"
+        where, params = self._list_where(**scope)
+        counts_sql = f"SELECT a.status, a.appointment_type, count(*) AS n {_PAGE_COUNT_FROM} {where} GROUP BY a.status, a.appointment_type"
+        by_status: dict[str, int] = {}
+        by_type: dict[str, int] = {}
+        total = 0
+        for r in (await self.session.execute(text(counts_sql), params)).mappings().all():
+            by_status[r["status"]] = by_status.get(r["status"], 0) + r["n"]
+            by_type[r["appointment_type"]] = by_type.get(r["appointment_type"], 0) + r["n"]
+            if (not status or r["status"] == status) and (not appointment_type or r["appointment_type"] == appointment_type):
+                total += r["n"]
+        where, params = self._list_where(**scope, status=status, appointment_type=appointment_type)
+        params["skip"], params["limit"] = (page - 1) * page_size, page_size
         rows = (
             (
                 await self.session.execute(
-                    text(f"{_APPT_SELECT}{where} ORDER BY a.appointment_date, a.start_time OFFSET :skip LIMIT :limit"), params
+                    text(
+                        f"{_APPT_SELECT}{where} ORDER BY a.appointment_date {date_dir}, a.start_time NULLS FIRST, a.appointment_id "
+                        "OFFSET :skip LIMIT :limit"
+                    ),
+                    params,
                 )
             )
             .mappings()
             .all()
         )
-        return [dict(r) for r in rows]
+        return {
+            "items": [dict(r) for r in rows],
+            "total": total,
+            "counts": {"all": sum(by_status.values()), "by_status": by_status, "by_type": by_type},
+        }
 
     async def list_for_doctor_on_date(self, doctor_id: UUID, on_date) -> builtins.list[dict]:
         rows = (

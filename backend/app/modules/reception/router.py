@@ -9,7 +9,7 @@ import math
 from datetime import UTC, date, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -43,20 +43,27 @@ def _initials(first_name: str, last_name: str) -> str:
 
 @router.post("/registrations/send-code", response_model=s.SendCodeResponse, status_code=200)
 async def send_verification_code(
-    body: s.SendCodeRequest, _ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))
+    body: s.SendCodeRequest, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))
 ) -> s.SendCodeResponse:
     """Wraps the existing Cognito SignUp call (same function the receptionist-
     signup wizard already uses). verification_id is the contact itself — our
     system has no separate server-side verification-state table to hand back
     an opaque ID for; Cognito tracks confirmation state by username."""
-    from app.core.cognito import sign_up_patient
+    from app.modules.auth.signup import reject_if_contact_taken, start_patient_signup
 
-    sign_up_patient(
-        username=body.contact,
+    method = "email" if body.channel == "email" else "mobile"
+    # Same guards as patient self-signup: refuse a contact already registered
+    # here, and reset an abandoned earlier attempt instead of blocking it.
+    await reject_if_contact_taken(db, method, body.contact)
+    await start_patient_signup(
+        db,
+        contact=body.contact,
+        method=method,
         first_name=body.first_name,
         last_name=body.last_name,
         dob=body.dob.isoformat() if body.dob else None,
         gender=body.gender,
+        password=body.password,
     )
     return s.SendCodeResponse(
         verification_id=body.contact,
@@ -82,6 +89,56 @@ async def verify_code(body: s.VerifyCodeRequest, _ctx: RequestContext = Depends(
         verified=True,
         verified_at=datetime.now(UTC),
         registration_token=contact,
+    )
+
+
+@router.post("/registrations/confirm", response_model=s.RegisterPatientResponse, status_code=201)
+async def confirm_registration(
+    body: s.ConfirmRegistrationRequest, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))
+) -> s.RegisterPatientResponse:
+    """Current flow's last step (password was sent to /registrations/send-code):
+    verifies the OTP and registers the patient in this one request, so an
+    abandoned registration never leaves a verified login with no patient
+    behind it. The patient's login tokens are discarded — a receptionist must
+    never hold them (see auth/signup.py)."""
+    if not body.consent.accepted:
+        raise ValidationError("Consent must be accepted", code="CONSENT_REQUIRED")
+    from app.modules.auth.signup import confirm_and_register
+
+    contact = body.registration_token
+    method = "email" if "@" in contact else "mobile"
+    patient, _auth = await confirm_and_register(
+        db,
+        contact=contact,
+        method=method,
+        code=body.code,
+        password=body.password,
+        registration={
+            "first_name": body.personal.first_name,
+            "last_name": body.personal.last_name,
+            "dob": body.personal.date_of_birth,
+            "gender": body.personal.gender,
+            "address": body.address.street,
+            "city": body.address.city,
+            "state": body.address.state,
+            "country": body.address.country,
+            "pincode": body.address.pincode,
+            "primary_clinic_id": str(body.clinic_id),
+            "guardian_name": body.guardian.name if body.guardian else None,
+            "guardian_relationship": body.guardian.relation if body.guardian else None,
+            "guardian_contact": body.guardian.contact_number if body.guardian else None,
+        },
+        self_registered=False,
+        registered_by=UUID(ctx.user_id),
+    )
+    return s.RegisterPatientResponse(
+        patient_id=patient["patient_id"],
+        full_name=f"{body.personal.first_name} {body.personal.last_name}",
+        login_id=contact,
+        login_channel=method,
+        registration_status="verified",
+        consent_status="signed" if body.consent.signature_captured else "accepted",
+        created_at=patient.get("created_at") or datetime.now(UTC),
     )
 
 
@@ -145,19 +202,112 @@ async def register_patient(
     )
 
 
+async def _next_appointments(db, profile_ids: list[str]) -> dict[str, str]:
+    """profile_id -> soonest upcoming appointment ("YYYY-MM-DD" or
+    "YYYY-MM-DDTHH:MM"), one query for the whole page. Upcoming = an active
+    status (a doctor-planned protocol session counts — it has a date, just
+    no time yet) from now on in IST; a visit already checked in / in progress
+    today still counts as the next one."""
+    if not profile_ids:
+        return {}
+    from app.modules.scheduling.service import _now_ist_naive
+
+    now = _now_ist_naive()
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT DISTINCT ON (patient_id) patient_id, appointment_date, start_time FROM appointments "
+                    "WHERE patient_id = ANY(CAST(:ids AS uuid[])) "
+                    "AND status IN ('planned','selected','paid','checked_in','in_progress') "
+                    "AND (appointment_date > :today OR (appointment_date = :today AND "
+                    "     (start_time IS NULL OR start_time >= :now_time OR status IN ('checked_in','in_progress')))) "
+                    "ORDER BY patient_id, appointment_date, start_time NULLS LAST"
+                ),
+                {"ids": profile_ids, "today": now.date(), "now_time": now.time()},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    out: dict[str, str] = {}
+    for r in rows:
+        d = r["appointment_date"].isoformat()
+        out[str(r["patient_id"])] = f"{d}T{r['start_time'].strftime('%H:%M')}" if r["start_time"] else d
+    return out
+
+
+def _reception_clinic(ctx: RequestContext) -> UUID | None:
+    return UUID(ctx.clinic_id) if ctx.role in ("receptionist", "clinic_admin") and ctx.clinic_id else None
+
+
+# Pending queue = self-registered, approval pending, wizard finished.
+# decide_approval (approve AND reject) 400s with REGISTRATION_INCOMPLETE for
+# anyone not yet at registration_status='registration_complete' — a patient
+# sits at approval_status='pending' for the whole 6-step wizard, so without
+# the registration_status filter a mid-wizard patient would show up as
+# actionable and every click would 400.
+def _registration_filters(status: str | None) -> dict:
+    filters: dict = {"approval_status": status, "include_unapproved": True, "self_registered": True}
+    if status == "pending":
+        filters["registration_status"] = "registration_complete"
+    return filters
+
+
+def _registration_item(r: dict) -> s.RegistrationListItem:
+    return s.RegistrationListItem(
+        registration_id=r["patient_id"],
+        full_name=f"{r['first_name']} {r['last_name']}",
+        contact=r["phone"] or r["email"],
+        contact_type="phone" if r["phone"] else "email",
+        submitted_on=r["created_at"].date().isoformat() if r.get("created_at") else None,
+        status=r["approval_status"],
+        linked_patient_id=r["patient_id"] if r["approval_status"] == "approved" else None,
+        # A rejection is not the end of this queue's involvement — the
+        # receptionist can still change their mind and approve it (94),
+        # they just can't reject it a second time.
+        allowed_actions=(
+            ["approve", "reject"] if r["approval_status"] == "pending" else ["approve"] if r["approval_status"] == "rejected" else ["view"]
+        ),
+        rejection_reason=r.get("rejection_reason") if r["approval_status"] == "rejected" else None,
+        risk_flags=r.get("risk_flags") or [],
+        approval_method=r.get("approval_method"),
+        approved_by_name=r.get("approved_by_name"),
+    )
+
+
+def _pagination(page: int, page_size: int, total: int) -> s.Pagination:
+    total_pages = max(1, math.ceil(total / page_size))
+    return s.Pagination(
+        page=page, page_size=page_size, total_items=total, total_pages=total_pages, has_next=page < total_pages, has_previous=page > 1
+    )
+
+
 @router.get("/patients", response_model=s.PatientListResponse)
 async def list_patients(
-    page: int = 1, page_size: int = 20, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    search: str | None = None,
+    gender: str | None = None,
+    doctor: str | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES)),
 ) -> s.PatientListResponse:
-    """last_visit/next_appointment are always null — depend on the
-    appointments module, out of scope for this adapter (see schemas.py)."""
+    """last_visit = most recent completed appointment date; next_appointment
+    = soonest upcoming active appointment (see _next_appointments).
+    Paged in SQL; search = name/phone/email/MRN/doctor substring; gender and
+    doctor (assigned doctor's full name) are exact filters (API audit F-020)."""
     from app.modules.patients.service import PatientService
 
-    clinic_id = UUID(ctx.clinic_id) if ctx.role in ("receptionist", "clinic_admin") and ctx.clinic_id else None
-    all_patients = await PatientService(db).list(clinic_id=clinic_id)
-    total = len(all_patients)
-    start = (page - 1) * page_size
-    page_items = all_patients[start : start + page_size]
+    page_items, total = await PatientService(db).list_page(
+        limit=page_size,
+        offset=(page - 1) * page_size,
+        clinic_id=_reception_clinic(ctx),
+        search=search,
+        gender=gender,
+        doctor_name=doctor,
+    )
+    next_by_profile = await _next_appointments(db, [str(p["profile_id"]) for p in page_items])
 
     items = [
         s.PatientListItem(
@@ -169,23 +319,20 @@ async def list_patients(
             phone=p["phone"],
             assigned_doctor=p.get("doctor_name"),
             registration_status=p["registration_status"],
+            last_visit=p["last_visit_date"].isoformat() if p.get("last_visit_date") else None,
+            next_appointment=next_by_profile.get(str(p["profile_id"])),
         )
         for p in page_items
     ]
-    total_pages = max(1, math.ceil(total / page_size))
-    return s.PatientListResponse(
-        items=items,
-        pagination=s.Pagination(
-            page=page, page_size=page_size, total_items=total, total_pages=total_pages, has_next=page < total_pages, has_previous=page > 1
-        ),
-    )
+    return s.PatientListResponse(items=items, pagination=_pagination(page, page_size, total))
 
 
 @router.get("/registrations", response_model=s.RegistrationListResponse)
 async def list_registrations(
-    page: int = 1,
-    page_size: int = 20,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     status: str | None = None,
+    search: str | None = None,
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES)),
 ) -> s.RegistrationListResponse:
@@ -193,46 +340,31 @@ async def list_registrations(
     self-registered patients row. Receptionist-assisted registrations
     (self_registered=False, this same module's /patients above) never
     appear here, matching the original spec's own note that they bypass
-    this queue."""
+    this queue. Paged in SQL (API audit F-020)."""
     from app.modules.patients.service import PatientService
 
-    clinic_id = UUID(ctx.clinic_id) if ctx.role in ("receptionist", "clinic_admin") and ctx.clinic_id else None
-    rows = await PatientService(db).list(clinic_id=clinic_id, approval_status=status)
-    rows = [r for r in rows if r.get("self_registered")]
-    # decide_approval (approve AND reject) 400s with REGISTRATION_INCOMPLETE
-    # for anyone not yet at registration_status='registration_complete' —
-    # a patient can sit at approval_status='pending' for the whole 6-step
-    # wizard (it's only set once, up front), so without this filter a
-    # mid-wizard patient (e.g. only consent_signed) shows up in the pending
-    # queue with allowed_actions claiming approve/reject work, and every
-    # click 400s. Same fix as staff.service.ts's getPendingPatients() had
-    # to apply client-side; done here too so every caller of this endpoint
-    # gets a queue that's actually actionable.
-    if status == "pending":
-        rows = [r for r in rows if r.get("registration_status") == "registration_complete"]
-    total = len(rows)
-    start = (page - 1) * page_size
-    page_rows = rows[start : start + page_size]
+    rows, total = await PatientService(db).list_page(
+        limit=page_size, offset=(page - 1) * page_size, clinic_id=_reception_clinic(ctx), search=search, **_registration_filters(status)
+    )
+    return s.RegistrationListResponse(items=[_registration_item(r) for r in rows], pagination=_pagination(page, page_size, total))
 
-    items = [
-        s.RegistrationListItem(
-            registration_id=r["patient_id"],
-            full_name=f"{r['first_name']} {r['last_name']}",
-            contact=r["phone"] or r["email"],
-            contact_type="phone" if r["phone"] else "email",
-            submitted_on=r["created_at"].date().isoformat() if r.get("created_at") else None,
-            status=r["approval_status"],
-            linked_patient_id=r["patient_id"] if r["approval_status"] == "approved" else None,
-            allowed_actions=["approve", "reject"] if r["approval_status"] == "pending" else ["view"],
-        )
-        for r in page_rows
-    ]
-    total_pages = max(1, math.ceil(total / page_size))
-    return s.RegistrationListResponse(
-        items=items,
-        pagination=s.Pagination(
-            page=page, page_size=page_size, total_items=total, total_pages=total_pages, has_next=page < total_pages, has_previous=page > 1
-        ),
+
+@router.get("/dashboard", response_model=s.ReceptionDashboardResponse)
+async def reception_dashboard(
+    db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))
+) -> s.ReceptionDashboardResponse:
+    """Receptionist dashboard in one call: counts + first 5 pending
+    registrations (API audit F-019). Same filters as /patients and
+    /registrations?status=pending, so the numbers always match those lists."""
+    from app.modules.patients.service import PatientService
+
+    svc, clinic_id = PatientService(db), _reception_clinic(ctx)
+    pending_rows, pending_total = await svc.list_page(limit=5, offset=0, clinic_id=clinic_id, **_registration_filters("pending"))
+    return s.ReceptionDashboardResponse(
+        patient_count=await svc.count(clinic_id=clinic_id),
+        pending_count=pending_total,
+        registered_today=await svc.count(clinic_id=clinic_id, created_today=True),
+        pending_preview=[_registration_item(r) for r in pending_rows],
     )
 
 
@@ -255,11 +387,16 @@ async def approve_registration(
 
 @router.post("/registrations/{registration_id}/reject", response_model=s.ApproveRejectResponse)
 async def reject_registration(
-    registration_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))
+    registration_id: UUID,
+    body: s.RejectRegistrationRequest | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES)),
 ) -> s.ApproveRejectResponse:
     from app.modules.patients.service import PatientService
 
-    await PatientService(db).decide_approval(registration_id, decision="rejected", decided_by=UUID(ctx.user_id), rejection_reason=None)
+    await PatientService(db).decide_approval(
+        registration_id, decision="rejected", decided_by=UUID(ctx.user_id), rejection_reason=body.rejection_reason if body else None
+    )
     await db.commit()
     return s.ApproveRejectResponse(registration_id=registration_id, status="rejected")
 

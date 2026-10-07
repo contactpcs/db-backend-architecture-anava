@@ -35,6 +35,10 @@ class SendCodeRequest(BaseModel):
     last_name: str
     dob: date | None = None
     gender: str | None = Field(default=None, pattern="^(male|female|other)$")
+    # Current flow: password chosen BEFORE the OTP, straight into Cognito
+    # SignUp; then /registrations/confirm verifies + registers in one call.
+    # Omitted = legacy flow (Android app): verify-code, then POST /patients.
+    password: str | None = Field(default=None, min_length=8)
 
 
 class SendCodeResponse(BaseModel):
@@ -103,6 +107,14 @@ class RegisterPatientRequest(BaseModel):
     consent: ConsentDetails
 
 
+class ConfirmRegistrationRequest(RegisterPatientRequest):
+    """Current flow's last step: the full registration form (registration_token
+    = the contact, as in the legacy flow) plus the OTP. Verifies the code and
+    registers the patient in one request."""
+
+    code: str
+
+
 class RegisterPatientResponse(BaseModel):
     patient_id: UUID
     full_name: str
@@ -135,8 +147,9 @@ class PatientListItem(BaseModel):
     # in this same list. See PatientService._REGISTRATION_STEPS for the
     # ordered value set.
     registration_status: str
-    # Both always null — depend on the appointments module, explicitly
-    # excluded from this adapter's scope.
+    # last_visit: "YYYY-MM-DD" of the latest completed appointment.
+    # next_appointment: soonest upcoming active one, "YYYY-MM-DDTHH:MM" (or
+    # just the date for a doctor-planned session with no time yet).
     last_visit: str | None = None
     next_appointment: str | None = None
 
@@ -158,11 +171,35 @@ class RegistrationListItem(BaseModel):
     status: str
     linked_patient_id: UUID | None = None
     allowed_actions: list[str]
+    # Only ever set when status == 'rejected' — why the Rejected tab's row
+    # was turned down. Cleared (NULL) the moment it's approved (94).
+    rejection_reason: str | None = None
+    # Why the registration checks held this one back for review (105);
+    # empty when it passed them all.
+    risk_flags: list[str] = Field(default_factory=list)
+    # 'auto' = approved by those checks, shown as approved_by_name 'System'.
+    approval_method: str | None = None
+    approved_by_name: str | None = None
 
 
 class RegistrationListResponse(BaseModel):
     items: list[RegistrationListItem]
     pagination: Pagination
+
+
+class ReceptionDashboardResponse(BaseModel):
+    """GET /reception/dashboard — counts + first 5 actionable registrations."""
+
+    patient_count: int
+    pending_count: int
+    registered_today: int
+    pending_preview: list[RegistrationListItem]
+
+
+class RejectRegistrationRequest(BaseModel):
+    # Optional to keep the endpoint callable with no body (older/other
+    # clients) — decide_approval accepts None and just stores no reason.
+    rejection_reason: str | None = None
 
 
 class ApproveRejectResponse(BaseModel):

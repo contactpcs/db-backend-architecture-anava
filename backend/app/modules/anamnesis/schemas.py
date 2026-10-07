@@ -50,6 +50,10 @@ class AnamnesisAssessmentRead(BaseModel):
     anamnesis_id: str
     patient_id: UUID
     submitted_by: UUID | None
+    # Who actually took it. taken_by only says patient vs on-behalf, and
+    # reads 'doctor_on_behalf' for a clinical assistant too.
+    submitted_by_name: str | None = None
+    submitted_by_role: str | None = None
     taken_by: str
     version: int
     assessment_stage: str

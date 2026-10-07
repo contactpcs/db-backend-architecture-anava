@@ -13,5 +13,13 @@ COPY alembic ./alembic
 COPY alembic.ini .
 COPY certs ./certs
 
+# Run as an unprivileged user — a code-execution bug in the app must not hand
+# out root inside the container.
+# .local_storage: the local-disk file store (app/integrations/s3.py) is the
+# only path the app writes to, so it is the only one the user owns.
+RUN useradd --system --no-create-home --uid 10001 anava \
+    && mkdir -p /app/.local_storage && chown anava /app/.local_storage
+USER anava
+
 EXPOSE 8000
 CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

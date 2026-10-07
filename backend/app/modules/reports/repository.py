@@ -3,6 +3,12 @@ from __future__ import annotations
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# A self-registration gets a doctor auto-assigned the moment its wizard
+# completes — before any receptionist approves it. Pending or rejected ones
+# are requests, not patients, so every doctor report leaves them out (same
+# rule as PatientRepository.list).
+_REAL_PATIENT = "AND dpa.patient_id IN (SELECT profile_id FROM patients WHERE approval_status NOT IN ('pending', 'rejected'))"
+
 
 class ReportsRepository:
     def __init__(self, session: AsyncSession):
@@ -34,6 +40,7 @@ class ReportsRepository:
                         "LEFT JOIN disease_composite_scores dcs "
                         "  ON dcs.patient_id = dpa.patient_id AND dcs.disease_id = :disease_id "
                         "WHERE dpa.doctor_id = :doctor_id AND dpa.status = 'active' "
+                        f"{_REAL_PATIENT} "
                         "ORDER BY p.id, dcs.computed_at"
                     ),
                     {"doctor_id": str(doctor_profile_id), "disease_id": disease_id},
@@ -63,7 +70,8 @@ class ReportsRepository:
                         "JOIN prs_scale_results sr ON sr.instance_id = pai.instance_id "
                         "JOIN prs_scales sc ON sc.scale_id = sr.scale_id "
                         "JOIN prs_disease_scale_map m ON m.scale_id = sr.scale_id AND m.disease_id = :disease_id "
-                        "WHERE dpa.doctor_id = :doctor_id AND dpa.status = 'active' AND dpa.patient_id = :patient_id "
+                        "WHERE dpa.doctor_id = :doctor_id AND dpa.status = 'active' "
+                        f"{_REAL_PATIENT} AND dpa.patient_id = :patient_id "
                         "AND pai.status = 'completed' AND pai.is_voided = FALSE "
                         "AND sr.direction_corrected_percentage IS NOT NULL "
                         "ORDER BY sc.scale_code, pai.completed_at"
@@ -104,6 +112,7 @@ class ReportsRepository:
                         "LEFT JOIN prs_scales sc ON sc.scale_id = sr.scale_id "
                         "LEFT JOIN prs_disease_scale_map m ON m.scale_id = sr.scale_id AND m.disease_id = :disease_id "
                         "WHERE dpa.doctor_id = :doctor_id AND dpa.status = 'active' "
+                        f"{_REAL_PATIENT} "
                         "AND (ds.ds_prs_id IS NULL OR m.scale_id IS NOT NULL) "
                         "ORDER BY p.id, ds.recorded_at"
                     ),
@@ -151,6 +160,7 @@ class ReportsRepository:
                         "JOIN prs_scales sc ON sc.scale_id = sr.scale_id "
                         "JOIN prs_disease_scale_map m ON m.scale_id = sr.scale_id AND m.disease_id = :disease_id "
                         "WHERE dpa.doctor_id = :doctor_id AND dpa.status = 'active' "
+                        f"{_REAL_PATIENT} "
                         "ORDER BY p.id, protocol_label, sc.scale_code, ds.recorded_at"
                     ),
                     {"doctor_id": str(doctor_profile_id), "disease_id": disease_id},
@@ -167,7 +177,10 @@ class ReportsRepository:
         (patient, disease) pairs). Backs the "Patients under review" cohort
         summary card, which is a real headcount, not a pair count."""
         result = await self.session.execute(
-            text("SELECT COUNT(DISTINCT patient_id) FROM doctor_patient_assignments WHERE doctor_id = :doctor_id AND status = 'active'"),
+            text(
+                "SELECT COUNT(DISTINCT dpa.patient_id) FROM doctor_patient_assignments dpa "
+                f"WHERE dpa.doctor_id = :doctor_id AND dpa.status = 'active' {_REAL_PATIENT}"
+            ),
             {"doctor_id": str(doctor_profile_id)},
         )
         return result.scalar_one()

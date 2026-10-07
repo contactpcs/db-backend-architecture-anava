@@ -27,6 +27,9 @@ _CLINIC_PINNED_STAFF = ("clinic_admin", "doctor", "clinical_assistant", "recepti
 # hand a doctor every clinic's revenue — the role list here is what actually
 # prevents that, not the scope resolver).
 _PAYMENTS_HISTORY_ROLES = ("super_admin", "regional_admin", "clinic_admin", "receptionist")
+# Who can record cash taken at the counter — the front desk and its admins,
+# not doctors/CAs (they don't handle money) and never a patient.
+_CASH_COLLECTING_ROLES = ("super_admin", "regional_admin", "clinic_admin", "receptionist")
 
 
 @router.post("/payments", response_model=s.PaymentRead, status_code=201)
@@ -41,6 +44,20 @@ async def list_payments(clinic_id: UUID | None = None, db=Depends(get_db), ctx: 
     if clinic_id is None:
         raise BusinessRuleError("clinic_id is required", code="CLINIC_ID_REQUIRED")
     return await PaymentService(db).list(clinic_id)
+
+
+@router.get("/payments/summary", response_model=s.PaymentSummaryRead)
+async def payments_summary(clinic_id: UUID | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
+    """Totals per status + 5 latest for one clinic — same access and scope as
+    GET /payments, without downloading every row (API audit F-050). A
+    regional admin without clinic_id gets their whole region (F-058)."""
+    if ctx.role in _CLINIC_PINNED_STAFF:
+        clinic_id = UUID(ctx.clinic_id)
+    if clinic_id is None and ctx.role == "regional_admin" and ctx.region_id:
+        return await PaymentService(db).summary(None, region_id=UUID(ctx.region_id))
+    if clinic_id is None:
+        raise BusinessRuleError("clinic_id is required", code="CLINIC_ID_REQUIRED")
+    return await PaymentService(db).summary(clinic_id)
 
 
 @router.get("/payments/history", response_model=list[s.PaymentHistoryDetailRead])
@@ -86,6 +103,20 @@ async def get_revenue_summary_by_purpose(
     protocol_followup/device_session) or store order_type — so the frontend
     can draw one line per category instead of a single blended total."""
     return await PaymentService(db).revenue_summary_by_purpose(ctx, group_by=group_by, date_from=date_from, date_to=date_to)
+
+
+@router.get("/payments/revenue-breakdown", response_model=list[s.RevenueBreakdownRow])
+async def get_revenue_breakdown(
+    dimension: str = "clinic",
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_PAYMENTS_HISTORY_ROLES)),
+):
+    """Paid revenue per region / clinic / doctor / purpose, biggest first,
+    within the caller's role scope. Allowed dimensions depend on role
+    (region: super_admin only; clinic: super_admin + regional_admin)."""
+    return await PaymentService(db).revenue_breakdown(ctx, dimension=dimension, date_from=date_from, date_to=date_to)
 
 
 @router.get("/payments/patient-totals", response_model=list[s.PatientRevenueTotal])
@@ -188,6 +219,19 @@ async def create_appointment_payment_order(
     response. Only the signed webhook or the signature-verified /verify
     call below can ever mark this paid."""
     return await PaymentService(db).create_order(appointment_id, ctx)
+
+
+@router.post("/appointments/{appointment_id}/payments/cash", response_model=s.PaymentRead, status_code=201)
+async def record_appointment_cash_payment(
+    appointment_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_CASH_COLLECTING_ROLES)),
+):
+    """Front desk took cash for this appointment. Settles it exactly like a
+    completed online payment (appointment -> paid, payment row + log +
+    payment_completed event, receipt available) with payment_method='cash'.
+    Staff-only — a patient can never self-declare a cash payment."""
+    return await PaymentService(db).record_cash_payment(appointment_id, ctx)
 
 
 @router.post("/payments/{payment_id}/verify", response_model=s.PaymentRead)

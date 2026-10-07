@@ -3,6 +3,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
 
+# Rendered as a link, so only https is accepted — same rule as the DB check
+# chk_clinics_google_maps_url (109_clinic_google_maps_url.sql). Blank is
+# allowed so an edit form can clear the link, the way it clears address.
+_HTTPS_URL = r"^(https://\S+)?$"
+
 
 class RegionCreate(BaseModel):
     region_name: str
@@ -131,8 +136,11 @@ class ClinicCreate(BaseModel):
     clinic_type: str = Field(pattern="^(anava_owned|partner|mobile)$")
     region_id: UUID
     address: str | None = None
+    full_address: str | None = None
+    google_maps_url: str | None = Field(default=None, pattern=_HTTPS_URL, max_length=2048)
     city: str | None = None
     state: str | None = None
+    pincode: str | None = None
     phone: str | None = None
     email: str | None = None
 
@@ -233,6 +241,13 @@ class ClinicUpdate(BaseModel):
     clinic_admin_id: UUID | None = None
     is_main_branch: bool | None = None
     address: str | None = None
+    full_address: str | None = None
+    google_maps_url: str | None = Field(default=None, pattern=_HTTPS_URL, max_length=2048)
+    # city/state were missing here, so the My Clinic edit form's City and
+    # State inputs were accepted and silently dropped.
+    city: str | None = None
+    state: str | None = None
+    pincode: str | None = None
     phone: str | None = None
     email: str | None = None
     # Day-to-day open/closed toggle — independent of `status` below (that's
@@ -256,8 +271,11 @@ class ClinicRead(BaseModel):
     clinic_admin_id: UUID | None
     is_main_branch: bool
     address: str | None
+    full_address: str | None = None
+    google_maps_url: str | None = None
     city: str | None
     state: str | None
+    pincode: str | None = None
     phone: str | None
     email: str | None
     created_at: datetime

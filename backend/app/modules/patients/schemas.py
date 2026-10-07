@@ -134,6 +134,8 @@ class PatientRead(BaseModel):
     # see _SELECT_WITH_PROFILE in repository.py. Not patients.last_clinical_contact_at
     # (that's a daily-batch column written by app/workers/retention_purge.py).
     last_visit_date: date | None = None
+    clinic_name: str | None = None
+    clinic_city: str | None = None
     # Self-registration gate — 'not_required' forever for staff-registered
     # patients (unaffected, matches pre-existing behavior). Self-registered
     # patients start 'pending' and only reach 'approved'/'rejected' once a
@@ -142,9 +144,45 @@ class PatientRead(BaseModel):
     approval_status: str = "not_required"
     approved_by: UUID | None = None
     approved_at: datetime | None = None
+    # 'auto' = approved by the registration checks (approved_by is then
+    # empty and approved_by_name reads 'System'), 'manual' = by staff.
+    approval_method: str | None = None
+    approved_by_name: str | None = None
+    # Checks a self-registration failed; empty = passed them all.
+    risk_flags: list[str] = Field(default_factory=list)
     rejection_reason: str | None = None
     profile_completion_percentage: int = 0
     profile_completion_missing_fields: list[str] = Field(default_factory=list)
+
+
+class PatientClinicRead(BaseModel):
+    """GET /patients/{patient_id}/clinic — what a patient needs to find and
+    contact their clinic, nothing internal (no status, admin or region ids).
+    full_address / pincode / google_maps_url default to null so a database
+    without 109_clinic_google_maps_url.sql still answers."""
+
+    clinic_id: UUID
+    clinic_name: str
+    full_address: str | None = None
+    address: str | None
+    city: str | None
+    state: str | None
+    pincode: str | None = None
+    phone: str | None
+    email: str | None
+    google_maps_url: str | None = None
+
+
+class PatientPageRead(BaseModel):
+    """GET /patients/page (API audit F-053)."""
+
+    items: list[PatientRead]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    # with_counts=true: {all, approved, pending, rejected} over the whole scope (F-062).
+    counts: dict[str, int] | None = None
 
 
 class PatientApprovalDecision(BaseModel):
@@ -204,3 +242,72 @@ class VisitSummaryRead(BaseModel):
     anamnesis: dict | None = None
     prs_instances: list[dict] = Field(default_factory=list)
     protocols: list[dict] = Field(default_factory=list)
+
+
+# ─── Prescribed medicines (SQL/v1/96) ────────────────────────────────────────
+# Values match the doctor workspace's dropdowns and the table's CHECKs.
+MEDICINE_TIMINGS = ("Morning", "Afternoon", "Evening", "Night", "Twice daily", "Three times daily", "As needed")
+MEDICINE_MEALS = ("Before meal", "After meal", "With meal", "Empty stomach", "Not applicable")
+
+
+class PrescribedMedicineCreate(BaseModel):
+    medicine_name: str = Field(min_length=1, max_length=200)
+    dose: str | None = Field(default=None, max_length=100)
+    timing: str | None = Field(default=None, pattern="^(" + "|".join(MEDICINE_TIMINGS) + ")$")
+    meal_instruction: str | None = Field(default=None, pattern="^(" + "|".join(MEDICINE_MEALS) + ")$")
+    duration: str | None = Field(default=None, max_length=100)
+    note: str | None = Field(default=None, max_length=1000)
+    # The consultation it's prescribed in, when the workspace knows it.
+    appointment_id: UUID | None = None
+
+
+class PrescribedMedicineStatusUpdate(BaseModel):
+    status: str = Field(pattern="^(active|stopped)$")
+
+
+class PrescribedMedicineRead(BaseModel):
+    medicine_id: UUID
+    patient_id: UUID
+    clinic_id: UUID
+    prescribed_by: UUID
+    prescribed_by_name: str | None = None
+    appointment_id: UUID | None = None
+    medicine_name: str
+    dose: str | None = None
+    timing: str | None = None
+    meal_instruction: str | None = None
+    duration: str | None = None
+    note: str | None = None
+    status: str
+    started_at: datetime
+    stopped_at: datetime | None = None
+
+
+# ─── Patient clinical notes (SQL/v1/99) ──────────────────────────────────────
+# Values match the doctor workspace's category dropdown and the table's CHECK.
+CLINICAL_NOTE_CATEGORIES = (
+    "Consultation",
+    "Assessment Review",
+    "Treatment Review",
+    "Session Review",
+    "Follow-up",
+    "General",
+)
+
+
+class PatientClinicalNoteCreate(BaseModel):
+    category: str = Field(pattern="^(" + "|".join(CLINICAL_NOTE_CATEGORIES) + ")$")
+    note_text: str = Field(min_length=1, max_length=5000)
+    # The consultation it was written during, when the workspace knows it.
+    appointment_id: UUID | None = None
+
+
+class PatientClinicalNoteRead(BaseModel):
+    note_id: UUID
+    patient_id: UUID
+    doctor_id: UUID
+    doctor_name: str | None = None
+    appointment_id: UUID | None = None
+    category: str
+    note_text: str
+    created_at: datetime

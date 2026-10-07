@@ -1,0 +1,9 @@
+{
+  "source": ["aws.guardduty"],
+  "detail-type": ["GuardDuty Malware Protection Object Scan Result"],
+  "detail": {
+    "s3ObjectDetails": {
+      "bucketName": ["anava-clinic-uploads-quarantine-363518210533-ap-south-1"]
+    }
+  }
+}

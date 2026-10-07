@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import builtins
+import json
 from uuid import UUID
 
 from sqlalchemy import text
@@ -34,6 +36,7 @@ class PatientRepository:
         approval_status: str = "not_required",
         cognito_sub: str | None = None,
         registered_by: UUID | None = None,
+        signup_ip: str | None = None,
         guardian_name: str | None = None,
         guardian_relationship: str | None = None,
         guardian_contact: str | None = None,
@@ -91,9 +94,9 @@ class PatientRepository:
             self.session,
             text(
                 "INSERT INTO patients (profile_id, primary_clinic_id, emergency_contact_name, emergency_contact_phone, "
-                "self_registered, approval_status, registered_by, guardian_name, guardian_relationship, guardian_contact) "
+                "self_registered, approval_status, registered_by, signup_ip, guardian_name, guardian_relationship, guardian_contact) "
                 "VALUES (:profile_id, :clinic_id, :ec_name, :ec_phone, :self_registered, :approval_status, :registered_by, "
-                ":guardian_name, :guardian_relationship, :guardian_contact) RETURNING *"
+                "CAST(:signup_ip AS INET), :guardian_name, :guardian_relationship, :guardian_contact) RETURNING *"
             ),
             {
                 "profile_id": profile["id"],
@@ -103,6 +106,7 @@ class PatientRepository:
                 "self_registered": self_registered,
                 "approval_status": approval_status,
                 "registered_by": str(registered_by) if registered_by else None,
+                "signup_ip": signup_ip,
                 "guardian_name": guardian_name,
                 "guardian_relationship": guardian_relationship,
                 "guardian_contact": guardian_contact,
@@ -112,6 +116,11 @@ class PatientRepository:
         # second round-trip just to get what create() already fetched.
         # cognito_sub included so callers (e.g. the public self-registration
         # endpoint) can mint a login token immediately without a re-query.
+        clinic = await fetch_optional(
+            self.session,
+            text("SELECT clinic_name, city FROM clinics WHERE clinic_id = :cid"),
+            {"cid": str(primary_clinic_id)},
+        )
         return {
             **patient,
             "first_name": profile["first_name"],
@@ -123,6 +132,8 @@ class PatientRepository:
             "address": profile["address"],
             "profile_is_active": profile["is_active"],
             "cognito_sub": profile["cognito_sub"],
+            "clinic_name": clinic["clinic_name"] if clinic else None,
+            "clinic_city": clinic["city"] if clinic else None,
         }
 
     _SELECT_WITH_PROFILE = (
@@ -133,6 +144,9 @@ class PatientRepository:
         "dp.first_name AS doctor_first_name, dp.last_name AS doctor_last_name, "
         "dp.first_name || ' ' || dp.last_name AS doctor_name, "
         "dp.phone AS doctor_phone, dd.specialization AS doctor_specialization, "
+        "cl.clinic_name AS clinic_name, cl.city AS clinic_city, "
+        # 'System' = approved by the registration checks, not a person (105).
+        "CASE WHEN pt.approval_method = 'auto' THEN 'System' ELSE ap.first_name || ' ' || ap.last_name END AS approved_by_name, "
         # Real-time, not the daily-batch patients.last_clinical_contact_at
         # (app/workers/retention_purge.py) — a doctor needs today's completed
         # visit to show up immediately, not after tomorrow's worker run.
@@ -140,7 +154,9 @@ class PatientRepository:
         " WHERE a.patient_id = pt.profile_id AND a.status = 'completed') AS last_visit_date "
         "FROM patients pt JOIN profiles p ON p.id = pt.profile_id "
         "LEFT JOIN profiles dp ON dp.id = pt.primary_doctor_id "
-        "LEFT JOIN doctors dd ON dd.profile_id = pt.primary_doctor_id"
+        "LEFT JOIN doctors dd ON dd.profile_id = pt.primary_doctor_id "
+        "LEFT JOIN clinics cl ON cl.clinic_id = pt.primary_clinic_id "
+        "LEFT JOIN profiles ap ON ap.id = pt.approved_by"
     )
 
     async def get(self, patient_id: UUID) -> dict | None:
@@ -149,17 +165,45 @@ class PatientRepository:
     async def get_by_profile_id(self, profile_id: UUID) -> dict | None:
         return await fetch_optional(self.session, text(f"{self._SELECT_WITH_PROFILE} WHERE pt.profile_id = :pid"), {"pid": str(profile_id)})
 
-    async def list(
+    async def get_clinic(self, patient_id: UUID) -> dict | None:
+        """The patient's primary clinic row. c.* rather than named columns so
+        this still works on a database without 109's columns (the response
+        schema defaults them to null)."""
+        return await fetch_optional(
+            self.session,
+            text("SELECT c.* FROM patients pt JOIN clinics c ON c.clinic_id = pt.primary_clinic_id WHERE pt.patient_id = :id"),
+            {"id": str(patient_id)},
+        )
+
+    def _list_where(
         self,
         *,
         registration_status: str | None = None,
         approval_status: str | None = None,
         clinic_id: UUID | None = None,
         profile_id: UUID | None = None,
-    ) -> list[dict]:
+        include_unapproved: bool = False,
+        self_registered: bool | None = None,
+        search: str | None = None,
+        created_today: bool = False,
+        gender: str | None = None,
+        doctor_name: str | None = None,
+        hide_unfinished_pending: bool = False,
+    ) -> tuple[str, dict]:
+        """WHERE clause shared by list(), list_page() and count() so paged
+        and full reads can never disagree on which patients exist."""
         # pt.deleted_at IS NULL — soft-deleted patients (see delete() below)
         # never show up in the active list, but the row is never removed.
-        clauses, params = ["pt.deleted_at IS NULL"], {}
+        clauses: builtins.list[str] = ["pt.deleted_at IS NULL"]
+        params: dict = {}
+        # A self-registration still awaiting a receptionist ('pending') or
+        # turned down ('rejected') is a request, not a patient — it belongs in
+        # the approvals queue, not in every patient list (doctor, CA, reception,
+        # admin). Shown only when the caller asks for an approval status
+        # explicitly, looks up its own record (a patient mid-wizard is still
+        # 'pending'), or opts in (the approvals queue's "all" view).
+        if not approval_status and not profile_id and not include_unapproved:
+            clauses.append("pt.approval_status NOT IN ('pending', 'rejected')")
         if registration_status:
             clauses.append("pt.registration_status = :status")
             params["status"] = registration_status
@@ -172,11 +216,64 @@ class PatientRepository:
         if profile_id:
             clauses.append("pt.profile_id = :profile_id")
             params["profile_id"] = str(profile_id)
-        where = f"WHERE {' AND '.join(clauses)}"
+        if self_registered is not None:
+            clauses.append("pt.self_registered = :self_registered")
+            params["self_registered"] = self_registered
+        if search:
+            # name / phone / email / MRN / assigned doctor — what the reception
+            # list and booking-modal pickers used to match client-side.
+            clauses.append(
+                "((p.first_name || ' ' || p.last_name) ILIKE :search OR p.phone ILIKE :search OR p.email ILIKE :search "
+                "OR pt.mrn ILIKE :search OR (dp.first_name || ' ' || dp.last_name) ILIKE :search)"
+            )
+            params["search"] = f"%{search.strip()}%"
+        if gender:
+            clauses.append("lower(p.gender) = lower(:gender)")
+            params["gender"] = gender
+        if doctor_name:
+            clauses.append("(dp.first_name || ' ' || dp.last_name) = :doctor_name")
+            params["doctor_name"] = doctor_name
+        if hide_unfinished_pending:
+            # Self-registration still mid-wizard: not yet a request anyone can act on.
+            clauses.append("NOT (pt.approval_status = 'pending' AND pt.registration_status <> 'registration_complete')")
+        if created_today:
+            # Clinic day = IST, same as scheduling's _now_ist_naive.
+            clauses.append("(pt.created_at AT TIME ZONE 'Asia/Kolkata')::date = (now() AT TIME ZONE 'Asia/Kolkata')::date")
+        return f"WHERE {' AND '.join(clauses)}", params
+
+    async def list(self, **filters) -> list[dict]:
+        where, params = self._list_where(**filters)
         rows = (
             (await self.session.execute(text(f"{self._SELECT_WITH_PROFILE} {where} ORDER BY pt.created_at DESC"), params)).mappings().all()
         )
         return [dict(r) for r in rows]
+
+    async def count(self, **filters) -> int:
+        where, params = self._list_where(**filters)
+        sql = (
+            "SELECT count(*) FROM patients pt JOIN profiles p ON p.id = pt.profile_id "
+            f"LEFT JOIN profiles dp ON dp.id = pt.primary_doctor_id {where}"
+        )
+        return int((await self.session.execute(text(sql), params)).scalar() or 0)
+
+    async def list_page(self, *, limit: int, offset: int, **filters) -> tuple[builtins.list[dict], int]:
+        """One page in SQL plus the total — list() reads every row, which the
+        reception lists used to do on every page request (API audit F-020)."""
+        total = await self.count(**filters)
+        if total == 0 or limit <= 0 or offset >= total:
+            return [], total
+        where, params = self._list_where(**filters)
+        rows = (
+            (
+                await self.session.execute(
+                    text(f"{self._SELECT_WITH_PROFILE} {where} ORDER BY pt.created_at DESC LIMIT :limit OFFSET :offset"),
+                    {**params, "limit": limit, "offset": offset},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows], total
 
     async def update(self, patient_id: UUID, *, profile_fields: dict, patient_fields: dict) -> dict | None:
         patient = await self.get(patient_id)
@@ -224,20 +321,48 @@ class PatientRepository:
         )
 
     async def set_approval(
-        self, patient_id: UUID, *, approval_status: str, approved_by: UUID | None, rejection_reason: str | None
+        self,
+        patient_id: UUID,
+        *,
+        approval_status: str,
+        decided_by: UUID | None,
+        rejection_reason: str | None,
+        method: str | None = None,
     ) -> dict | None:
+        """approved_by/approved_at and rejected_by/rejected_at (94) are each
+        written only by their own decision — approving never touches the
+        reject columns and vice versa — so a patient rejected once and later
+        approved keeps both halves of that history instead of one
+        overwriting the other. rejection_reason is cleared on approval: it
+        describes the CURRENT rejection, not a past one a re-approval just
+        superseded. method (105) says who approved: 'manual' = decided_by,
+        'auto' = the registration checks, with decided_by empty."""
+        if approval_status == "approved":
+            return await fetch_optional(
+                self.session,
+                text(
+                    "UPDATE patients SET approval_status = 'approved', approval_method = :method, approved_by = :decided_by, "
+                    "approved_at = NOW(), rejection_reason = NULL WHERE patient_id = :id RETURNING *"
+                ),
+                {"method": method, "decided_by": str(decided_by) if decided_by else None, "id": str(patient_id)},
+            )
         return await fetch_optional(
             self.session,
             text(
-                "UPDATE patients SET approval_status = :status, approved_by = :approved_by, "
-                "approved_at = NOW(), rejection_reason = :reason WHERE patient_id = :id RETURNING *"
+                "UPDATE patients SET approval_status = 'rejected', rejected_by = :decided_by, "
+                "rejected_at = NOW(), rejection_reason = :reason WHERE patient_id = :id RETURNING *"
             ),
             {
-                "status": approval_status,
-                "approved_by": str(approved_by) if approved_by else None,
+                "decided_by": str(decided_by) if decided_by else None,
                 "reason": rejection_reason,
                 "id": str(patient_id),
             },
+        )
+
+    async def set_risk_flags(self, patient_id: UUID, flags: builtins.list[str]) -> None:
+        await self.session.execute(
+            text("UPDATE patients SET risk_flags = CAST(:flags AS JSONB) WHERE patient_id = :id"),
+            {"flags": json.dumps(flags), "id": str(patient_id)},
         )
 
     async def complete_registration(self, patient_id: UUID, doctor_id: UUID | None) -> dict | None:
@@ -310,3 +435,94 @@ class PatientTransferRepository:
                 "id": str(pct_id),
             },
         )
+
+
+class PrescribedMedicineRepository:
+    """core.prescribed_medicines (96). Stopped, never deleted."""
+
+    _SELECT = (
+        "SELECT m.*, pp.first_name || ' ' || pp.last_name AS prescribed_by_name "
+        "FROM prescribed_medicines m LEFT JOIN profiles pp ON pp.id = m.prescribed_by "
+    )
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def list_for_patient(self, patient_profile_id: UUID) -> list[dict]:
+        rows = (
+            (
+                await self.session.execute(
+                    text(self._SELECT + "WHERE m.patient_id = :pid ORDER BY m.status, m.started_at DESC"),
+                    {"pid": str(patient_profile_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def get(self, medicine_id: UUID) -> dict | None:
+        return await fetch_optional(self.session, text(self._SELECT + "WHERE m.medicine_id = :id"), {"id": str(medicine_id)})
+
+    async def create(self, data: dict) -> dict:
+        row = await fetch_one(
+            self.session,
+            text(
+                "INSERT INTO prescribed_medicines (patient_id, clinic_id, prescribed_by, appointment_id, medicine_name, "
+                "dose, timing, meal_instruction, duration, note) VALUES (:patient_id, :clinic_id, :prescribed_by, "
+                ":appointment_id, :medicine_name, :dose, :timing, :meal_instruction, :duration, :note) RETURNING medicine_id"
+            ),
+            data,
+        )
+        return await self.get(row["medicine_id"])  # type: ignore[return-value]
+
+    async def set_status(self, medicine_id: UUID, *, status: str, changed_by: UUID) -> dict | None:
+        await self.session.execute(
+            text(
+                "UPDATE prescribed_medicines SET status = :status, "
+                "stopped_at = CASE WHEN :status = 'stopped' THEN now() ELSE NULL END, "
+                "stopped_by = CASE WHEN :status = 'stopped' THEN CAST(:by AS uuid) ELSE NULL END "
+                "WHERE medicine_id = :id"
+            ),
+            {"status": status, "by": str(changed_by), "id": str(medicine_id)},
+        )
+        return await self.get(medicine_id)
+
+
+class PatientClinicalNoteRepository:
+    """core.patient_clinical_notes (99). Append-only — no update/delete."""
+
+    _SELECT = (
+        "SELECT n.*, dp.first_name || ' ' || dp.last_name AS doctor_name "
+        "FROM patient_clinical_notes n LEFT JOIN profiles dp ON dp.id = n.doctor_id "
+    )
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def list_for_patient(self, patient_profile_id: UUID) -> list[dict]:
+        rows = (
+            (
+                await self.session.execute(
+                    text(self._SELECT + "WHERE n.patient_id = :pid ORDER BY n.created_at DESC"),
+                    {"pid": str(patient_profile_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def get(self, note_id: UUID) -> dict | None:
+        return await fetch_optional(self.session, text(self._SELECT + "WHERE n.note_id = :id"), {"id": str(note_id)})
+
+    async def create(self, data: dict) -> dict:
+        row = await fetch_one(
+            self.session,
+            text(
+                "INSERT INTO patient_clinical_notes (patient_id, doctor_id, appointment_id, category, note_text) "
+                "VALUES (:patient_id, :doctor_id, :appointment_id, :category, :note_text) RETURNING note_id"
+            ),
+            data,
+        )
+        return await self.get(row["note_id"])  # type: ignore[return-value]

@@ -3,11 +3,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse
 
+from app.config import get_settings
 from app.core.db import RequestContext, get_db
-from app.core.exceptions import PermissionError_
+from app.core.exceptions import NotFoundError, PermissionError_
 from app.core.permissions import require_role
 from app.core.scoping import assert_patient_self
+from app.integrations import s3
 from app.modules.files import schemas as s
+from app.modules.files.repository import MedicalHistoryFileRepository
 from app.modules.files.service import FileService
 
 router = APIRouter()
@@ -22,18 +25,33 @@ def _require_own_medical_history(ctx: RequestContext, doc_type: str) -> None:
         raise PermissionError_("Patients may only upload medical history documents", code="DOC_TYPE_NOT_ALLOWED")
 
 
-async def _assert_own_key(ctx: RequestContext, db, s3_key: str) -> None:
-    """s3_key embeds the patient_id segment (see s3.build_key) — cheap
-    ownership check for the two raw-bytes local-dev routes below, which
-    (unlike the other endpoints) only ever see a key, not a patient_id path
-    param to run assert_patient_self against directly."""
-    if ctx.role == "patient":
-        from app.modules.patients.repository import PatientRepository
+def _require_local_storage() -> None:
+    """The two raw-bytes routes below exist only for local mode. In S3 mode
+    the browser talks to S3 directly, and these would be a way around the
+    quarantine bucket and the size / content-type limits."""
+    if get_settings().file_storage_mode == "s3":
+        raise NotFoundError("Not found", code="NOT_FOUND")
 
-        patient = await PatientRepository(db).get_by_profile_id(UUID(ctx.user_id))
-        own_patient_id = str(patient["patient_id"]) if patient else None
-        if not own_patient_id or f"/patients/{own_patient_id}/" not in s3_key:
+
+async def _assert_own_key(ctx: RequestContext, db, s3_key: str) -> None:
+    """Ownership check for the two raw-bytes local-dev routes below, which
+    (unlike the other endpoints) only ever see a key, not a patient_id path
+    param to run assert_patient_self against directly. A records key embeds
+    the patient_id segment (see s3.build_key); a quarantine key
+    (incoming/{upload_id}) names the row instead."""
+    if ctx.role != "patient":
+        return
+    if s3_key.startswith("incoming/"):
+        row = await MedicalHistoryFileRepository(db).get(UUID(s3_key.removeprefix("incoming/")))
+        if not row or str(row["patient_id"]) != ctx.user_id:
             raise PermissionError_("Not your file", code="FORBIDDEN")
+        return
+    from app.modules.patients.repository import PatientRepository
+
+    patient = await PatientRepository(db).get_by_profile_id(UUID(ctx.user_id))
+    own_patient_id = str(patient["patient_id"]) if patient else None
+    if not own_patient_id or f"/patients/{own_patient_id}/" not in s3_key:
+        raise PermissionError_("Not your file", code="FORBIDDEN")
 
 
 @router.post("/patients/{patient_id}/files/presign-upload", response_model=s.PresignUploadResponse)
@@ -46,7 +64,7 @@ async def presign_upload(
     await assert_patient_self(ctx, db, patient_id)
     _require_own_medical_history(ctx, body.doc_type)
     return await FileService(db).presign_upload(
-        patient_id, doc_type=body.doc_type, file_name=body.file_name, clinic_id=body.clinic_id, content_type=body.content_type
+        patient_id, body.model_dump(), uploaded_by=UUID(ctx.user_id), via_quarantine=ctx.role == "patient"
     )
 
 
@@ -57,9 +75,9 @@ async def upload_file_bytes(
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
-    """Local-dev stand-in for a real presigned S3 PUT — the client uploads
-    bytes directly here instead of to S3. Route disappears at Stage 13 (real
-    AWS cutover), replaced by the client PUTting straight to S3."""
+    """Local-dev stand-in for a real presigned S3 POST — the client uploads
+    bytes directly here instead of to S3. Not served in S3 mode."""
+    _require_local_storage()
     await _assert_own_key(ctx, db, s3_key)
     content = await request.body()
     return await FileService(db).upload_bytes(s3_key, content)
@@ -67,11 +85,11 @@ async def upload_file_bytes(
 
 @router.get("/files/download/{s3_key:path}")
 async def download_file_bytes(s3_key: str, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
-    from app.config import get_settings
-
+    _require_local_storage()
     await _assert_own_key(ctx, db, s3_key)
-    path = get_settings().local_file_storage_path
-    return FileResponse(f"{path}/{s3_key}")
+    path = s3.local_path(s3_key)
+    # filename= makes it an attachment, same as the presigned S3 download.
+    return FileResponse(path, filename=path.name)
 
 
 @router.post("/patients/{patient_id}/files", status_code=201)
@@ -79,10 +97,10 @@ async def confirm_file_upload(
     patient_id: UUID,
     body: s.FileConfirmCreate,
     db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
 ):
-    await assert_patient_self(ctx, db, patient_id)
-    _require_own_medical_history(ctx, body.doc_type)
+    """Staff only. A patient upload has no confirm step: its row is created
+    by presign-upload and decided by the malware scan."""
     data = body.model_dump()
     data["clinic_id"] = str(data["clinic_id"])
     return await FileService(db).confirm(patient_id, data, uploaded_by=UUID(ctx.user_id))
@@ -96,6 +114,9 @@ async def list_patient_files(
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     await assert_patient_self(ctx, db, patient_id)
+    # Only files that are in the patient records bucket are listed, to the
+    # patient and to staff alike. An upload still being scanned, or one that
+    # was rejected, is not shown to anyone.
     return await FileService(db).list_for_patient(patient_id, doc_type=doc_type)
 
 
@@ -108,6 +129,16 @@ async def get_download_url(
 ):
     caller_profile_id = UUID(ctx.user_id) if ctx.role == "patient" else None
     return {"download_url": await FileService(db).download_url(doc_type, file_id, caller_profile_id=caller_profile_id)}
+
+
+@router.patch("/files/medical_history/{file_id}/verify")
+async def verify_patient_upload(
+    file_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin", "doctor", "clinical_assistant")),
+):
+    """A clinician confirms a file the patient uploaded themselves."""
+    return await FileService(db).verify(file_id, verified_by=UUID(ctx.user_id))
 
 
 @router.patch("/eeg-files/{eeg_id}/review")

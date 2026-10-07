@@ -43,6 +43,17 @@ class PatientScaleAssignmentCreate(BaseModel):
     assignment_reason: str = Field(default="auto_disease_match", pattern="^(auto_disease_match|ca_selected|doctor_override)$")
 
 
+class PatientScaleAssignmentBulkCreate(BaseModel):
+    """POST /patient-scale-assignments/bulk — several scales of one disease
+    for one patient, all-or-nothing (API audit F-042)."""
+
+    patient_id: UUID
+    disease_id: str
+    scale_ids: list[str] = Field(min_length=1, max_length=50)
+    assessment_stage: str = Field(pattern="^(general_registration|main_clinical|followup)$")
+    assignment_reason: str = Field(default="auto_disease_match", pattern="^(auto_disease_match|ca_selected|doctor_override)$")
+
+
 class PatientScaleAssignmentRead(BaseModel):
     psa_id: UUID
     patient_id: UUID
@@ -70,6 +81,12 @@ class AssessmentInstanceCreate(BaseModel):
     # in the service.
     appointment_id: UUID | None = None
     language_code: str = Field(default="en", pattern="^[a-z]{2}$")
+    # When set, scopes the instance to this ONE scale instead of every scale
+    # mapped to disease_id — the device-session "administer this scale" flow,
+    # whose scale never has a patient_scale_assignments row of its own (it
+    # comes from protocol_scales) and would otherwise pull in the disease's
+    # full scale set. See PrsAssessmentService._compose_scales.
+    scale_id: str | None = None
 
 
 class AssessmentInstanceRead(BaseModel):
@@ -83,8 +100,16 @@ class AssessmentInstanceRead(BaseModel):
     patient_id: UUID
     session_id: UUID | None
     appointment_id: UUID | None = None
+    # The staff member who took it on the patient's behalf (NULL = the
+    # patient answered it themselves).
+    administered_by: UUID | None = None
+    administered_by_name: str | None = None
+    administered_by_role: str | None = None
     assessment_stage: str
     status: str
+    # Voided instances (e.g. race duplicates, migration 95) stay listed for
+    # audit; readers picking "the" instance must skip them.
+    is_voided: bool = False
     started_at: datetime
     completed_at: datetime | None
     final_result: str | None

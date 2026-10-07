@@ -448,6 +448,15 @@ class WeeklyScheduleService:
         doctor_profile_id = await _resolve_doctor_profile_id(self.session, doctor_id)
         return await self.repo.list_for_doctor(doctor_profile_id)
 
+    async def list_for_clinic(self, clinic_id: UUID | None, *, region_id: UUID | None = None) -> list[dict]:
+        """[{doctor_id, schedules}] — doctor_id is doctors.doctor_id (what
+        /doctors/{doctor_id}/weekly-schedules takes); doctors with no active
+        rule are left out, same as an empty per-doctor list."""
+        grouped: dict = {}
+        for row in await self.repo.list_for_clinic_doctors(clinic_id, region_id=region_id):
+            grouped.setdefault(row.pop("doctor_record_id"), []).append(row)
+        return [{"doctor_id": k, "schedules": v} for k, v in grouped.items()]
+
     async def replace_own(self, *, doctor_profile_id: UUID, clinic_id: UUID, items: list[dict]) -> list[dict]:
         await _assert_clinic_operational(self.session, clinic_id)
         await _assert_within_clinic_hours(self.session, clinic_id, items)
@@ -476,6 +485,14 @@ class ScheduleOverrideService:
     async def list_for_doctor(self, doctor_id: UUID) -> list[dict]:
         doctor_profile_id = await _resolve_doctor_profile_id(self.session, doctor_id)
         return await self.repo.list_for_doctor(doctor_profile_id)
+
+    async def list_for_clinic(self, clinic_id: UUID) -> list[dict]:
+        """[{doctor_id, overrides}] keyed by doctors.doctor_id; doctors with
+        none are left out, same as an empty per-doctor list."""
+        grouped: dict = {}
+        for row in await self.repo.list_for_clinic_doctors(clinic_id):
+            grouped.setdefault(row.pop("doctor_record_id"), []).append(row)
+        return [{"doctor_id": k, "overrides": v} for k, v in grouped.items()]
 
     async def delete_own(self, override_id: UUID, *, doctor_profile_id: UUID) -> None:
         override = await self.repo.get(override_id)
@@ -685,11 +702,52 @@ class AppointmentService:
         patient_id=None,
         status=None,
         appointment_type=None,
+        exclude_appointment_type=None,
         date_from=None,
         date_to=None,
         skip: int = 0,
         limit: int = 100,
+        order: str = "asc",
     ) -> builtins.list[dict]:
+        scope = await self._scope(ctx, clinic_id=clinic_id, doctor_id=doctor_id, patient_id=patient_id)
+        return await self.repo.list(
+            **scope,
+            appointment_type=appointment_type,
+            exclude_appointment_type=exclude_appointment_type,
+            status=status,
+            date_from=date_from,
+            date_to=date_to,
+            skip=skip,
+            limit=limit,
+            order=order,
+        )
+
+    async def page(
+        self,
+        *,
+        ctx: RequestContext,
+        page: int,
+        page_size: int,
+        clinic_id=None,
+        doctor_id=None,
+        patient_id=None,
+        period_today: dt.date | None = None,
+        **filters,
+    ) -> dict:
+        """Paged list + total + pill counts (API audit F-023); same role
+        scoping as list()."""
+        scope = await self._scope(ctx, clinic_id=clinic_id, doctor_id=doctor_id, patient_id=patient_id)
+        result = await self.repo.page(page=page, page_size=page_size, **scope, **filters)
+        if period_today:
+            # Tab badges count the whole caller scope (no doctor/search/date
+            # filter), as the admin tabs did client-side (API audit F-055).
+            base = await self._scope(ctx, clinic_id=clinic_id)
+            result["counts"]["by_period"] = await self.repo.period_counts(
+                period_today, **base, exclude_superseded=filters.get("exclude_superseded", False)
+            )
+        return result
+
+    async def _scope(self, ctx: RequestContext, *, clinic_id=None, doctor_id=None, patient_id=None) -> dict:
         # v1: patient sees only their own, doctor only their own, staff
         # scoped to clinic (+ optional doctor_id/patient_id filters layered
         # on top) — never trusting a caller-supplied id to widen their view.
@@ -713,22 +771,11 @@ class AppointmentService:
         region_id = None
         if ctx.role == "regional_admin" and not clinic_id:
             region_id = UUID(ctx.region_id) if ctx.region_id else None
-        return await self.repo.list(
-            appointment_type=appointment_type,
-            clinic_id=clinic_id,
-            region_id=region_id,
-            doctor_id=doctor_id,
-            patient_id=patient_id,
-            status=status,
-            date_from=date_from,
-            date_to=date_to,
-            skip=skip,
-            limit=limit,
-        )
+        return {"clinic_id": clinic_id, "region_id": region_id, "doctor_id": doctor_id, "patient_id": patient_id}
 
-    async def list_upcoming(self, *, ctx: RequestContext, days: int = 14) -> builtins.list[dict]:
+    async def list_upcoming(self, *, ctx: RequestContext, days: int = 14, patient_id=None) -> builtins.list[dict]:
         today = _now_ist_naive().date()
-        rows = await self.list(ctx=ctx, date_from=today, date_to=today + dt.timedelta(days=days), limit=200)
+        rows = await self.list(ctx=ctx, patient_id=patient_id, date_from=today, date_to=today + dt.timedelta(days=days), limit=200)
         return [r for r in rows if r["status"] in ACTIVE_STATUSES]
 
     async def list_today(self, *, ctx: RequestContext) -> builtins.list[dict]:
@@ -823,8 +870,14 @@ class AppointmentService:
                 return
             if ctx.role == "doctor" and str(appt["doctor_id"]) != ctx.user_id:
                 raise PermissionError_("You can only update your own appointments", code="NOT_YOUR_APPOINTMENT")
-            if ctx.role not in ("doctor", "super_admin"):
-                raise PermissionError_("Only the treating doctor can perform this action", code="DOCTOR_ONLY_ACTION")
+            # A clinical assistant may start and complete a consultation at
+            # their clinic without waiting on the doctor (requirement
+            # 2026-10-04), so the visit's anamnesis / PRS can be taken.
+            # appointment_audit_logs records who did it and in what role.
+            if ctx.role not in ("doctor", "clinical_assistant", "super_admin"):
+                raise PermissionError_(
+                    "Only the treating doctor or a clinical assistant can perform this action", code="DOCTOR_ONLY_ACTION"
+                )
             return
 
         # appt["doctor_id"] is NULL on a device session, so this comparison is
@@ -925,6 +978,21 @@ class AppointmentService:
         if old["status"] not in RESCHEDULE_FROM_STATUSES:
             raise BusinessRuleError("Only an active (or no-show) appointment can be rescheduled", code="APPOINTMENT_NOT_ACTIVE")
         await assert_clinic_scope(ctx, self.session, old["clinic_id"])
+
+        # The front desk only puts a time on a doctor-planned protocol
+        # follow-up / device session on the day the treatment schedule set —
+        # moving it to another day is the doctor's call, not reception's.
+        if (
+            changed_by_role == "receptionist"
+            and old["appointment_type"] in PROTOCOL_BORN_TYPES
+            and old["status"] == STATUS_PLANNED
+            and data["appointment_date"] != old["appointment_date"]
+        ):
+            label = "device session" if old["appointment_type"] == TYPE_DEVICE_SESSION else "protocol follow-up"
+            raise BusinessRuleError(
+                f"A {label} can only be booked on its scheduled day",
+                code="PLANNED_SESSION_DATE_LOCKED",
+            )
 
         if old["appointment_type"] in PROTOCOL_BORN_TYPES:
             # A protocol-born row (device_session/protocol_followup) carries
@@ -1619,11 +1687,14 @@ class PatientBookingService:
             cancellation_reason=reason,
         )
 
-    async def my_appointments(self, ctx: RequestContext, *, include_past: bool = False) -> builtins.list[dict]:
+    async def my_appointments(
+        self, ctx: RequestContext, *, include_past: bool = False, appointment_type: str | None = None
+    ) -> builtins.list[dict]:
         """Every appointment of every type, protocol-generated 'planned' rows
         included — those are exactly what the patient needs to see in order to
-        claim a slot for them."""
-        return await self.repo.list_for_patient(UUID(ctx.user_id), include_past=include_past)
+        claim a slot for them. appointment_type narrows it (e.g. the
+        dashboard/device-sessions pages need only device_session rows)."""
+        return await self.repo.list_for_patient(UUID(ctx.user_id), include_past=include_past, appointment_type=appointment_type)
 
     async def my_appointment_history(self, ctx: RequestContext) -> builtins.list[dict]:
         """The appointment-section feed: every appointment ever, newest first,

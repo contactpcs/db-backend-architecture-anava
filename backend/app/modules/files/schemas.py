@@ -6,14 +6,26 @@ from pydantic import BaseModel, Field
 
 class PresignUploadRequest(BaseModel):
     doc_type: str = Field(pattern="^(eeg|medical_history)$")
-    file_name: str
+    file_name: str = Field(min_length=1, max_length=255)
     clinic_id: UUID
     content_type: str = Field(pattern=r"^[\w.+-]+/[\w.+-]+$")
+    # Used only when a patient uploads: their row is created at this step
+    # (there is no confirm call), so the document details arrive here.
+    document_type: str | None = None
+    document_date: date | None = None
+    source_provider: str | None = None
+    description: str | None = None
 
 
 class PresignUploadResponse(BaseModel):
     s3_key: str
     upload_url: str
+    # S3 mode: form fields to send, before the file, in a multipart POST to
+    # upload_url. None in local mode: PUT the bytes to /files/upload/{s3_key}.
+    upload_fields: dict[str, str] | None = None
+    # Set for a patient upload: the row already exists (status 'scanning')
+    # and the client must NOT call the confirm endpoint.
+    file: dict | None = None
 
 
 class FileConfirmCreate(BaseModel):

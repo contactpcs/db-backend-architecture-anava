@@ -6,7 +6,7 @@ from uuid import UUID
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import RequestContext
+from app.core.db import RequestContext, as_system
 from app.core.events import emit_event
 from app.core.exceptions import BusinessRuleError, NotFoundError, PermissionError_
 from app.core.scoping import assert_clinic_scope, assert_owns_profile
@@ -63,6 +63,15 @@ def resolve_cancellation_refund_percent(tiers: list[dict], hours_until: float) -
 
 
 _REVENUE_GROUP_BY = {"day", "week", "month", "year"}
+
+# Which breakdown a role may ask for. Region only makes sense cross-region
+# (super_admin); clinic only when more than one clinic is in scope.
+_BREAKDOWN_DIMENSIONS_BY_ROLE = {
+    "super_admin": {"region", "clinic", "doctor", "purpose"},
+    "regional_admin": {"clinic", "doctor", "purpose"},
+    "clinic_admin": {"doctor", "purpose"},
+    "receptionist": {"doctor", "purpose"},
+}
 
 
 def _history_scope(ctx: RequestContext) -> tuple[UUID | None, UUID | None]:
@@ -246,6 +255,9 @@ class PaymentService:
     async def list(self, clinic_id: UUID) -> builtins.list[dict]:
         return await self.repo.list_by_clinic(clinic_id)
 
+    async def summary(self, clinic_id: UUID | None, *, region_id: UUID | None = None) -> dict:
+        return await self.repo.summary_by_clinic(clinic_id, region_id=region_id)
+
     async def list_mine(self, patient_id: UUID) -> builtins.list[dict]:
         return await self.repo.list_for_patient(patient_id)
 
@@ -286,6 +298,15 @@ class PaymentService:
         clinic_id, region_id = _history_scope(ctx)
         return await self.repo.revenue_summary_by_purpose(
             clinic_id=clinic_id, region_id=region_id, group_by=group_by, date_from=date_from, date_to=date_to
+        )
+
+    async def revenue_breakdown(self, ctx: RequestContext, *, dimension: str, date_from=None, date_to=None) -> builtins.list[dict]:
+        allowed = _BREAKDOWN_DIMENSIONS_BY_ROLE.get(ctx.role, set())
+        if dimension not in allowed:
+            raise BusinessRuleError(f"dimension must be one of {sorted(allowed)} for your role", code="INVALID_BREAKDOWN_DIMENSION")
+        clinic_id, region_id = _history_scope(ctx)
+        return await self.repo.revenue_breakdown(
+            clinic_id=clinic_id, region_id=region_id, dimension=dimension, date_from=date_from, date_to=date_to
         )
 
     async def patient_revenue_totals(self, ctx: RequestContext, *, date_from=None, date_to=None, limit: int = 20) -> builtins.list[dict]:
@@ -524,6 +545,70 @@ class PaymentService:
             },
         )
         return {**payment, "razorpay_key_id": razorpay_client.settings.razorpay_key_id}
+
+    async def record_cash_payment(self, appointment_id: UUID, ctx: RequestContext) -> dict:
+        """Front-desk cash collection — the counter equivalent of a completed
+        Razorpay checkout. Same price resolution as create_order, same
+        update_status path as the webhook/verify (appointment selected ->
+        paid first, then the payment row, payment_log and payment_completed
+        event), just payment_method='cash' and no gateway involved.
+
+        Idempotent: an already-paid appointment returns its payment as-is. If
+        an online attempt was started first (a 'pending' Razorpay-order row
+        exists) and the patient then pays cash instead, that same row is
+        settled as cash rather than creating a second payment."""
+        appt = await self._get_appointment_for_pay(appointment_id, ctx)
+
+        existing = await self.repo.get_for_appointment(appointment_id)
+        if existing and existing["status"] == "paid":
+            return existing
+
+        if appt["status"] != "selected":
+            raise BusinessRuleError(f"Appointment is '{appt['status']}', not awaiting payment", code="NOT_AWAITING_PAYMENT")
+
+        if existing and existing["status"] == "pending":
+            payment_id = existing["payment_id"]
+        else:
+            priced = await self._resolve_amount(appt)
+            payment = await self.repo.create(
+                session_id=None,
+                order_id=None,
+                appointment_id=appointment_id,
+                amount=priced["amount"],
+                currency=priced["currency"],
+                # No gateway order to key on — one cash row per appointment
+                # attempt, unique so a double-click can't insert twice.
+                idempotency_key=f"cash-{appointment_id}",
+                razorpay_order_id=None,
+                base_fee_amount=priced["base_fee_amount"],
+                platform_fee_percent=priced["platform_fee_percent"],
+                platform_fee_amount=priced["platform_fee_amount"],
+            )
+            payment_id = payment["payment_id"]
+            await self.repo.log_event(
+                payment_id,
+                status="pending",
+                amount=priced["amount"],
+                currency=priced["currency"],
+                source="order_created",
+                payment_method="cash",
+                changed_by=UUID(ctx.user_id),
+                changed_by_role=ctx.role,
+            )
+
+        # as_system: rls_payments_update admits only super_admin/clinic_admin/
+        # system, so a receptionist's (or regional_admin's) UPDATE matched 0
+        # rows and update_status asserted. The route's role list and
+        # _get_appointment_for_pay's clinic scope already authorized this.
+        async with as_system(self.session):
+            return await self.update_status(
+                payment_id,
+                status="paid",
+                payment_method="cash",
+                _changed_by=UUID(ctx.user_id),
+                _changed_by_role=ctx.role,
+                _source="staff_action",
+            )
 
     async def verify_payment(
         self, payment_id: UUID, *, razorpay_order_id: str, razorpay_payment_id: str, razorpay_signature: str, ctx: RequestContext

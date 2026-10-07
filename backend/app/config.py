@@ -9,23 +9,36 @@ class Settings(BaseSettings):
 
     environment: str = "local"
 
-    # Database — database_url is what the running app connects as.
-    # IMPORTANT: as of this review, the deployed role is NOT a scoped
-    # NOBYPASSRLS role — it connects as a Postgres superuser and RLS
-    # policies (15_rls_policies.sql) are bypassed entirely. Nothing in this
-    # codebase verifies the connecting role's rolbypassrls at runtime, so
-    # ownership/scope checks in app/core/scoping.py are the ONLY real
-    # backstop for patient/clinic data access, not RLS. See scoping.py's
-    # module docstring. migration_database_url is what alembic connects as
-    # instead — needs DDL privileges (CREATE/ALTER/DROP), so it's the RDS
-    # master user in real environments. Defaults to database_url (unset
-    # locally — Docker dev has one role for everything, no split).
+    # Database — database_url is what the running app (requests AND the
+    # in-process workers) connects as: anava_app, a scoped role that is NOT
+    # a superuser and does NOT bypass RLS (verified 2026-09-28). RLS is a
+    # real backstop; the app-layer checks in app/core/scoping.py remain the
+    # first line. migration_database_url is the RDS master user — only for
+    # alembic/DDL, seed scripts, partition maintenance and the retention
+    # purge. The API container should not need it at all: run partition
+    # maintenance as a separate scheduled task and set
+    # PARTITION_MAINTENANCE_ENABLED=false on the API.
     # No hardcoded fallback on purpose — a deploy with this unset should
     # fail to boot, not silently connect to a nonexistent local Postgres.
     database_url: str
     migration_database_url: str | None = None
-    db_pool_size: int = 10
+    # Per-process ceiling = pool + overflow (API) + 5 (shared worker pool) + 1
+    # (relay LISTEN). The RDS instance has 79 slots (5 reserved) shared by
+    # the deployed API AND every developer's local backend — keep this small
+    # by default; raise it via env only on a bigger instance or behind RDS Proxy.
+    db_pool_size: int = 5
     db_max_overflow: int = 5
+    # How long a request waits for a free pooled connection before it is
+    # refused with 503 SERVER_BUSY (SQLAlchemy's default is 30 s, which under
+    # overload just stacks up requests the caller has already given up on).
+    db_pool_timeout_seconds: float = 10.0
+    # A pooled connection is liveness-checked before use only when it has sat
+    # idle for at least this long. Checking on every checkout cost two extra
+    # database round trips per request (one for the auth lookup, one for the
+    # endpoint). Kept short so that after a database restart or failover
+    # (which takes far longer than this) every pooled connection is checked
+    # again before use. 0 = check on every checkout, the previous behaviour.
+    db_ping_after_idle_seconds: float = 5.0
     # RDS requires/expects SSL; local Docker Postgres doesn't have it configured.
     db_require_ssl: bool = False
     # AWS's RDS certs chain up to Amazon's own root CAs, which aren't always
@@ -78,8 +91,26 @@ class Settings(BaseSettings):
     # notifications rows + live SSE pushes. Off = nobody is ever notified.
     event_relay_enabled: bool = True
 
-    # Redis
-    redis_url: str = "redis://localhost:6379/0"
+    # Self-registered patients (Documents/design_signup_auto_approval.md).
+    # Off = every self-registration waits for a receptionist, as before; the
+    # risk checks still run and their flags are stored either way.
+    auto_approve_self_registration: bool = False
+    signup_start_limit_per_ip_per_hour: int = 15
+    signup_contact_limit_per_hour: int = 10
+    signup_otp_limit_per_ip_per_hour: int = 10
+    signup_ip_velocity_limit_per_day: int = 24
+    signup_min_wizard_seconds: int = 30
+    signup_max_age_years: int = 150
+    # First entry is assumed for a number typed without a country code.
+    signup_allowed_phone_country_codes: list[str] = ["+91"]
+    # Key for the one-way hash of emails/phones in ops.signup_security_log.
+    # Required outside local/test (validated below).
+    signup_hash_secret: str | None = None
+    # Behind the load balancer every connection comes from the balancer, so
+    # the caller's address has to be read from X-Forwarded-For. Turn on ONLY
+    # where the API is reachable through the balancer alone — anyone who can
+    # reach it directly could otherwise send that header themselves.
+    trust_forwarded_for: bool = False
 
     # Auth — local dev uses a fake JWT issuer shaped like Cognito's tokens.
     # In Stage 13 (real AWS cutover) these get replaced with the real Cognito
@@ -95,10 +126,41 @@ class Settings(BaseSettings):
     cognito_app_client_secret: str | None = None
 
     # File storage — local dev writes to disk behind the same interface
-    # integrations/s3.py exposes; Stage 13 swaps this for a real S3 bucket.
+    # integrations/s3.py exposes. In "s3" mode the buckets live in aws_region
+    # (below) and have different jobs (BACKEND_S3_PROMPT.md):
+    #   s3_bucket_name             patient records: EEG, medical history and
+    #                              patient uploads that passed the malware scan
+    #   s3_quarantine_bucket_name  where a patient upload lands first; without
+    #                              it patients cannot upload (staff still can)
+    #   s3_compliance_bucket_name  signed consent PDFs and clinic licenses
+    #   s3_access_logs_bucket_name CloudTrail data events; the app never reads
+    #                              or writes it, listed so every bucket name
+    #                              has one home
     file_storage_mode: str = "local"  # "local" | "s3"
     local_file_storage_path: str = "./.local_storage"
     s3_bucket_name: str | None = None
+    s3_quarantine_bucket_name: str | None = None
+    s3_compliance_bucket_name: str | None = None
+    s3_access_logs_bucket_name: str | None = None
+    # Customer-managed KMS keys. None = rely on the bucket's default encryption.
+    s3_kms_key_arn_phi: str | None = None  # patient records + quarantine
+    s3_kms_key_arn_compliance: str | None = None
+    # Role the malware-scan promotion step assumes (anava-upload-promoter). The
+    # API's own role cannot read the quarantine bucket. None = use the
+    # process's own credentials.
+    s3_promoter_role_arn: str | None = None
+    # In-process promotion loop (workers/upload_promoter.py), s3 mode only.
+    upload_promoter_enabled: bool = True
+    upload_promoter_interval_seconds: int = 20
+    # Limits written into every presigned upload, so S3 itself refuses a file
+    # that is too big or of another type.
+    upload_max_bytes: int = 25 * 1024 * 1024
+    upload_allowed_content_types: list[str] = ["application/pdf", "image/jpeg", "image/png"]
+    # Object Lock retention put on each signed consent PDF. None = no lock:
+    # the period is a decision for counsel and is still open. Stay on
+    # GOVERNANCE until it is made; COMPLIANCE cannot be shortened by anyone.
+    consent_object_lock_days: int | None = None
+    consent_object_lock_mode: str = "GOVERNANCE"  # "GOVERNANCE" | "COMPLIANCE"
 
     # Queue — ElasticMQ speaks the real SQS protocol locally, so this is
     # just an endpoint override; boto3 SQS code never changes at cutover.
@@ -118,6 +180,29 @@ class Settings(BaseSettings):
     # <name>` against instead of pasting long-lived keys here. Takes
     # priority over aws_access_key_id/secret when both are somehow set.
     aws_profile: str | None = None
+
+    # Interactive API docs (/docs, /redoc, /openapi.json). None = only when
+    # environment == "local": production must not publish the full API map.
+    # Deploys verify the build through GET /health/version instead.
+    api_docs_enabled: bool | None = None
+
+    # API audit recorder (perf/api-audit): one JSON line per request to
+    # api_audit_log (core/middleware.py::ApiAuditMiddleware). Off = the
+    # middleware is not even registered, nothing is written.
+    api_audit: bool = False
+    api_audit_log: str = r"D:\PCS\Documents\API_Audit\raw\traffic.jsonl"
+    # Performance probe (core/perf_probe.py): per-request time split into
+    # pool wait / database / other, plus pool and event-loop samples. Only for
+    # load-test investigations. Off = no hook installed, zero overhead.
+    perf_probe: bool = False
+    perf_probe_dir: str = r"D:\PCS\Documents\Perf_Test\probe"
+    # None = the driver default (100 prepared statements cached per
+    # connection). Exposed for load-test experiments only.
+    db_prepared_statement_cache_size: int | None = None
+    # Postgres plan_cache_mode for request connections. None = server default
+    # ("auto": plan a statement from scratch on its first five runs on each
+    # connection, then reuse). "force_generic_plan" = plan once per connection.
+    db_plan_cache_mode: str | None = None
 
     # Payments — Razorpay test-mode keys, set once available (Stage 10).
     # Empty in early development; payments module runs in stub mode until set.
@@ -159,6 +244,18 @@ class Settings(BaseSettings):
     def _require_local_jwt_secret_in_local_mode(self) -> "Settings":
         if self.auth_mode == "local" and not self.local_jwt_secret:
             raise ValueError("local_jwt_secret must be set when auth_mode='local'")
+        return self
+
+    @model_validator(mode="after")
+    def _require_bucket_in_s3_mode(self) -> "Settings":
+        if self.file_storage_mode == "s3" and not self.s3_bucket_name:
+            raise ValueError("s3_bucket_name must be set when file_storage_mode='s3'")
+        return self
+
+    @model_validator(mode="after")
+    def _require_signup_hash_secret_outside_local(self) -> "Settings":
+        if self.environment not in ("local", "test") and not self.signup_hash_secret:
+            raise ValueError("signup_hash_secret must be set outside local/test environments")
         return self
 
 

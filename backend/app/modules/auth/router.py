@@ -1,6 +1,7 @@
 import asyncio
 from uuid import UUID, uuid4
 
+import structlog
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 from jose import jwt as jose_jwt
@@ -23,6 +24,7 @@ from app.core.exceptions import (
     ValidationError,
     profile_conflict_error,
 )
+from app.core.middleware import client_ip
 from app.core.permissions import get_current_context, require_role
 from app.core.security import create_local_token, verify_token
 from app.modules.auth.schemas import (
@@ -33,6 +35,7 @@ from app.modules.auth.schemas import (
     LoginRequest,
     NewPasswordRequest,
     PatientSignupComplete,
+    PatientSignupConfirm,
     PatientSignupResend,
     PatientSignupStart,
     PatientSignupVerify,
@@ -43,29 +46,20 @@ from app.modules.auth.schemas import (
     VerifyChannelConfirm,
     VerifyChannelStart,
 )
+from app.modules.auth.signup import confirm_and_register, reject_if_contact_taken, start_patient_signup
+from app.modules.auth.signup_security import (
+    cognito_username,
+    guard_otp_attempt,
+    guard_signup_resend,
+    guard_signup_start,
+    public_ip,
+)
 
 _RECEPTIONIST_SIGNUP_ROLES = ("receptionist", "clinic_admin", "regional_admin", "super_admin")
 
 router = APIRouter()
+logger = structlog.get_logger()
 settings = get_settings()
-
-
-async def _reject_if_contact_taken(db, method: str, contact: str) -> None:
-    """Signup Start's own pre-check — same reasoning as verify-channel/start
-    (see its docstring): Cognito's user pool has no idea about our own
-    profiles.email/phone uniqueness, so without this an OTP would go out to
-    a real number/email that's already registered here, only to fail once
-    the patient actually tries to complete signup — after they've already
-    received and entered a code that was never going to lead anywhere.
-    No `id != :id` exclusion needed here (verify-channel's has one): nothing
-    has been created yet at this step, so any match at all is a duplicate."""
-    column = "email" if method == "email" else "phone"
-    taken = await db.execute(text(f"SELECT 1 FROM profiles WHERE {column} = :value"), {"value": contact})
-    if taken.first() is not None:
-        raise ConflictError(
-            f"{'Email' if method == 'email' else 'Phone number'} {contact!r} already in use",
-            code="EMAIL_ALREADY_EXISTS" if method == "email" else "PHONE_ALREADY_EXISTS",
-        )
 
 
 @router.get("/config")
@@ -259,36 +253,41 @@ def _bearer_token(request: Request) -> str:
 
 
 @router.post("/patients/signup/start", status_code=204)
-async def patient_signup_start(body: PatientSignupStart, db=Depends(get_db)) -> None:
+async def patient_signup_start(body: PatientSignupStart, request: Request, db=Depends(get_db)) -> None:
     """Step 1 of the real patient signup wizard — starts Cognito's SignUp,
     which auto-sends the OTP to whichever channel (email or phone) the
     patient chose. 404s in local mode (use /auth/register there instead —
     no OTP step needed for local testing)."""
     if settings.auth_mode != "cognito":
         raise NotFoundError("Not found", code="NOT_FOUND")
-    await _reject_if_contact_taken(db, body.method, body.contact)
-    from app.core.cognito import sign_up_patient
-
-    sign_up_patient(
-        username=body.contact,
+    if body.password is not None and body.password != body.confirm_password:
+        raise ValidationError("Passwords do not match", code="PASSWORD_MISMATCH")
+    # Rate limits, contact checks and the already-registered check, each
+    # recorded in ops.signup_security_log (auth/signup_security.py).
+    contact = await guard_signup_start(ip=client_ip(request), method=body.method, contact=body.contact)
+    await start_patient_signup(
+        db,
+        contact=contact,
+        method=body.method,
         first_name=body.first_name,
         last_name=body.last_name,
         dob=body.dob.isoformat() if body.dob else None,
         gender=body.gender,
+        password=body.password,
     )
 
 
 @router.post("/patients/signup/resend", status_code=204)
-async def patient_signup_resend(body: PatientSignupResend) -> None:
+async def patient_signup_resend(body: PatientSignupResend, request: Request) -> None:
     if settings.auth_mode != "cognito":
         raise NotFoundError("Not found", code="NOT_FOUND")
     from app.core.cognito import resend_confirmation_code
 
-    resend_confirmation_code(body.contact)
+    resend_confirmation_code(await guard_signup_resend(ip=client_ip(request), contact=body.contact))
 
 
 @router.post("/patients/signup/verify", status_code=204)
-async def patient_signup_verify(body: PatientSignupVerify) -> None:
+async def patient_signup_verify(body: PatientSignupVerify, request: Request) -> None:
     """Step 2 — verifies the OTP the patient just entered. Doesn't touch our
     DB at all; the wizard only writes a profiles/patients row once the
     password is set too (see /signup/complete)."""
@@ -296,11 +295,57 @@ async def patient_signup_verify(body: PatientSignupVerify) -> None:
         raise NotFoundError("Not found", code="NOT_FOUND")
     from app.core.cognito import confirm_sign_up
 
-    confirm_sign_up(username=body.contact, code=body.code)
+    await guard_otp_attempt(ip=client_ip(request))
+    confirm_sign_up(username=cognito_username(body.contact), code=body.code)
+
+
+@router.post("/patients/signup/confirm", response_model=PublicPatientRegisterResponse, status_code=201)
+async def patient_signup_confirm(
+    body: PatientSignupConfirm, request: Request, response: Response, db=Depends(get_db)
+) -> PublicPatientRegisterResponse:
+    """Step 2 of the current flow (password was chosen at /signup/start):
+    verifies the OTP, creates the profile/patient, and logs the patient in —
+    all in this one request, so an abandoned signup can never leave a
+    verified Cognito user with no account here (see auth/signup.py)."""
+    if settings.auth_mode != "cognito":
+        raise NotFoundError("Not found", code="NOT_FOUND")
+    await guard_otp_attempt(ip=client_ip(request))
+    patient, auth = await confirm_and_register(
+        db,
+        contact=cognito_username(body.contact),
+        method=body.method,
+        code=body.code,
+        password=body.password,
+        registration=_registration_fields(body),
+        self_registered=True,
+        signup_ip=public_ip(client_ip(request)),
+    )
+    return PublicPatientRegisterResponse(access_token=_start_session(response, auth), patient_id=patient["patient_id"])
+
+
+def _registration_fields(body) -> dict:
+    """PatientService.register's demographic fields from a signup body."""
+    return {
+        "first_name": body.first_name,
+        "last_name": body.last_name,
+        "dob": body.dob,
+        "gender": body.gender,
+        "address": body.address,
+        "city": body.city,
+        "state": body.state,
+        "country": body.country,
+        "pincode": body.pincode,
+        "primary_clinic_id": str(body.primary_clinic_id),
+        "guardian_name": body.guardian_name,
+        "guardian_relationship": body.guardian_relationship,
+        "guardian_contact": body.guardian_contact,
+    }
 
 
 @router.post("/patients/signup/complete", response_model=PublicPatientRegisterResponse, status_code=201)
-async def patient_signup_complete(body: PatientSignupComplete, response: Response, db=Depends(get_db)) -> PublicPatientRegisterResponse:
+async def patient_signup_complete(
+    body: PatientSignupComplete, request: Request, response: Response, db=Depends(get_db)
+) -> PublicPatientRegisterResponse:
     """Step 3 — sets the real password (overwriting SignUp's throwaway one),
     creates our own profiles/patients row with the now-real Cognito sub, and
     auto-logs the patient in. The channel they signed up with is already
@@ -313,7 +358,8 @@ async def patient_signup_complete(body: PatientSignupComplete, response: Respons
     from app.core.cognito import initiate_auth, set_patient_password
     from app.modules.patients.service import PatientService
 
-    cognito_sub = set_patient_password(username=body.contact, password=body.password)
+    contact = cognito_username(body.contact)
+    cognito_sub = set_patient_password(username=contact, password=body.password)
 
     # profiles.email is NOT NULL UNIQUE — a mobile-only signup has no real
     # email yet (it's added+verified later via /verify-channel/*), so this
@@ -330,20 +376,22 @@ async def patient_signup_complete(body: PatientSignupComplete, response: Respons
         "country": body.country,
         "pincode": body.pincode,
         "primary_clinic_id": str(body.primary_clinic_id),
-        "email": body.contact if body.method == "email" else f"pending-{uuid4()}@no-email.local",
-        "phone": body.contact if body.method == "mobile" else None,
+        "email": contact if body.method == "email" else f"pending-{uuid4()}@no-email.local",
+        "phone": contact if body.method == "mobile" else None,
         "guardian_name": body.guardian_name,
         "guardian_relationship": body.guardian_relationship,
         "guardian_contact": body.guardian_contact,
     }
-    patient = await PatientService(db).register(data, self_registered=True, cognito_sub=cognito_sub)
+    patient = await PatientService(db).register(
+        data, self_registered=True, cognito_sub=cognito_sub, signup_ip=public_ip(client_ip(request))
+    )
     if body.method == "email":
         await db.execute(text("UPDATE profiles SET email_verified = TRUE WHERE id = :id"), {"id": patient["profile_id"]})
     else:
         await db.execute(text("UPDATE profiles SET phone_verified = TRUE WHERE id = :id"), {"id": patient["profile_id"]})
     await db.commit()
 
-    result = initiate_auth(username=body.contact, password=body.password)
+    result = initiate_auth(username=contact, password=body.password)
     return PublicPatientRegisterResponse(access_token=_start_session(response, result), patient_id=patient["patient_id"])
 
 
@@ -363,15 +411,18 @@ async def patient_receptionist_signup_start(
 ) -> None:
     if settings.auth_mode != "cognito":
         raise NotFoundError("Not found", code="NOT_FOUND")
-    await _reject_if_contact_taken(db, body.method, body.contact)
-    from app.core.cognito import sign_up_patient
-
-    sign_up_patient(
-        username=body.contact,
+    if body.password is not None and body.password != body.confirm_password:
+        raise ValidationError("Passwords do not match", code="PASSWORD_MISMATCH")
+    await reject_if_contact_taken(db, body.method, body.contact)
+    await start_patient_signup(
+        db,
+        contact=body.contact,
+        method=body.method,
         first_name=body.first_name,
         last_name=body.last_name,
         dob=body.dob.isoformat() if body.dob else None,
         gender=body.gender,
+        password=body.password,
     )
 
 
@@ -557,8 +608,16 @@ async def get_current_user(ctx: RequestContext = Depends(get_current_context), d
     row = (
         (
             await db.execute(
-                text("SELECT id, email, first_name, last_name, role, email_verified, phone_verified FROM profiles WHERE id = :id"),
-                {"id": ctx.user_id},
+                # clinic name/city ride along on the same round trip — the
+                # sidebar used to download the public clinic list on every
+                # page load just to label the caller's clinic (API audit F-007).
+                text(
+                    "SELECT p.id, p.email, p.first_name, p.last_name, p.role, p.email_verified, p.phone_verified, "
+                    "c.clinic_name, c.city AS clinic_city "
+                    "FROM profiles p LEFT JOIN clinics c ON c.clinic_id = CAST(:cid AS uuid) "
+                    "WHERE p.id = :id"
+                ),
+                {"id": ctx.user_id, "cid": ctx.clinic_id},
             )
         )
         .mappings()
@@ -572,7 +631,10 @@ async def get_current_user(ctx: RequestContext = Depends(get_current_context), d
         patient_row = (
             (
                 await db.execute(
-                    text("SELECT patient_id, self_registered, registration_status FROM patients WHERE profile_id = :pid"),
+                    text(
+                        "SELECT patient_id, self_registered, registration_status, approval_status, rejection_reason "
+                        "FROM patients WHERE profile_id = :pid"
+                    ),
                     {"pid": row["id"]},
                 )
             )
@@ -593,13 +655,24 @@ async def get_current_user(ctx: RequestContext = Depends(get_current_context), d
         last_name=row["last_name"],
         role=row["role"],
         clinic_id=UUID(ctx.clinic_id) if ctx.clinic_id else None,
+        clinic_name=row["clinic_name"],
+        clinic_city=row["clinic_city"],
         region_id=UUID(ctx.region_id) if ctx.region_id else None,
         is_active=ctx.is_active,
         consent_signed=ctx.consent_signed,
-        consent_type_required=None if ctx.is_active else ("patient_onboarding" if row["role"] == "patient" else "staff_onboarding"),
+        # A rejected patient (94) already signed consent — inactive here
+        # because they were turned down, not because anything is unsigned.
+        # Don't send them back through the consent screen to explain that.
+        consent_type_required=(
+            None
+            if ctx.is_active or (patient_row and patient_row["approval_status"] == "rejected")
+            else ("patient_onboarding" if row["role"] == "patient" else "staff_onboarding")
+        ),
         self_registered=bool(patient_row["self_registered"]) if patient_row else False,
         patient_id=patient_row["patient_id"] if patient_row else None,
         registration_status=patient_row["registration_status"] if patient_row else None,
+        approval_status=patient_row["approval_status"] if patient_row else None,
+        rejection_reason=patient_row["rejection_reason"] if patient_row else None,
         doctor_id=doctor_row["doctor_id"] if doctor_row else None,
         # Only meaningful for a real cognito-mode patient (the only flow that
         # ever leaves one channel unverified) — every other case (local dev,

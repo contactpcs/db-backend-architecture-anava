@@ -91,8 +91,10 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in $(seq 1 10); do
-            count=$(curl -fsS --max-time 20 https://api.anavaclinics.com/openapi.json \
-              | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('paths',{})))" || echo 0)
+            # /openapi.json is not served in production (app/main.py) —
+            # /health/version reports the same path count.
+            count=$(curl -fsS --max-time 20 https://api.anavaclinics.com/health/version \
+              | python3 -c "import sys,json; print(json.load(sys.stdin).get('paths',0))" || echo 0)
             if [ "$count" -gt 150 ]; then
               echo "OK: $count paths served"
               exit 0

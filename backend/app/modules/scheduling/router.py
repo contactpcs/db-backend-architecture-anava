@@ -1,10 +1,11 @@
 from datetime import date
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
 from app.core.db import RequestContext, get_db
-from app.core.exceptions import NotFoundError, PermissionError_
+from app.core.exceptions import BusinessRuleError, NotFoundError, PermissionError_
 from app.core.permissions import require_role
 from app.modules.scheduling import schemas as s
 from app.modules.scheduling.service import (
@@ -58,6 +59,23 @@ async def list_weekly_schedules(doctor_id: UUID, db=Depends(get_db), _ctx: Reque
     return await WeeklyScheduleService(db).list_for_doctor(doctor_id)
 
 
+@router.get("/doctor-weekly-schedules", response_model=list[s.DoctorWeeklySchedulesRead])
+async def list_clinic_weekly_schedules(
+    clinic_id: UUID | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))
+):
+    """Weekly schedules of every doctor in a clinic in one call — dashboards
+    used to call /doctors/{id}/weekly-schedules once per doctor (API audit
+    F-052). Clinic-bound roles always get their own clinic; a regional admin
+    without clinic_id gets every doctor of their region (F-058)."""
+    if ctx.clinic_id:
+        clinic_id = UUID(ctx.clinic_id)
+    if clinic_id is None and ctx.role == "regional_admin" and ctx.region_id:
+        return await WeeklyScheduleService(db).list_for_clinic(None, region_id=UUID(ctx.region_id))
+    if clinic_id is None:
+        raise BusinessRuleError("clinic_id is required", code="CLINIC_ID_REQUIRED")
+    return await WeeklyScheduleService(db).list_for_clinic(clinic_id)
+
+
 @router.post("/doctors/{doctor_id}/schedule-overrides", response_model=s.ScheduleOverrideRead, status_code=201)
 async def create_schedule_override(
     doctor_id: UUID,
@@ -77,6 +95,20 @@ async def list_schedule_overrides(
     _ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     return await ScheduleOverrideService(db).list_for_doctor(doctor_id)
+
+
+@router.get("/doctor-schedule-overrides", response_model=list[s.DoctorScheduleOverridesRead])
+async def list_clinic_schedule_overrides(
+    clinic_id: UUID | None = None, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))
+):
+    """Schedule overrides of every doctor in a clinic in one call — the admin
+    appointments page called /doctors/{id}/schedule-overrides once per doctor
+    (API audit F-056). Clinic-bound roles always get their own clinic."""
+    if ctx.clinic_id:
+        clinic_id = UUID(ctx.clinic_id)
+    if clinic_id is None:
+        raise BusinessRuleError("clinic_id is required", code="CLINIC_ID_REQUIRED")
+    return await ScheduleOverrideService(db).list_for_clinic(clinic_id)
 
 
 @router.get("/doctors/{doctor_id}/availability", response_model=list[s.AvailabilitySlotRead])
@@ -138,8 +170,15 @@ async def create_appointment(body: s.AppointmentCreate, db=Depends(get_db), ctx:
 
 
 @router.get("/appointments/upcoming", response_model=list[s.AppointmentRead])
-async def list_upcoming_appointments(db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
-    return await AppointmentService(db).list_upcoming(ctx=ctx)
+async def list_upcoming_appointments(
+    patient_id: UUID | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    """patient_id (patients.patient_id) narrows it to one patient — the doctor's
+    patient summary used to download the doctor's whole upcoming list to find
+    one patient's next visit (API audit F-031). Same role scoping as list()."""
+    return await AppointmentService(db).list_upcoming(ctx=ctx, patient_id=patient_id)
 
 
 @router.get("/appointments/today", response_model=list[s.AppointmentRead])
@@ -154,10 +193,12 @@ async def list_appointments(
     patient_id: UUID | None = None,
     status: str | None = None,
     appointment_type: str | None = Query(None, description="device_session | protocol_followup | initial | follow_up"),
+    exclude_appointment_type: str | None = Query(None, description="drop one type, e.g. device_session (doctor calendar)"),
     date_from: date | None = None,
     date_to: date | None = None,
     skip: int = 0,
     limit: int = 100,
+    order: Literal["asc", "desc"] = Query("asc", description="Sort by appointment_date/start_time"),
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
@@ -168,11 +209,59 @@ async def list_appointments(
         patient_id=patient_id,
         status=status,
         appointment_type=appointment_type,
+        exclude_appointment_type=exclude_appointment_type,
         date_from=date_from,
         date_to=date_to,
         skip=skip,
         limit=limit,
+        order=order,
     )
+
+
+@router.get("/appointments/page", response_model=s.AppointmentPageRead)
+async def page_appointments(
+    clinic_id: UUID | None = None,
+    doctor_id: UUID | None = None,
+    doctor_name: str | None = None,
+    patient_id: UUID | None = None,
+    status: str | None = None,
+    appointment_type: str | None = None,
+    exclude_appointment_type: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    search: str | None = None,
+    exclude_superseded: bool = True,
+    date_order: Literal["asc", "desc"] = Query("asc", description="desc = newest date first (admin past tab)"),
+    period_today: date | None = Query(None, description="adds counts.by_period {past, today, upcoming} relative to this date"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
+):
+    """One page of appointments + total + per-status/per-type counts over the
+    same scope without the status/type filter (API audit F-023: the reception
+    table used to download every appointment in range and filter/count in the
+    browser). Same role scoping as GET /appointments. Registered before
+    /appointments/{appointment_id} so "page" is never parsed as an id."""
+    result = await AppointmentService(db).page(
+        ctx=ctx,
+        page=page,
+        page_size=page_size,
+        clinic_id=clinic_id,
+        doctor_id=doctor_id,
+        patient_id=patient_id,
+        doctor_name=doctor_name,
+        status=status,
+        appointment_type=appointment_type,
+        exclude_appointment_type=exclude_appointment_type,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+        exclude_superseded=exclude_superseded,
+        date_order=date_order,
+        period_today=period_today,
+    )
+    return {**result, "page": page, "page_size": page_size, "total_pages": max(1, -(-result["total"] // page_size))}
 
 
 @router.get("/appointments/{appointment_id}", response_model=s.AppointmentRead)
@@ -247,13 +336,16 @@ async def get_appointment_audit_log(
 @router.get("/me/appointments", response_model=list[s.AppointmentRead])
 async def my_appointments(
     include_past: bool = False,
+    appointment_type: str | None = None,
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role("patient")),
 ):
     """Every appointment of every type, protocol-generated planned sessions
     included — those are exactly what the patient needs to see in order to claim
-    a slot for them."""
-    return await PatientBookingService(db).my_appointments(ctx, include_past=include_past)
+    a slot for them. ?appointment_type=device_session returns only those rows
+    (API audit F-010: the dashboard used to download all of them to count
+    device sessions)."""
+    return await PatientBookingService(db).my_appointments(ctx, include_past=include_past, appointment_type=appointment_type)
 
 
 @router.get("/me/appointments/history", response_model=list[s.AppointmentHistoryRead])
