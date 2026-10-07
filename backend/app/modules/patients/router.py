@@ -135,9 +135,7 @@ async def get_patient(patient_id: UUID, db=Depends(get_db), ctx: RequestContext 
 
 
 @router.get("/patients/{patient_id}/clinic", response_model=s.PatientClinicRead)
-async def get_patient_clinic(
-    patient_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))
-):
+async def get_patient_clinic(patient_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
     """Contact details of the patient's primary clinic, for the patient
     portal. Same access rule as GET /patients/{patient_id}: a patient can
     only ask about themselves."""
