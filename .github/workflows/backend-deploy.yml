@@ -13,7 +13,7 @@ on:
   # workflow (jobs.ci below) and build-and-push `needs` it — real gate, not
   # two independent triggers that happen to run close together.
   push:
-    branches: [main, device_session_newflow]
+    branches: [main, dev]
   workflow_dispatch:
 
 permissions:
@@ -39,6 +39,27 @@ jobs:
     needs: ci
     runs-on: ubuntu-latest
     steps:
+      # main deploys to the new account (api.anavaclinics.com), dev to the
+      # old one (stagingapi.anavaclinics.com). Same repo, cluster and service
+      # names in both, so only the role and the health URL differ. Any other
+      # branch (e.g. a manual run) fails here instead of deploying somewhere.
+      - name: Select target AWS account
+        run: |
+          case "$GITHUB_REF_NAME" in
+            main)
+              echo "AWS_ROLE_ARN=arn:aws:iam::363518210533:role/github-actions-ecr-push" >> "$GITHUB_ENV"
+              echo "HEALTH_URL=https://api.anavaclinics.com/health/version" >> "$GITHUB_ENV"
+              ;;
+            dev)
+              echo "AWS_ROLE_ARN=arn:aws:iam::604275788092:role/github-actions-ecr-push" >> "$GITHUB_ENV"
+              echo "HEALTH_URL=https://stagingapi.anavaclinics.com/health/version" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "::error::No deploy target for branch '$GITHUB_REF_NAME' (expected main or dev)"
+              exit 1
+              ;;
+          esac
+
       - name: Checkout the pushed commit
         uses: actions/checkout@v4
         with:
@@ -47,7 +68,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -93,7 +114,7 @@ jobs:
           for attempt in $(seq 1 10); do
             # /openapi.json is not served in production (app/main.py) —
             # /health/version reports the same path count.
-            count=$(curl -fsS --max-time 20 https://api.anavaclinics.com/health/version \
+            count=$(curl -fsS --max-time 20 "$HEALTH_URL" \
               | python3 -c "import sys,json; print(json.load(sys.stdin).get('paths',0))" || echo 0)
             if [ "$count" -gt 150 ]; then
               echo "OK: $count paths served"
