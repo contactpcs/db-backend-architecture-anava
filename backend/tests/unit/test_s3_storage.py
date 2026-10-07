@@ -94,14 +94,14 @@ def test_uuid7_is_version_7_and_time_ordered():
 
 
 class FakeS3:
-    def __init__(self, scan=None, version="q-v1", missing=False):
-        self.scan, self.version, self.missing = scan, version, missing
+    def __init__(self, scan=None, version="q-v1", missing=False, missing_code="NoSuchKey"):
+        self.scan, self.version, self.missing, self.missing_code = scan, version, missing, missing_code
         self.calls: list[tuple[str, dict]] = []
 
     def get_object_tagging(self, **kw):
         self.calls.append(("get_object_tagging", kw))
         if self.missing:
-            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObjectTagging")
+            raise ClientError({"Error": {"Code": self.missing_code}}, "GetObjectTagging")
         tags = [{"Key": "unrelated", "Value": "x"}]
         if self.scan:
             tags.append({"Key": s3.SCAN_TAG, "Value": self.scan})
@@ -135,6 +135,7 @@ def s3_mode(monkeypatch):
             "s3_bucket_name": "records-bkt",
             "s3_quarantine_bucket_name": "quarantine-bkt",
             "s3_kms_key_arn_phi": "arn:aws:kms:key-a",
+            "s3_promoter_role_arn": None,
             "upload_max_bytes": 1000,
             "upload_allowed_content_types": ["application/pdf"],
         }.items():
@@ -161,6 +162,38 @@ def test_untagged_object_is_not_copied(s3_mode):
 def test_missing_object_is_reported_not_raised(s3_mode):
     s3_mode(FakeS3(missing=True))
     assert s3.promote_if_clean("u1", "dest/key") == {"scan": s3.NOT_UPLOADED}
+
+
+def test_delete_marker_counts_as_not_uploaded(s3_mode):
+    s3_mode(FakeS3(missing=True, missing_code="MethodNotAllowed"))
+    assert s3.promote_if_clean("u1", "dest/key") == {"scan": s3.NOT_UPLOADED}
+
+
+def test_promotion_uses_the_assumed_role_and_reuses_its_credentials(s3_mode, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    s3_mode(FakeS3())
+    monkeypatch.setattr(s3.settings, "s3_promoter_role_arn", "arn:aws:iam::1:role/anava-upload-promoter")
+    monkeypatch.setattr(s3, "_promoter_client_cache", None)
+    assumed = []
+
+    class FakeSts:
+        def assume_role(self, **kw):
+            assumed.append(kw)
+            expiry = datetime.now(UTC) + timedelta(hours=1)
+            return {"Credentials": {"AccessKeyId": "a", "SecretAccessKey": "b", "SessionToken": "c", "Expiration": expiry}}
+
+    class FakeSession:
+        def client(self, name, **kw):
+            return FakeSts()
+
+    promoter = FakeS3(scan="NO_THREATS_FOUND")
+    monkeypatch.setattr(s3, "_session", lambda: FakeSession())
+    monkeypatch.setattr(s3, "_regional_client", lambda session: promoter)
+    assert s3.promote_if_clean("u1", "dest/key")["scan"] == "NO_THREATS_FOUND"
+    s3.promote_if_clean("u2", "dest/key2")
+    assert len(assumed) == 1 and assumed[0]["RoleArn"].endswith("anava-upload-promoter")
+    assert "copy_object" in promoter.names()
 
 
 def test_clean_object_is_copied_from_the_scanned_version(s3_mode):

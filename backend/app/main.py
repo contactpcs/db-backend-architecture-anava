@@ -48,6 +48,7 @@ from app.workers.event_relay import run_forever as run_event_relay_forever
 from app.workers.hold_sweeper import run_hold_sweeper_forever
 from app.workers.no_show_sweeper import run_no_show_sweeper_forever
 from app.workers.retention_purge import run_partition_maintenance_forever
+from app.workers.upload_promoter import run_upload_promoter_forever
 
 settings = get_settings()
 
@@ -90,6 +91,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                            LOCKED instead of an advisory lock, so several
                            instances share the queue without double-sending.
 
+    upload promoter        moves a patient upload out of quarantine once
+                           GuardDuty has scanned it (s3 mode only; assumes the
+                           anava-upload-promoter role for the copy —
+                           app/workers/upload_promoter.py).
+
     live listener          this process's one Postgres LISTEN connection:
                            delivers those pushes to its open SSE streams and
                            keeps its copy of the logged-out tokens current
@@ -113,6 +119,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         tasks.append(asyncio.create_task(run_hold_sweeper_forever()))
     if settings.appointment_no_show_sweeper_enabled:
         tasks.append(asyncio.create_task(run_no_show_sweeper_forever()))
+    if settings.file_storage_mode == "s3" and settings.upload_promoter_enabled:
+        tasks.append(asyncio.create_task(run_upload_promoter_forever()))
     tasks.append(asyncio.create_task(run_listener_forever()))
     tasks.append(asyncio.create_task(warm_jwks()))
     if settings.event_relay_enabled:

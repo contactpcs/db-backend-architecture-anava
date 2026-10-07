@@ -114,9 +114,10 @@ async def list_patient_files(
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
 ):
     await assert_patient_self(ctx, db, patient_id)
-    # Only the patient sees their own uploads that are still being scanned or
-    # were rejected; staff see what is actually in the patient records bucket.
-    return await FileService(db).list_for_patient(patient_id, doc_type=doc_type, include_unpromoted=ctx.role == "patient")
+    # Only files that are in the patient records bucket are listed, to the
+    # patient and to staff alike. An upload still being scanned, or one that
+    # was rejected, is not shown to anyone.
+    return await FileService(db).list_for_patient(patient_id, doc_type=doc_type)
 
 
 @router.get("/files/{doc_type}/{file_id}/download-url")

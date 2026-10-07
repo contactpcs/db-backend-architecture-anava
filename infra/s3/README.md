@@ -2,10 +2,10 @@
 
 The backend code for the new storage architecture (`BACKEND_S3_PROMPT.md`) is in
 the repo. These are the AWS changes it needs, in the order to apply them.
-Nothing here has been applied. Account `363518210533`, region `ap-south-1`.
+Step 5 and the buckets are applied; the rest are not. Account `363518210533`, region `ap-south-1`.
 
 Do steps 1 to 3 before deploying the new backend. Patient uploads stay stuck on
-"scanning" until step 5 is done; staff uploads work after step 4.
+"scanning" until step 5 is done (in the API: just `S3_PROMOTER_ROLE_ARN`); staff uploads work after step 4.
 
 ## 1. Database
 
@@ -65,32 +65,41 @@ Optional, defaults shown: `UPLOAD_MAX_BYTES=26214400` (25 MB) and
 Leave `CONSENT_OBJECT_LOCK_DAYS` unset until counsel decides the retention
 period. `CONSENT_OBJECT_LOCK_MODE` stays `GOVERNANCE` until then.
 
-## 5. Promotion job
+## 5. Promotion job (in the API process, via an assumed role)
 
-The job that moves a scanned patient upload out of quarantine. Same Docker image
-as the API, different command and a different IAM role.
+The API runs the promotion loop itself (`app/workers/upload_promoter.py`, started
+from `app/main.py` in S3 mode, every `UPLOAD_PROMOTER_INTERVAL_SECONDS`, default
+20). The API's own role cannot read the quarantine bucket, so the copy step
+assumes a separate least-privilege role, `anava-upload-promoter`, using
+temporary credentials. No second task definition, no EventBridge rule, no
+admin credentials.
 
-1. Create role `anava-upload-promoter` (trusted by `ecs-tasks.amazonaws.com`)
-   with `upload-promoter-role-policy.json`.
-2. Register a task definition `anava-upload-promoter`: copy the API task
-   definition (same image, same database settings and secrets, same subnets and
-   security group so it can reach RDS), set `taskRoleArn` to the new role, drop
-   the port mapping, and set the storage variables from step 4.
-3. Create an EventBridge rule with the pattern in `scan-result-rule.json` and
-   an ECS RunTask target for that task definition. Input transformer:
+Applied in account `363518210533`:
 
-   Input path: `{"key": "$.detail.s3ObjectDetails.objectKey"}`
-
-   Template (replace `CONTAINER_NAME` with the container name in the task
-   definition):
+1. Role `anava-upload-promoter`: trust `upload-promoter-trust-policy.json`
+   (only `anava-ecs-task-role` and the SSO admin role used for local dev may
+   assume it), permissions `upload-promoter-role-policy.json` (read tags and
+   objects under `incoming/` in quarantine, write the patient records bucket,
+   KMS key A; no delete).
+2. `anava-ecs-task-role` has inline policy `assume-upload-promoter`
+   (`app-task-role-assume-promoter-policy.json`): `sts:AssumeRole` on that one
+   role and nothing else.
+3. Set on the API task definition (and in `backend/.env` locally):
 
    ```
-   {"containerOverrides":[{"name":"CONTAINER_NAME","command":["python","-m","app.workers.upload_promoter","<key>"]}]}
+   S3_PROMOTER_ROLE_ARN=arn:aws:iam::363518210533:role/anava-upload-promoter
    ```
-4. Catch-up run: an EventBridge schedule every 10 minutes that runs the same
-   task with command `["python","-m","app.workers.upload_promoter"]`. It
-   picks up any upload whose event was lost and gives up on uploads that never
-   arrived.
+
+   Optional: `UPLOAD_PROMOTER_ENABLED=false` turns the loop off,
+   `UPLOAD_PROMOTER_INTERVAL_SECONDS` changes how often it looks.
+
+Several API instances can run the loop at once: the upload row is locked and
+only a row still `scanning` is changed. A pass with nothing scanning is one
+database query and no S3 call.
+
+Optional, for lower latency than the polling interval: the EventBridge rule in
+`scan-result-rule.json` can start `python -m app.workers.upload_promoter
+incoming/<id>` as an ECS task. Not needed for correctness.
 
 ## 6. Alert on rejected uploads
 

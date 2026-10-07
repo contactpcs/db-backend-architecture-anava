@@ -62,37 +62,79 @@ def local_path(key: str) -> Path:
     return path
 
 
+def _session():
+    """boto3 session with the same credential-fallback order as core/cognito.py:
+    a named profile (local dev) takes priority, otherwise explicit keys, then
+    boto3's default chain (the IAM role attached to the ECS task)."""
+    import boto3
+
+    if settings.aws_profile:
+        return boto3.Session(profile_name=settings.aws_profile)
+    return boto3.Session(
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+    )
+
+
+def _regional_client(session):
+    """Force the regional endpoint: boto3's default virtual-hosted URL
+    resolves to the global s3.amazonaws.com host for non-us-east-1
+    buckets, which S3 302/307-redirects to the regional host — and
+    since sigv4 signs the Host header, that redirect breaks presigned
+    URLs handed to clients. Pinning endpoint_url avoids the redirect."""
+    from botocore.config import Config
+
+    return session.client(
+        "s3",
+        region_name=settings.aws_region,
+        endpoint_url=f"https://s3.{settings.aws_region}.amazonaws.com",
+        config=Config(signature_version="s3v4"),
+    )
+
+
 def _client():
-    """Same credential-fallback order as core/cognito.py's _client(): a named
-    profile (local dev against a real bucket before an IAM role exists) takes
-    priority, otherwise fall back to explicit keys / boto3's default chain
-    (IAM role attached to the ECS task, in real deployments)."""
     global _s3_client
     if _s3_client is None:
-        import boto3
-        from botocore.config import Config
-
-        # Force the regional endpoint: boto3's default virtual-hosted URL
-        # resolves to the global s3.amazonaws.com host for non-us-east-1
-        # buckets, which S3 302/307-redirects to the regional host — and
-        # since sigv4 signs the Host header, that redirect breaks presigned
-        # URLs handed to clients. Pinning endpoint_url avoids the redirect.
-        endpoint_url = f"https://s3.{settings.aws_region}.amazonaws.com"
-        boto_config = Config(signature_version="s3v4")
-        if settings.aws_profile:
-            _s3_client = boto3.Session(profile_name=settings.aws_profile).client(
-                "s3", region_name=settings.aws_region, endpoint_url=endpoint_url, config=boto_config
-            )
-        else:
-            _s3_client = boto3.client(
-                "s3",
-                region_name=settings.aws_region,
-                endpoint_url=endpoint_url,
-                config=boto_config,
-                aws_access_key_id=settings.aws_access_key_id,
-                aws_secret_access_key=settings.aws_secret_access_key,
-            )
+        _s3_client = _regional_client(_session())
     return _s3_client
+
+
+_promoter_client_cache: tuple | None = None  # (client, expires_at)
+
+
+def _promoter_client():
+    """The S3 client the promotion step uses. The API's own role cannot read
+    the quarantine bucket, so when s3_promoter_role_arn is set this assumes
+    that role (anava-upload-promoter: read quarantine, write the patient
+    records bucket, nothing else) and reuses the temporary credentials until
+    shortly before they expire. Unset: the process's own credentials, which is
+    what a separately deployed promotion task has."""
+    global _promoter_client_cache
+    if not settings.s3_promoter_role_arn:
+        return _client()
+    now = datetime.now(UTC)
+    if _promoter_client_cache and _promoter_client_cache[1] - now > timedelta(minutes=5):
+        return _promoter_client_cache[0]
+    import boto3
+
+    base = _session()
+    try:
+        creds = base.client("sts", region_name=settings.aws_region).assume_role(
+            RoleArn=settings.s3_promoter_role_arn,
+            RoleSessionName="anava-upload-promoter",
+            DurationSeconds=3600,
+        )["Credentials"]
+    except ClientError as exc:
+        raise ExternalServiceError(f"Could not assume the promotion role: {exc}", code="S3_PROMOTER_ROLE_FAILED") from exc
+    client = _regional_client(
+        boto3.Session(
+            aws_access_key_id=creds["AccessKeyId"],
+            aws_secret_access_key=creds["SecretAccessKey"],
+            aws_session_token=creds["SessionToken"],
+        )
+    )
+    _promoter_client_cache = (client, creds["Expiration"])
+    return client
 
 
 def _bucket(bucket: Bucket) -> str:
@@ -301,8 +343,8 @@ def promote_if_clean(upload_id: str, dest_key: str) -> dict:
     NOT_SCANNED (no tag yet) or NOT_UPLOADED (no object). The quarantine
     object is left alone either way; the bucket's lifecycle rule removes it.
 
-    Needs the promotion job's role, not the API's: the API role cannot read
-    the quarantine bucket. Local mode has no scanner, so a file that arrived
+    Runs as the promotion role (_promoter_client), not the API's: the API
+    role cannot read the quarantine bucket. Local mode has no scanner, so a file that arrived
     counts as clean."""
     src = build_key("quarantine", upload_id=upload_id)
     if settings.file_storage_mode != "s3":
@@ -312,12 +354,13 @@ def promote_if_clean(upload_id: str, dest_key: str) -> dict:
         size, checksum, version_id = save_bytes(dest_key, path.read_bytes())
         return {"scan": SCAN_CLEAN, "size": size, "checksum": checksum, "version_id": version_id}
 
-    client = _client()
+    client = _promoter_client()
     source: dict = {"Bucket": _bucket("quarantine"), "Key": src}
     try:
         tagging = client.get_object_tagging(**source)
     except ClientError as exc:
-        if exc.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
+        # MethodNotAllowed: the current version is a delete marker.
+        if exc.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "MethodNotAllowed"):
             return {"scan": NOT_UPLOADED}
         raise ExternalServiceError(f"Could not read the scan result: {exc}", code="S3_SCAN_STATUS_FAILED") from exc
     scan = next((tag["Value"] for tag in tagging.get("TagSet", []) if tag["Key"] == SCAN_TAG), NOT_SCANNED)

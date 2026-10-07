@@ -145,6 +145,13 @@ class Settings(BaseSettings):
     # Customer-managed KMS keys. None = rely on the bucket's default encryption.
     s3_kms_key_arn_phi: str | None = None  # patient records + quarantine
     s3_kms_key_arn_compliance: str | None = None
+    # Role the malware-scan promotion step assumes (anava-upload-promoter). The
+    # API's own role cannot read the quarantine bucket. None = use the
+    # process's own credentials.
+    s3_promoter_role_arn: str | None = None
+    # In-process promotion loop (workers/upload_promoter.py), s3 mode only.
+    upload_promoter_enabled: bool = True
+    upload_promoter_interval_seconds: int = 20
     # Limits written into every presigned upload, so S3 itself refuses a file
     # that is too big or of another type.
     upload_max_bytes: int = 25 * 1024 * 1024

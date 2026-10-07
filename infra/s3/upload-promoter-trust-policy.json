@@ -1,0 +1,19 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ApiTaskRoleAndLocalDevAdmin",
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::363518210533:root" },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "ArnLike": {
+          "aws:PrincipalArn": [
+            "arn:aws:iam::363518210533:role/anava-ecs-task-role",
+            "arn:aws:iam::363518210533:role/*AWSReservedSSO_AdministratorAccess_*"
+          ]
+        }
+      }
+    }
+  ]
+}
