@@ -126,10 +126,34 @@ class Settings(BaseSettings):
     cognito_app_client_secret: str | None = None
 
     # File storage — local dev writes to disk behind the same interface
-    # integrations/s3.py exposes; Stage 13 swaps this for a real S3 bucket.
+    # integrations/s3.py exposes. In "s3" mode the buckets live in aws_region
+    # (below) and have different jobs (BACKEND_S3_PROMPT.md):
+    #   s3_bucket_name             patient records: EEG, medical history and
+    #                              patient uploads that passed the malware scan
+    #   s3_quarantine_bucket_name  where a patient upload lands first; without
+    #                              it patients cannot upload (staff still can)
+    #   s3_compliance_bucket_name  signed consent PDFs and clinic licenses
+    #   s3_access_logs_bucket_name CloudTrail data events; the app never reads
+    #                              or writes it, listed so every bucket name
+    #                              has one home
     file_storage_mode: str = "local"  # "local" | "s3"
     local_file_storage_path: str = "./.local_storage"
     s3_bucket_name: str | None = None
+    s3_quarantine_bucket_name: str | None = None
+    s3_compliance_bucket_name: str | None = None
+    s3_access_logs_bucket_name: str | None = None
+    # Customer-managed KMS keys. None = rely on the bucket's default encryption.
+    s3_kms_key_arn_phi: str | None = None  # patient records + quarantine
+    s3_kms_key_arn_compliance: str | None = None
+    # Limits written into every presigned upload, so S3 itself refuses a file
+    # that is too big or of another type.
+    upload_max_bytes: int = 25 * 1024 * 1024
+    upload_allowed_content_types: list[str] = ["application/pdf", "image/jpeg", "image/png"]
+    # Object Lock retention put on each signed consent PDF. None = no lock:
+    # the period is a decision for counsel and is still open. Stay on
+    # GOVERNANCE until it is made; COMPLIANCE cannot be shortened by anyone.
+    consent_object_lock_days: int | None = None
+    consent_object_lock_mode: str = "GOVERNANCE"  # "GOVERNANCE" | "COMPLIANCE"
 
     # Queue — ElasticMQ speaks the real SQS protocol locally, so this is
     # just an endpoint override; boto3 SQS code never changes at cutover.
@@ -213,6 +237,12 @@ class Settings(BaseSettings):
     def _require_local_jwt_secret_in_local_mode(self) -> "Settings":
         if self.auth_mode == "local" and not self.local_jwt_secret:
             raise ValueError("local_jwt_secret must be set when auth_mode='local'")
+        return self
+
+    @model_validator(mode="after")
+    def _require_bucket_in_s3_mode(self) -> "Settings":
+        if self.file_storage_mode == "s3" and not self.s3_bucket_name:
+            raise ValueError("s3_bucket_name must be set when file_storage_mode='s3'")
         return self
 
     @model_validator(mode="after")

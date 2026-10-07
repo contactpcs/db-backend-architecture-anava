@@ -1,0 +1,38 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PatientRecordsReadWriteNoDelete",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:GetObjectVersion"],
+      "Resource": "arn:aws:s3:::anava-clinic-patient-files-prod-363518210533-ap-south-1/*"
+    },
+    {
+      "Sid": "PatientRecordsList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::anava-clinic-patient-files-prod-363518210533-ap-south-1"
+    },
+    {
+      "Sid": "QuarantineSignUploadsOnly",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::anava-clinic-uploads-quarantine-363518210533-ap-south-1/incoming/*"
+    },
+    {
+      "Sid": "ComplianceReadWriteNoDelete",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:GetObjectVersion", "s3:PutObjectRetention"],
+      "Resource": "arn:aws:s3:::anava-clinic-compliance-records-363518210533-ap-south-1/*"
+    },
+    {
+      "Sid": "KmsForBothKeys",
+      "Effect": "Allow",
+      "Action": ["kms:GenerateDataKey", "kms:Decrypt"],
+      "Resource": [
+        "arn:aws:kms:ap-south-1:363518210533:key/a677e7d1-3601-488b-8691-498ebe7d8d58",
+        "arn:aws:kms:ap-south-1:363518210533:key/8a23c7d6-b6b6-49d1-b3df-ba85c9331270"
+      ]
+    }
+  ]
+}
