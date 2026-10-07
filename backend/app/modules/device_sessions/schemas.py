@@ -327,7 +327,7 @@ class ActivityCreate(BaseModel):
     note: str | None = None
 
     @model_validator(mode="after")
-    def _activity_or_free_text(self) -> "ActivityCreate":
+    def _activity_or_free_text(self) -> ActivityCreate:
         if self.free_text is not None:
             self.free_text = self.free_text.strip() or None
         if not self.activities and not self.free_text:
