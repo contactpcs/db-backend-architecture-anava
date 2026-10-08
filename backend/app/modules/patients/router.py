@@ -37,15 +37,22 @@ async def register_patient(
     # signup wizard (patients/router.py's own routes below) — no channel to
     # collect an OTP from, since the staff member is filling this in, not
     # the patient. Same temp-password-emailed provisioning staff accounts
-    # get, just for a patient identity instead.
-    cognito_sub = None
+    # get, just for a patient identity instead. Created AFTER the patient
+    # rows, so a duplicate email/phone is refused by the database before a
+    # Cognito user exists (core/cognito.py attach_staff_login).
+    patient = await PatientService(db).register(data, registered_by=UUID(ctx.user_id))
     if settings.auth_mode == "cognito":
-        from app.core.cognito import provision_staff_user
+        from app.core.cognito import attach_staff_login
 
-        cognito_sub = provision_staff_user(
-            email=data["email"], first_name=data["first_name"], last_name=data["last_name"], phone=data.get("phone")
+        await attach_staff_login(
+            db,
+            profile_id=patient["profile_id"],
+            email=data["email"],
+            first_name=data["first_name"],
+            last_name=data["last_name"],
+            phone=data.get("phone"),
         )
-    return await PatientService(db).register(data, cognito_sub=cognito_sub, registered_by=UUID(ctx.user_id))
+    return patient
 
 
 @router.get("/patients/count")

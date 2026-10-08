@@ -23,6 +23,7 @@ Two different provisioning shapes:
   valid login alias.
 """
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -32,9 +33,11 @@ from functools import lru_cache
 import boto3
 import structlog
 from botocore.exceptions import ClientError
+from sqlalchemy import event, text
 
 from app.config import get_settings
-from app.core.exceptions import AuthenticationError, BusinessRuleError, PermissionError_
+from app.core.db import as_system
+from app.core.exceptions import AuthenticationError, BusinessRuleError, ConflictError, PermissionError_
 
 logger = structlog.get_logger()
 
@@ -94,8 +97,79 @@ def provision_staff_user(*, email: str, first_name: str, last_name: str, phone: 
             DesiredDeliveryMediums=["EMAIL"],
         )
         return next(a["Value"] for a in resp["User"]["Attributes"] if a["Name"] == "sub")
+    except _client().exceptions.UsernameExistsException as exc:
+        raise BusinessRuleError("An account with this email already exists", code="ACCOUNT_ALREADY_EXISTS") from exc
     except ClientError as exc:
         raise BusinessRuleError(f"Could not create Cognito user: {exc}", code="COGNITO_PROVISIONING_FAILED") from exc
+
+
+async def attach_staff_login(session, *, profile_id, email: str, first_name: str, last_name: str, phone: str | None) -> str:
+    """Creates the Cognito login for a profiles row that is ALREADY inserted
+    in this transaction, stores its sub on that row and returns it.
+
+    Row first, Cognito second. Cognito is not part of the transaction and
+    knows nothing about our unique email/phone, so the database has to refuse
+    a duplicate before a user is created there. The other order left a
+    Cognito user with no profile whenever the INSERT failed, and every retry
+    with that email then died on "already exists".
+
+    A leftover like that — a Cognito user whose sub no profile carries — is
+    deleted and recreated here, the same rule start_patient_signup
+    (auth/signup.py) applies. And if a later step of this request rolls the
+    transaction back, the user created here is deleted again."""
+
+    def provision() -> str:
+        return provision_staff_user(email=email, first_name=first_name, last_name=last_name, phone=phone)
+
+    try:
+        sub = await asyncio.to_thread(provision)
+    except BusinessRuleError as exc:
+        if exc.code != "ACCOUNT_ALREADY_EXISTS":
+            raise
+        existing_sub = await asyncio.to_thread(get_user_sub, email)
+        if existing_sub is not None:
+            # as_system: the caller may be a clinic-scoped admin, who cannot
+            # see a profile at another clinic.
+            async with as_system(session):
+                owner = (await session.execute(text("SELECT 1 FROM profiles WHERE cognito_sub = :sub"), {"sub": existing_sub})).first()
+            if owner is not None:
+                raise ConflictError(f"Email {email!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
+            logger.info("orphan_staff_cognito_user_reset")
+            await asyncio.to_thread(delete_user, email)
+        sub = await asyncio.to_thread(provision)
+
+    _delete_user_if_rolled_back(session, email)
+    async with as_system(session):
+        updated = await session.execute(text("UPDATE profiles SET cognito_sub = :sub WHERE id = :id"), {"sub": sub, "id": str(profile_id)})
+    if updated.rowcount != 1:
+        # Without the sub on the row this person could never log in.
+        raise BusinessRuleError("Could not link the login to the profile", code="COGNITO_PROVISIONING_FAILED")
+    return sub
+
+
+def _delete_user_if_rolled_back(session, username: str) -> None:
+    """Only the request's own (outermost) transaction counts. Both events
+    also fire for a SAVEPOINT, where the profile row may still be committed:
+    acting on those would delete the login of a person who was onboarded."""
+    state = {"armed": True}
+
+    def on_commit(sync_session) -> None:
+        if not sync_session.in_nested_transaction():
+            state["armed"] = False
+
+    def on_rollback(sync_session) -> None:
+        if sync_session.in_nested_transaction() or not state["armed"]:
+            return
+        state["armed"] = False
+        try:
+            delete_user(username)
+        except Exception:
+            # Never mask the error that caused the rollback. The next attempt
+            # with this email clears the leftover (attach_staff_login).
+            logger.warning("orphan_staff_cognito_user_cleanup_failed", exc_info=True)
+
+    event.listen(session.sync_session, "after_commit", on_commit)
+    event.listen(session.sync_session, "after_rollback", on_rollback)
 
 
 # ─── Patient signup wizard (SignUp/ConfirmSignUp — real OTP delivery) ─────────
@@ -168,8 +242,9 @@ def get_user_sub(username: str) -> str | None:
 
 
 def delete_user(username: str) -> None:
-    """AdminDeleteUser. Only ever called on an abandoned signup — a Cognito
-    user with no profile in our DB (see auth/router.py _start_patient_signup)."""
+    """AdminDeleteUser. Only ever called on a Cognito user with no profile in
+    our DB: an abandoned patient signup (auth/signup.py start_patient_signup)
+    or a staff login whose profile was never committed (attach_staff_login)."""
     _require_cognito_mode()
     try:
         _client().admin_delete_user(UserPoolId=settings.cognito_user_pool_id, Username=username)
