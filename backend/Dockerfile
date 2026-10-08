@@ -12,6 +12,9 @@ COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini .
 COPY certs ./certs
+# Only the bootstrap script, not scripts/ as a whole: that folder also holds the dev seeders
+# and wipe_all_accounts.py, which have no place in a production image.
+COPY scripts/bootstrap_superadmin_cognito.py ./scripts/bootstrap_superadmin_cognito.py
 
 # Run as an unprivileged user — a code-execution bug in the app must not hand
 # out root inside the container.

@@ -12,4 +12,5 @@
 *.log
 tests
 scripts
+!scripts/bootstrap_superadmin_cognito.py
 docker-compose.yml
