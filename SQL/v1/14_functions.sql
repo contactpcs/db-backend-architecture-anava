@@ -1,3 +1,6 @@
+SET search_path = core, reference, compliance, analytics, ops, extensions, public;
+
+
 -- Generated from live production schema introspection (2026-07-20). Do not hand-edit column/RLS/trigger/function bodies — regenerate from source instead.
 
 CREATE OR REPLACE FUNCTION ops.fn_audit_trigger()
