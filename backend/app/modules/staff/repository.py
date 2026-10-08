@@ -32,9 +32,11 @@ async def create_profile(
     pincode: str | None = None,
 ) -> dict:
     """Every staff/admin identity starts as a profiles row. cognito_sub is a
-    placeholder ('pending-<uuid>') in local dev; in real Cognito mode this
-    provisions the actual Cognito user first (temp password auto-emailed by
-    Cognito — see core/cognito.py) and stores its real sub instead. This
+    placeholder ('pending-<uuid>') in local dev; in real Cognito mode the row
+    is inserted with that placeholder and the actual Cognito user is created
+    right after (temp password auto-emailed by Cognito), its real sub stored
+    in its place — see core/cognito.py attach_staff_login for why the row
+    comes first. This
     module owns the write today because no dedicated profiles/identity
     module exists (profiles is core/universal per Architecture Section 6,
     read by auth, not owned by any one module).
@@ -44,25 +46,17 @@ async def create_profile(
     newly-registered people — they're gated until they sign the onboarding
     consent (see consent/service.py ConsentRecordService.sign, and
     SQL/28_consent_redesign.sql for why these are two separate columns)."""
-    if settings.auth_mode == "cognito":
-        from app.core.cognito import provision_staff_user
-
-        cognito_sub = provision_staff_user(email=email, first_name=first_name, last_name=last_name, phone=phone)
-    else:
-        cognito_sub = None
-
     row = (
         (
             await session.execute(
                 text(
                     "INSERT INTO profiles (cognito_sub, email, first_name, last_name, phone, role, is_active, "
                     "consent_signed, gender, dob, address, city, state, country, pincode) "
-                    "VALUES (COALESCE(:cognito_sub, 'pending-' || gen_random_uuid()::TEXT), :email, :first_name, "
+                    "VALUES ('pending-' || gen_random_uuid()::TEXT, :email, :first_name, "
                     ":last_name, :phone, :role, :is_active, :consent_signed, :gender, :dob, :address, :city, :state, "
                     ":country, :pincode) RETURNING *"
                 ),
                 {
-                    "cognito_sub": cognito_sub,
                     "email": email,
                     "first_name": first_name,
                     "last_name": last_name,
@@ -83,7 +77,14 @@ async def create_profile(
         .mappings()
         .one()
     )
-    return dict(row)
+    profile = dict(row)
+    if settings.auth_mode == "cognito":
+        from app.core.cognito import attach_staff_login
+
+        profile["cognito_sub"] = await attach_staff_login(
+            session, profile_id=profile["id"], email=email, first_name=first_name, last_name=last_name, phone=phone
+        )
+    return profile
 
 
 async def update_profile(session: AsyncSession, profile_id: UUID, fields: dict) -> None:
