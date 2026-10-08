@@ -1,3 +1,8 @@
+CREATE ROLE anava_app LOGIN PASSWORD '<password from DATABASE_URL in backend/.env>'
+    NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+
+
 -- Generated from live production schema introspection (2026-07-20). Do not hand-edit column/RLS/trigger/function bodies — regenerate from source instead.
 
 -- anava_app: full DML on core/compliance/ops, read on reference/analytics (RLS-scoped throughout)

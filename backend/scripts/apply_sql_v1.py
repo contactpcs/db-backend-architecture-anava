@@ -68,6 +68,13 @@ SEED_BEFORE = "79_psqi_full_instrument_seed.sql"
 SEED_MODULE = "scripts.seed_prs_clinical_content"
 SEED_KEY = "(python) scripts.seed_prs_clinical_content"
 
+# 97_fix_recalculate_final_result_disease_scope.sql carries an older body of
+# core.recalculate_final_result() than 74 does (no COALESCE on final_result_id),
+# but sorts after it, so numeric order alone ends with every general_registration
+# PRS finalize failing on a NULL final_result_id. Alembic has it the right way
+# round (0050 runs 97, 0051 runs 74); 74 is run again at the end to match.
+REAPPLY_LAST = "74_fix_recalculate_final_result_null_disease_id.sql"
+
 SEARCH_PATH = "core,reference,compliance,analytics,ops,extensions,public"
 
 
@@ -91,6 +98,9 @@ def psql_env(url) -> dict:
     env = dict(os.environ)
     env["PGPASSWORD"] = url.password or ""
     env["PGSSLMODE"] = "require"
+    # Without this psql on Windows can fall back to the console code page and
+    # store the non-ASCII seed text (translations, units) as mojibake.
+    env["PGCLIENTENCODING"] = "UTF8"
     # ALTER DATABASE ... SET search_path (19_search_path.sql) only reaches NEW
     # connections, but PL/pgSQL function bodies resolve table names when they are
     # created. Setting it on every connection from the start avoids
@@ -102,7 +112,9 @@ def psql_env(url) -> dict:
 def _can_run_in_one_transaction(file: Path) -> bool:
     """False for a file that manages its own transaction or uses a statement
     Postgres refuses inside one (CREATE INDEX CONCURRENTLY, VACUUM, ...)."""
-    text = file.read_text()
+    # The files are UTF-8; the Windows default (cp1252) cannot decode the
+    # translation seeds.
+    text = file.read_text(encoding="utf-8", errors="replace")
     return not re.search(r"^\s*(BEGIN|COMMIT|ROLLBACK|VACUUM)\b|CONCURRENTLY", text, re.I | re.M)
 
 
@@ -200,7 +212,8 @@ def main() -> None:
         psql(admin, env, command=f"INSERT INTO public._sql_v1_applied (file) VALUES {values} ON CONFLICT DO NOTHING")
         print(f"Marked {len(through)} files as already applied (through {args.assume_applied_through})")
 
-    done = set(psql(admin, env, command="SELECT file FROM public._sql_v1_applied", capture=True).stdout.split())
+    # splitlines, not split: SEED_KEY contains a space.
+    done = set(psql(admin, env, command="SELECT file FROM public._sql_v1_applied", capture=True).stdout.splitlines())
 
     applied = 0
     for i, f in enumerate(files, 1):
@@ -241,6 +254,14 @@ def main() -> None:
                 sys.exit(f"Could not set up roles:\n{r.stderr.strip()}")
             print("          roles: anava_app created, placeholder role passwords randomized")
 
+    # CREATE OR REPLACE only, so running it on every invocation is harmless.
+    print(f"[again] {REAPPLY_LAST} ... ", end="", flush=True)
+    result = psql(admin, env, file=SQL_DIR / REAPPLY_LAST, capture=True)
+    if result.returncode != 0:
+        print("FAILED")
+        sys.exit(result.stderr.strip())
+    print("ok")
+
     print(f"\nApplied {applied} file(s) this run; {len(done)} were already recorded.")
 
     tables = psql(
@@ -256,7 +277,8 @@ def main() -> None:
 
     if not args.no_stamp:
         print("Recording the schema version: alembic stamp head")
-        r = subprocess.run(["alembic", "stamp", "head"], cwd=BACKEND_DIR, capture_output=True, text=True)
+        # sys.executable -m, not bare `alembic`: works without an activated venv.
+        r = subprocess.run([sys.executable, "-m", "alembic", "stamp", "head"], cwd=BACKEND_DIR, capture_output=True, text=True)
         print(r.stdout.strip() or r.stderr.strip()[-400:])
         if r.returncode != 0:
             sys.exit("alembic stamp failed — the schema is built, but alembic does not know it yet")
