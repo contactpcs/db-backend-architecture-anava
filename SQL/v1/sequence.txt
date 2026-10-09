@@ -1,0 +1,135 @@
+  1  00_schemas.sql
+  2  01_extensions.sql
+  3  02_roles.sql
+ ⚠  A. CREATE ROLE anava_app + change the two placeholder passwords
+  4  03_enum_types.sql
+  5  04_sequences.sql
+  6  05_tables_core.sql
+  7  06_tables_reference.sql
+  8  07_tables_compliance.sql
+  9  08_tables_ops.sql
+ 10  09_primary_keys.sql
+ 11  10_unique_constraints.sql
+ 12  11_foreign_keys.sql
+ 13  12_indexes.sql
+ 14  12b_appointments_overlap_guard.sql
+ 15  13_views.sql
+ 16  14_functions.sql
+ 17  15_triggers.sql
+ 18  16_rls_enable.sql
+ 19  17_rls_policies.sql
+ 20  18_grants.sql
+ 21  19_search_path.sql
+ ⚠  B. disconnect and reconnect DBeaver
+ 22  20_layer5_compliance_tables.sql
+ 23  21_layer5_columns.sql
+ 24  22_layer5_constraints_indexes.sql
+ 25  23_layer5_rls.sql
+ 26  24_layer5_grants.sql
+ 27  25_webhook_system_role_rls.sql
+ 28  26_rls_lockout_fixes.sql
+ 29  27_patient_registered_by.sql
+ 30  28_patient_guardian_fields.sql
+ 31  29_patient_guardian_contact.sql
+ 32  30_appointments_spine.sql
+ 33  31_appointments_payment_states.sql
+ 34  32_treatment_protocol.sql
+ 35  33_billable_items_device_pricing.sql
+ 36  34_drop_legacy_appointment_objects.sql
+ 37  35_ops_rls_cleanup.sql
+ 38  36_clinic_device_schedules.sql
+ 39  37_clinic_devices.sql
+ 40  38_protocol_flow_completion.sql
+ 41  39_5_catalogue_devices_seed.sql
+ 42  39_protocol_prescription_fields.sql
+ 43  40_seed_tdcs_reference.sql
+ 44  41_device_capacity_per_device.sql
+ 45  42_payments_status_vocab_fix.sql
+ 46  43_mock_payment_lifecycle_lock.sql
+ 47  44_audit_log_system_role_rls.sql
+ 48  45_anamnesis_assessment_stage.sql
+ 49  45_protocol_instances.sql
+ 50  46_anamnesis_insert_doctor_role.sql
+ 51  47_protocol_prescription_tables.sql
+ 52  48_protocol_plan_drop_plan_id.sql
+ 53  49_protocol_plan_fix_dropped_dependents.sql
+ 54  50_protocol_child_select_rls.sql
+ 55  51_protocol_scales_from_prs.sql
+ 56  52_appointments_booked_by_semantics.sql
+ 57  53_billable_items_clinic_pricing.sql
+ 58  54_custom_montage_protocol_link.sql
+ 59  54_drop_device_slot_duration.sql
+ 60  55_custom_montage_device_trigger_fix.sql
+ 61  55_drop_device_schedule_capacity.sql
+ 62  56_device_session_records.sql
+ 63  56_audit_log_patient_role_rls.sql
+ 64  57_appointments_default_cleanup.sql
+ 65  58_protocol_instances_absorb_cycle.sql
+ 66  59_visit_bundle_and_protocol_versioning.sql
+ 67  60_anamnesis_question_type.sql
+ 68  61_anamnesis_stage_registration_main.sql
+ 69  62_seed_anamnesis_registration_questions.sql
+ 70  63_seed_anamnesis_registration_questionnaire.sql
+ 71  64_fee_breakdown_and_cancellation_policy.sql
+ 72  65_clinic_hours_and_operational_status.sql
+ 73  66_payment_logs.sql
+ 74  67_payment_logs_survive_deletion.sql
+ 75  68_profiles_system_role_rls.sql
+ 76  69_appointment_audit_logs_system_select.sql
+ 77  70_remove_disease_selection.sql
+ 78  71_fix_recalculate_final_result_scale_count.sql
+ 79  72_device_session_early_completion.sql
+ 80  73_device_units.sql
+ 81  74_fix_recalculate_final_result_null_disease_id.sql
+ 82  75_patient_profile_self_edit_fields.sql
+ 83  76_drop_assessment_protocol_requests.sql
+ 84  78_profiles_update_system_role_rls.sql
+ ⚠  C. PRS seed (terminal, about 4.5 minutes, prints nothing until done)
+ 85  79_psqi_full_instrument_seed.sql
+ 86  80_mas_direct_100_scale.sql
+ 87  81_disease_composite_weights.sql
+ 88  82_profiles_phone_unique.sql
+ 89  83_scoring_logic_versions.sql
+ 90  84_versioned_disease_composite.sql
+ 91  85_disease_composite_scores_patient_insert.sql
+ 92  86_device_session_doctor_execution.sql
+ 93  87_appointments_missed_status.sql
+ 94  88_audit_trigger_request_context.sql
+ 95  89_activity_logs_writer.sql
+ 96  90_parallel_protocol_instances.sql
+ 97  90_tvns_device.sql
+ 98  91_anamnesis_one_per_consultation.sql
+ 99  91_prescription_complete_per_modality.sql
+100  92_outbox_skip_backlog.sql
+101  92_tvns_manual_prescription.sql
+102  93_5_tvns_device_seed.sql
+103  93_outbox_relay_system_role.sql
+104  93_tvns_disease_presets.sql
+105  94_patient_rejection_fields.sql
+106  94_tvns_disease_presets_data.sql
+107  95_one_general_registration_prs.sql
+108  95_tvns_stroke_preset.sql
+109  96_prescribed_medicines.sql
+110  96_prs_assessment_cursor.sql
+111  97_device_catalogue_admin_writes.sql
+112  97_fix_recalculate_final_result_disease_scope.sql
+113  98_tvns_session_settings_doctor_rls.sql
+114  99_drop_legacy_sessions_add_clinical_notes.sql
+115  100_restore_payments_select_policy.sql
+116  101_auth_context_lookup.sql
+117  102_outbox_retry_and_notification_read.sql
+118  103_live_notify_tables.sql
+119  104_normalize_email.sql
+120  105_signup_auto_approval.sql
+121  106_ca_protocol_amend_and_audit_trail.sql
+122  107_audit_trigger_actor_role.sql
+123  108_protocol_child_select_rls_inline.sql
+124  109_clinic_google_maps_url.sql
+125  110_s3_document_storage.sql
+126  111_prs_translations_seed.sql
+127  112_consent_templates_seed.sql
+128  113_catalogue_links_seed.sql
+129  114_dr_experiance_seed.sql
+130  115_prs_scales_applicable_for_seed.sql
+131  116_restore_device_available_trigger.sql
+ ⚠  D. RERUN 74_fix_recalculate_final_result_null_disease_id.sql

@@ -420,14 +420,9 @@ class PrsAssessmentService:
         if disease_id is None and assessment_stage != "general_registration":
             raise ValidationError(f"disease_id is required for assessment_stage={assessment_stage!r}", code="DISEASE_ID_REQUIRED")
         profile_id = await _resolve_profile_id(self.session, patient_id)
-        # Staff (doctor / clinical assistant) take a PRS only under an
-        # appointment, so every staff-taken PRS belongs to a visit and shows
-        # in that visit's tab for the whole care team. The patient's own PRS
-        # and the registration intake are not tied to a visit.
-        staff_visit_prs = initiated_by != "patient" and assessment_stage != "general_registration"
-        if staff_visit_prs and appointment_id is None:
-            raise ValidationError("A PRS taken by staff needs its appointment_id", code="PRS_APPOINTMENT_REQUIRED")
-        appt = None
+        # appointment_id is optional for everyone: given, the PRS belongs to
+        # that visit and shows in its tab; omitted, it is a standalone PRS.
+        # Staff may take one at any time, with or without a consultation.
         if appointment_id is not None:
             appt = await AppointmentRepository(self.session).get(appointment_id)
             if not appt:
@@ -480,12 +475,6 @@ class PrsAssessmentService:
             is_resumed = True
             is_readonly_completed = True
         else:
-            # Only a NEW instance is gated: reopening one already taken under
-            # this appointment (above) stays possible after the visit ends.
-            # A device session's scales are exempt - they may be answered
-            # after the session completes (protocol_scales cadence).
-            if staff_visit_prs and appt and appt["appointment_type"] != "device_session" and appt["status"] != "in_progress":
-                raise BusinessRuleError("Start the consultation before taking the PRS", code="CONSULTATION_NOT_STARTED")
             try:
                 # Savepoint: two concurrent starts both land here; for
                 # general_registration uq_prs_one_general_registration (95)
