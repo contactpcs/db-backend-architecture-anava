@@ -1,13 +1,13 @@
-"""Staff (doctor / clinical assistant) take a PRS or a consultation anamnesis
-only inside a started consultation. Device-session scales are exempt, the
-patient's own PRS and the registration intake are untouched. No DB needed."""
+"""Staff (doctor / clinical assistant) take a consultation anamnesis only
+inside a started consultation. A PRS is not gated: staff take one at any
+time, with or without an appointment. No DB needed."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
 
-from app.core.exceptions import BusinessRuleError, ValidationError
+from app.core.exceptions import BusinessRuleError
 from app.core.resolve import attach_actor
 from app.modules.anamnesis import service as anamnesis_module
 from app.modules.anamnesis.service import AnamnesisService
@@ -51,31 +51,20 @@ async def _start_prs(appt, *, initiated_by="doctor_on_behalf", stage="main_clini
 
 
 @pytest.mark.asyncio
-async def test_staff_prs_without_appointment_is_refused():
-    with pytest.raises(ValidationError) as exc:
-        await _start_prs(None, with_appointment=False)
-    assert exc.value.code == "PRS_APPOINTMENT_REQUIRED"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("status", ["paid", "checked_in", "completed"])
-async def test_staff_prs_needs_a_started_consultation(status):
-    with pytest.raises(BusinessRuleError) as exc:
-        await _start_prs({"appointment_type": "initial", "status": status})
-    assert exc.value.code == "CONSULTATION_NOT_STARTED"
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("appt", "kwargs"),
     [
+        (None, {"with_appointment": False}),  # staff, no consultation at all
+        ({"appointment_type": "initial", "status": "paid"}, {}),  # staff, consultation not started
+        ({"appointment_type": "initial", "status": "checked_in"}, {}),
+        ({"appointment_type": "initial", "status": "completed"}, {}),  # staff, after the consultation
         ({"appointment_type": "follow_up", "status": "in_progress"}, {}),  # started consultation
         ({"appointment_type": "device_session", "status": "completed"}, {}),  # device-session scale, after the session
         (None, {"initiated_by": "patient", "with_appointment": False}),  # patient's own PRS
         (None, {"stage": "general_registration", "with_appointment": False}),  # registration intake
     ],
 )
-async def test_prs_cases_that_pass_the_gate(appt, kwargs):
+async def test_prs_is_never_gated_on_a_consultation(appt, kwargs):
     with pytest.raises(RuntimeError):
         await _start_prs(appt, **kwargs)
 
