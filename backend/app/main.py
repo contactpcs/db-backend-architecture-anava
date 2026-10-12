@@ -33,6 +33,7 @@ from app.modules.clinical.router import router as clinical_router
 from app.modules.consent.router import router as consent_router
 from app.modules.device_sessions.router import router as device_sessions_router
 from app.modules.files.router import router as files_router
+from app.modules.final_reports.router import router as final_reports_router
 from app.modules.inventory.router import router as inventory_router
 from app.modules.notifications.router import router as notifications_router
 from app.modules.patients.router import router as patients_router
@@ -239,6 +240,7 @@ app.include_router(inventory_router, prefix="/api/v1", tags=["inventory"])
 app.include_router(notifications_router, prefix="/api/v1", tags=["notifications"])
 app.include_router(reception_router, prefix="/api/v1/reception", tags=["reception"])
 app.include_router(reports_router, prefix="/api/v1", tags=["reports"])
+app.include_router(final_reports_router, prefix="/api/v1", tags=["final-reports"])
 app.include_router(audit_router, prefix="/api/v1", tags=["audit"])
 
 

@@ -482,6 +482,21 @@ async def _handle_device_session_ended(session, payload: dict[str, Any]) -> list
     return await _handle_appointment_status_changed(session, {"appointment_id": payload["appointment_id"], "status": "completed"})
 
 
+async def _handle_final_report_signed(session, payload: dict[str, Any]) -> list[dict]:
+    """Tells the patient their doctor-signed Final Report is in My Results.
+    payload's patient_id is already profiles.id (final_reports/service.py)."""
+    return [
+        {
+            "recipient_id": payload["patient_id"],
+            "type": "clinical",
+            "title": "Your final report is ready",
+            "body": "Your doctor has signed a final report. You can open it from My Results.",
+            "entity_type": "final_report",
+            "entity_id": payload["report_id"],
+        }
+    ]
+
+
 EVENT_HANDLERS = {
     "appointment_booked": _handle_appointment_booked,
     # A patient claiming a slot on a doctor-prescribed (planned) session is
@@ -499,6 +514,7 @@ EVENT_HANDLERS = {
     "sos_raised": _handle_sos_raised,
     "sos_acknowledged": _handle_sos_acknowledged,
     "patient_registration_decided": _handle_patient_registration_decided,
+    "final_report_signed": _handle_final_report_signed,
 }
 
 
