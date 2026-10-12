@@ -52,9 +52,11 @@ def in_window(value, start, end) -> bool:
     ts = _naive(value)
     if ts is None:
         return False
-    if start is not None and ts <= _naive(start):
+    start_ts = _naive(start)
+    end_ts = _naive(end)
+    if start_ts is not None and ts <= start_ts:
         return False
-    return end is None or ts <= _naive(end)
+    return end_ts is None or ts <= end_ts
 
 
 def consultation_window(consultations: list[dict], now) -> dict:

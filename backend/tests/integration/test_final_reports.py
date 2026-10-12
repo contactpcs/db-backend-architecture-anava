@@ -67,7 +67,7 @@ _INSERT = (
 )
 
 
-async def _as(role: str, user_id: str, clinic_id: str | None, sql: str, **params):
+async def _as(role: str, user_id: str, acting_clinic_id: str | None, sql: str, **params):
     """Runs one statement as the API does: the app login, with the caller's
     identity in the transaction's RLS settings."""
     async with async_session_factory() as session, session.begin():
@@ -76,7 +76,7 @@ async def _as(role: str, user_id: str, clinic_id: str | None, sql: str, **params
                 "SELECT set_config('app.current_user_id', :uid, true), set_config('app.current_user_role', :role, true), "
                 "set_config('app.current_clinic_id', :cid, true)"
             ),
-            {"uid": user_id, "role": role, "cid": clinic_id or ""},
+            {"uid": user_id, "role": role, "cid": acting_clinic_id or ""},
         )
         result = await session.execute(text(sql), params)
         return result.mappings().all() if result.returns_rows else None
