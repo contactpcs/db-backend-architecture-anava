@@ -17,10 +17,11 @@ from functools import lru_cache
 from typing import TypedDict
 
 import httpx
+import structlog
 from jose import JWTError, jwt
 
 from app.config import get_settings
-from app.core.exceptions import AuthenticationError
+from app.core.exceptions import AuthenticationError, ExternalServiceError
 
 settings = get_settings()
 _jwks_lock = asyncio.Lock()
@@ -80,12 +81,32 @@ async def _fetch_cognito_jwks() -> list[dict]:
             return cached[1]
 
         url = f"https://cognito-idp.{settings.cognito_region}.amazonaws.com/{settings.cognito_user_pool_id}/.well-known/jwks.json"
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(url)
-        resp.raise_for_status()
-        keys = resp.json()["keys"]
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(url)
+            resp.raise_for_status()
+            keys = resp.json()["keys"]
+        except (httpx.HTTPError, ValueError, KeyError) as exc:
+            # Cognito unreachable / slow (seen: ConnectTimeout on the first
+            # request after a restart). Keys rotate rarely, so an expired cache
+            # is still good; with none at all it's a 503 the client can retry,
+            # not an unhandled 500 (API audit ENV-JWKS).
+            if cached:
+                return cached[1]
+            raise ExternalServiceError("Login service is unreachable, please retry", code="AUTH_PROVIDER_UNAVAILABLE") from exc
         _jwks_cache[key] = (time.time(), keys)
         return keys
+
+
+async def warm_jwks() -> None:
+    """Startup prefetch so the first signed-in request doesn't pay for (or
+    fail on) the JWKS download. Failure is only logged; requests retry."""
+    if settings.auth_mode != "cognito":
+        return
+    try:
+        await _fetch_cognito_jwks()
+    except ExternalServiceError:
+        structlog.get_logger().warning("jwks_prefetch_failed", hint="first authenticated request will retry")
 
 
 async def verify_token(token: str) -> TokenClaims:

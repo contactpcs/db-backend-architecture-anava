@@ -1,6 +1,7 @@
+from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.config import get_settings
 from app.core.db import RequestContext, get_db
@@ -36,15 +37,79 @@ async def register_patient(
     # signup wizard (patients/router.py's own routes below) — no channel to
     # collect an OTP from, since the staff member is filling this in, not
     # the patient. Same temp-password-emailed provisioning staff accounts
-    # get, just for a patient identity instead.
-    cognito_sub = None
+    # get, just for a patient identity instead. Created AFTER the patient
+    # rows, so a duplicate email/phone is refused by the database before a
+    # Cognito user exists (core/cognito.py attach_staff_login).
+    patient = await PatientService(db).register(data, registered_by=UUID(ctx.user_id))
     if settings.auth_mode == "cognito":
-        from app.core.cognito import provision_staff_user
+        from app.core.cognito import attach_staff_login
 
-        cognito_sub = provision_staff_user(
-            email=data["email"], first_name=data["first_name"], last_name=data["last_name"], phone=data.get("phone")
+        await attach_staff_login(
+            db,
+            profile_id=patient["profile_id"],
+            email=data["email"],
+            first_name=data["first_name"],
+            last_name=data["last_name"],
+            phone=data.get("phone"),
         )
-    return await PatientService(db).register(data, cognito_sub=cognito_sub, registered_by=UUID(ctx.user_id))
+    return patient
+
+
+@router.get("/patients/count")
+async def count_patients(
+    registration_status: str | None = None,
+    approval_status: str | None = None,
+    clinic_id: UUID | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
+) -> dict:
+    """Same filters and scoping as GET /patients, but just the number — the
+    clinical-assistant dashboard and approvals badge used to download every
+    patient to count them (API audit F-045). Registered before
+    /patients/{patient_id} so "count" is never parsed as an id."""
+    if clinic_id is None and ctx.role in ("clinic_admin", "receptionist"):
+        clinic_id = UUID(ctx.clinic_id)
+    count = await PatientService(db).count(registration_status=registration_status, approval_status=approval_status, clinic_id=clinic_id)
+    return {"count": count}
+
+
+# approval_view -> _list_where filters. "approved" = the default patient list
+# (approved + staff-registered); "pending" = the approvals queue definition
+# (approval pending AND wizard complete, as staffService.getPendingCount).
+_APPROVAL_VIEWS: dict[str, dict] = {
+    "all": {"include_unapproved": True, "hide_unfinished_pending": True},  # = approved + pending + rejected
+    "approved": {},
+    "pending": {"approval_status": "pending", "registration_status": "registration_complete"},
+    "rejected": {"approval_status": "rejected"},
+}
+
+
+@router.get("/patients/page", response_model=s.PatientPageRead)
+async def page_patients(
+    search: str | None = None,
+    clinic_id: UUID | None = None,
+    approval_view: Literal["all", "approved", "pending", "rejected"] | None = None,
+    with_counts: bool = False,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
+) -> dict:
+    """GET /patients one page at a time, with server search (name, phone,
+    email, MRN, doctor) — the admin patients list used to download every
+    clinic patient and filter in the browser (API audit F-053). Same scoping
+    as GET /patients; registered before /patients/{patient_id}.
+    approval_view picks a super-admin tab; with_counts adds the four tab
+    counts over the caller's whole scope (API audit F-062 / BUG-APPR)."""
+    if clinic_id is None and ctx.role in ("clinic_admin", "receptionist"):
+        clinic_id = UUID(ctx.clinic_id)
+    svc = PatientService(db)
+    view = _APPROVAL_VIEWS[approval_view or "approved"]
+    items, total = await svc.list_page(limit=page_size, offset=(page - 1) * page_size, search=search or None, clinic_id=clinic_id, **view)
+    result = {"items": items, "total": total, "page": page, "page_size": page_size, "total_pages": -(-total // page_size)}
+    if with_counts:
+        result["counts"] = {k: await svc.count(**v) for k, v in _APPROVAL_VIEWS.items()}
+    return result
 
 
 @router.get("/patients", response_model=list[s.PatientRead])
@@ -74,6 +139,50 @@ async def list_patients(
 async def get_patient(patient_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
     await assert_patient_self(ctx, db, patient_id)
     return await PatientService(db).get(patient_id)
+
+
+@router.get("/patients/{patient_id}/clinic", response_model=s.PatientClinicRead)
+async def get_patient_clinic(patient_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))):
+    """Contact details of the patient's primary clinic, for the patient
+    portal. Same access rule as GET /patients/{patient_id}: a patient can
+    only ask about themselves."""
+    await assert_patient_self(ctx, db, patient_id)
+    return await PatientService(db).get_clinic(patient_id)
+
+
+@router.get("/patients/{patient_id}/registration-record")
+async def get_registration_record(
+    patient_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))
+):
+    """The registration intake in one call (API audit F-025): registration-
+    stage anamnesis + its responses, and the latest completed non-voided
+    general_registration PRS instance with its results. Was 4 calls in two
+    sequential chains (anamnesis -> responses, prs-instances -> results).
+    Same services, same access rule (assert_patient_self), and the anamnesis
+    parts are serialized through the same schemas as their own endpoints;
+    missing pieces are null, exactly as the frontend treated a 404."""
+    from app.core.exceptions import NotFoundError
+    from app.modules.anamnesis import schemas as an
+    from app.modules.anamnesis.service import AnamnesisService
+    from app.modules.prs.service import PrsAssessmentService
+
+    await assert_patient_self(ctx, db, patient_id)
+    anamnesis, responses = None, []
+    try:
+        assessment = await AnamnesisService(db).get_current(patient_id, "registration")
+        anamnesis = an.AnamnesisAssessmentRead.model_validate(assessment)
+        rows = await AnamnesisService(db).get_responses(assessment["anamnesis_id"])
+        responses = [an.AnamnesisResponseRead.model_validate(r) for r in rows]
+    except NotFoundError:
+        pass
+
+    general_prs = None
+    prs = PrsAssessmentService(db)
+    live = [i for i in await prs.list_for_patient(patient_id, assessment_stage="general_registration") if not i.get("is_voided")]
+    latest = next((i for i in live if i["status"] == "completed"), live[0] if live else None)
+    if latest:
+        general_prs = await prs.results(latest["instance_id"], latest)
+    return {"anamnesis": anamnesis, "anamnesis_responses": responses, "general_prs": general_prs}
 
 
 @router.get("/patients/{patient_id}/visits/{appointment_id}/summary", response_model=s.VisitSummaryRead)

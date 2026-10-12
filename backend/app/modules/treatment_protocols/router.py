@@ -47,6 +47,10 @@ _READERS = (*_ALL_STAFF, "patient")
 # Prescribing roles. A clinical assistant runs the device but does not set
 # the protocol.
 _PRESCRIBERS = ("super_admin", "clinic_admin", "doctor")
+# 106: a clinical assistant may amend an existing protocol, edit a draft and
+# activate their own amendment - never create, cancel or complete one. The
+# per-action rule is in ProtocolService and mirrored by RLS.
+_AMENDERS = (*_PRESCRIBERS, "clinical_assistant")
 # Who may file a PRS score: the CA administering the session, the doctor,
 # and the patient answering on their own device.
 _PRS_WRITERS = ("super_admin", "clinic_admin", "doctor", "clinical_assistant", "patient")
@@ -387,24 +391,36 @@ async def set_protocol_instance_status(
 async def create_protocol(
     body: s.ProtocolCreate,
     db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role(*_PRESCRIBERS)),
+    ctx: RequestContext = Depends(require_role(*_AMENDERS)),
 ):
     """Creates the protocol as a draft and generates its whole course of
-    appointments in the same transaction."""
+    appointments in the same transaction. A clinical assistant must send
+    supersedes_protocol_id (an amendment)."""
     return await ProtocolService(db).create(body, ctx)
 
 
-@router.get("/treatment-protocols", response_model=list[s.ProtocolRead])
+@router.get("/treatment-protocols", response_model=list[s.ProtocolListItem])
 async def list_protocols(
     instance_id: UUID | None = Query(None),
     patient_id: UUID | None = Query(None),
     status: str | None = Query(None),
+    include_sessions: bool = Query(False, description="attach each protocol's device sessions (same as detail.sessions)"),
+    sessions_all_types: bool = Query(False, description="with include_sessions: every appointment type (same as /{id}/sessions)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_ALL_STAFF)),
 ):
-    return await ProtocolService(db).list(ctx, instance_id=instance_id, patient_id=patient_id, status=status, skip=skip, limit=limit)
+    return await ProtocolService(db).list(
+        ctx,
+        include_sessions=include_sessions,
+        sessions_all_types=sessions_all_types,
+        instance_id=instance_id,
+        patient_id=patient_id,
+        status=status,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @router.get("/treatment-protocols/{protocol_id}", response_model=s.ProtocolDetail)
@@ -423,7 +439,7 @@ async def update_protocol(
     protocol_id: UUID,
     body: s.ProtocolUpdate,
     db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role(*_PRESCRIBERS)),
+    ctx: RequestContext = Depends(require_role(*_AMENDERS)),
 ):
     """Draft-only. An active protocol is amended by cancelling and
     re-issuing, not edited in place."""
@@ -444,7 +460,7 @@ async def list_protocol_sessions(
 async def activate_protocol(
     protocol_id: UUID,
     db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role(*_PRESCRIBERS)),
+    ctx: RequestContext = Depends(require_role(*_AMENDERS)),
 ):
     """The 'Push Treatment Protocol' action. Makes the protocol live and
     visible to the care team."""

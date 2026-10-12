@@ -4,7 +4,7 @@ FastAPI modular monolith. See `../Documents/Anava_Backend_Architecture_v1.md` fo
 
 ## Stack
 
-Python 3.12 · FastAPI · async SQLAlchemy 2.0 + asyncpg · Alembic · PostgreSQL 16 · Redis · SQS (ElasticMQ locally) · Razorpay · AWS Cognito/S3 (Stage 13+)
+Python 3.12 · FastAPI · async SQLAlchemy 2.0 + asyncpg · Alembic · PostgreSQL 16 · SQS (ElasticMQ locally) · Razorpay · AWS Cognito/S3 (Stage 13+)
 
 ## Local setup
 
@@ -22,7 +22,7 @@ copy .env.example .env
 cp .env.example .env
 ```
 
-Start the local service stack (Postgres, Redis, ElasticMQ):
+Start the local service stack (Postgres, ElasticMQ):
 
 ```bash
 docker compose up -d

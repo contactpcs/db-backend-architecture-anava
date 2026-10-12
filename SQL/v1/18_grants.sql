@@ -1,3 +1,18 @@
+-- anava_app is the application's login role. It may already exist (CI creates it before
+-- applying these files; so does scripts/apply_sql_v1.py), so this only creates it when
+-- missing. No password is set here: a password in this file would live in git. Set it
+-- once with:  ALTER ROLE anava_app PASSWORD '...';  (apply_sql_v1.py does that from
+-- DATABASE_URL in backend/.env).
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anava_app') THEN
+        CREATE ROLE anava_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+    END IF;
+END
+$$;
+
+
+
 -- Generated from live production schema introspection (2026-07-20). Do not hand-edit column/RLS/trigger/function bodies — regenerate from source instead.
 
 -- anava_app: full DML on core/compliance/ops, read on reference/analytics (RLS-scoped throughout)

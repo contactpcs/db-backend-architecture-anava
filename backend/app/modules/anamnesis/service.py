@@ -43,6 +43,7 @@ class AnamnesisService:
         taken_by: str,
         assessment_stage: str = "registration",
         appointment_id: UUID | None = None,
+        by_staff: bool = False,
     ) -> dict:
         """Get-or-create — never a new version (91).
 
@@ -69,6 +70,10 @@ class AnamnesisService:
                 return existing
             if appt["status"] in LOCKED_APPOINTMENT_STATUSES:
                 raise BusinessRuleError("This consultation is completed — its anamnesis can no longer be changed", code="ANAMNESIS_LOCKED")
+            # Staff open a consultation's anamnesis only once it has started
+            # (same rule as a staff-taken PRS).
+            if by_staff and appt["status"] != "in_progress":
+                raise BusinessRuleError("Start the consultation before taking the anamnesis", code="CONSULTATION_NOT_STARTED")
         else:
             appointment_id = None
             existing = await self.assessments.get_registration(profile_id)

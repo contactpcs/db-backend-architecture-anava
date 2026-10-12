@@ -79,6 +79,11 @@ class BusinessRuleError(AnavaException):
     code = "BUSINESS_RULE_VIOLATION"
 
 
+class RateLimitError(AnavaException):
+    status_code = 429
+    code = "RATE_LIMITED"
+
+
 class ExternalServiceError(AnavaException):
     """Retryable — repository/integration call wrapper retries these before
     ever surfacing to the client (Section 10)."""

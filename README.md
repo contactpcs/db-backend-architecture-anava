@@ -31,7 +31,7 @@ Stages 0-12 of the 22-stage development plan are built and verified against a re
 
 14 of 16 modules are implemented: `auth`, `admin`, `staff`, `patients`, `clinical`, `scheduling`, `prs`, `anamnesis`, `files`, `consent`, `store`, `inventory`, `payments`, `notifications`. Not yet built: `audit` (read-side query API), `reports`.
 
-Everything runs locally against Docker services (Postgres/Redis/ElasticMQ) — no AWS account or Razorpay keys required yet. Real AWS/Cognito/S3 and live Razorpay wiring is Stage 13, not started.
+Everything runs locally against Docker services (Postgres/ElasticMQ) — no AWS account or Razorpay keys required yet. Real AWS/Cognito/S3 and live Razorpay wiring is Stage 13, not started.
 
 ## Quickstart
 
@@ -64,9 +64,9 @@ No real credentials, API keys, or PHI-shaped data belong in this repo at any poi
 - **ECS cluster**: `anava-cluster`, service `anava-backend-lb` (Fargate, behind ALB)
 - **ECR**: `anava-backend` — image built/pushed by `.github/workflows/backend-deploy.yml` on push to `main`/`device_session_newflow`
 - **RDS**: Postgres, connects over TLS (`DB_REQUIRE_SSL=true`, CA bundle at `backend/certs/rds-global-bundle.pem`)
-- **ElastiCache**: `anava-backend-cache` (Redis OSS, serverless), used for SSE pub/sub (`app/core/pubsub.py`) and token revocation. Security group `sg-0536aabfd211e5fbc` (`anava-backend-sg`, shared with ECS tasks) — self-referencing inbound rule on port 6379 allows ECS ↔ Redis traffic.
+- **ElastiCache**: `anava-backend-cache` (Redis OSS, serverless). No longer used by the backend: live pushes, token revocation and stream tickets moved to Postgres (`Documents/design_postgres_notify_live.md`). Can be retired once that release is confirmed live. Security group `sg-0536aabfd211e5fbc` (`anava-backend-sg`, shared with ECS tasks) — self-referencing inbound rule on port 6379 allows ECS ↔ Redis traffic.
 - **Cognito**: user pool for auth (`AUTH_MODE=cognito` in prod)
-- **Secrets Manager**: `anava/backend/cognito` — single JSON secret holding `COGNITO_*`, `DATABASE_URL`, `MIGRATION_DATABASE_URL`, `RAZORPAY_*`, and `REDIS_URL`. Referenced in the ECS task definition's `secrets` block (not plaintext `environment`).
+- **Secrets Manager**: `anava/backend/cognito` — single JSON secret holding `COGNITO_*`, `DATABASE_URL`, `MIGRATION_DATABASE_URL`, `RAZORPAY_*`, and `REDIS_URL` (now ignored by the backend, safe to remove). Referenced in the ECS task definition's `secrets` block (not plaintext `environment`).
 
 ### Scheduled start/stop (cost saving)
 

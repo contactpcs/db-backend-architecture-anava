@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class WeeklyScheduleCreate(BaseModel):
@@ -29,6 +29,13 @@ class WeeklyScheduleRead(BaseModel):
     break_start: time | None = None
     break_end: time | None = None
     is_active: bool
+
+
+class DoctorWeeklySchedulesRead(BaseModel):
+    """GET /doctor-weekly-schedules — one entry per doctor of the clinic (API audit F-052)."""
+
+    doctor_id: UUID
+    schedules: list[WeeklyScheduleRead]
 
 
 class MyWeeklyScheduleItem(BaseModel):
@@ -76,7 +83,16 @@ class MyScheduleOverrideCreate(BaseModel):
     start_time: time | None = None
     end_time: time | None = None
     slot_duration_minutes: int | None = None
-    reason: str | None = None
+    # Mandatory for a doctor's own overrides — the schedule page requires it.
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Reason is required")
+        return v
 
 
 class ScheduleOverrideRead(BaseModel):
@@ -88,6 +104,13 @@ class ScheduleOverrideRead(BaseModel):
     start_time: time | None = None
     end_time: time | None = None
     reason: str | None
+
+
+class DoctorScheduleOverridesRead(BaseModel):
+    """GET /doctor-schedule-overrides — one entry per doctor of the clinic (API audit F-056)."""
+
+    doctor_id: UUID
+    overrides: list[ScheduleOverrideRead]
 
 
 class AvailabilitySlotRead(BaseModel):
@@ -222,6 +245,8 @@ class AppointmentRead(BaseModel):
     # have no other endpoint that surfaces this.
     protocol_version_major: int | None = None
     protocol_version_minor: int | None = None
+    # protocol_plan.status of that protocol (active/completed/superseded/...).
+    protocol_status: str | None = None
     # What a protocol-born row is for — lets a patient running several
     # protocols (90) tell their sessions apart. NULL for consultations.
     device_name: str | None = None
@@ -267,6 +292,25 @@ class AppointmentRead(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     created_at: datetime
+
+
+class AppointmentPageCounts(BaseModel):
+    all: int
+    by_status: dict[str, int]
+    by_type: dict[str, int]
+    # Only when ?period_today= was passed (admin tabs, API audit F-055).
+    by_period: dict[str, int] | None = None
+
+
+class AppointmentPageRead(BaseModel):
+    """GET /appointments/page."""
+
+    items: list[AppointmentRead]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    counts: AppointmentPageCounts
 
 
 class AppointmentHistoryRead(AppointmentRead):

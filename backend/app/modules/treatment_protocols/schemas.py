@@ -771,6 +771,13 @@ class ProtocolScaleRead(BaseModel):
     display_order: int = 0
 
 
+class ProtocolListItem(ProtocolRead):
+    """GET /treatment-protocols row. sessions only with ?include_sessions=true
+    (same list as ProtocolDetail.sessions), else null."""
+
+    sessions: list[ProtocolSessionRead] | None = None
+
+
 class ProtocolDetail(ProtocolRead):
     placement: PlacementRead | None = None
     dosing: DosingRead | None = None

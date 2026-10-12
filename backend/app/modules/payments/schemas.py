@@ -39,6 +39,24 @@ class PaymentRead(BaseModel):
     cancellation_refund_amount: float | None = None
 
 
+class PaymentStatusTotal(BaseModel):
+    status: str
+    count: int
+    amount: float
+
+
+class PaymentSummaryRecentRead(PaymentRead):
+    clinic_id: UUID | None = None
+
+
+class PaymentSummaryRead(BaseModel):
+    """GET /payments/summary — dashboard totals without the full list (API audit F-050)."""
+
+    total_count: int
+    by_status: list[PaymentStatusTotal]
+    recent: list[PaymentSummaryRecentRead]
+
+
 class PaymentOrderRead(PaymentRead):
     """Response for order creation only — carries the public key the
     frontend needs to open Razorpay Checkout. Not part of PaymentRead so it

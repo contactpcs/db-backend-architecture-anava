@@ -157,18 +157,23 @@ class DeviceSessionService:
         await self._resolve_scoped_appointment(appointment_id, ctx)
         header = await self._header_or_404(appointment_id)
         sid = header["device_session_record_id"]
+        # Seed here too (same as list_scales_due), so detail.scales is the
+        # full due-list and clients need no follow-up /scales call just to
+        # trigger seeding (API audit F-013).
+        await self._seed_scales(header, ctx)
         detail = dict(header)
-        detail["symptoms"] = await self.symptoms.list_for_session(sid)
-        detail["adverse_events"] = await self.adverse_events.list_for_session(sid)
-        detail["notes"] = await self.notes.list_for_session(sid)
-        detail["activities"] = await self.activities.list_for_session(sid)
+        detail.update(await self.repo.children(sid))
         detail["scales"] = await self.scales.list_for_session(sid)
-        detail["feedback"] = await self.feedback.get_for_session(sid)
-        detail["tvns_settings"] = await self.tvns_settings.get_for_session(sid)
-        detail["media"] = await self.media.list_for_session(sid)
-        detail["events"] = await self.events.list_for_session(sid)
-        detail["sos_events"] = await self.sos_events.list_for_session(sid)
         return detail
+
+    async def summaries_for_protocol(self, protocol_id: UUID, ctx: RequestContext) -> builtins.list[dict]:
+        """Tally inputs for every device session of a protocol in one read.
+        Same clinic-scope rule as the per-session reads (_resolve_scoped_
+        appointment); RLS scopes the rows themselves."""
+        rows = await self.repo.summaries_for_protocol(protocol_id)
+        for clinic_id in {r["clinic_id"] for r in rows}:
+            await assert_clinic_scope(ctx, self.session, clinic_id)
+        return rows
 
     async def get_device_info(self, appointment_id: UUID, ctx: RequestContext) -> dict:
         """Device name + pinned unit serial for the appointment's protocol,
@@ -250,12 +255,14 @@ class DeviceSessionService:
         header = await self._header_or_404(appointment_id)
         assert_transition(header["session_status"], "in_progress", _TRANSITIONS, entity="device session", code="INVALID_SESSION_TRANSITION")
         # The appointment write below goes straight to the repository, past
-        # the scheduling FSM — so its rule (only a checked-in visit can start)
-        # is enforced here. Without it a session started unpaid or before the
-        # patient arrived.
-        if appt["status"] != "checked_in":
-            if appt["status"] == "paid":
-                raise BusinessRuleError("Check the patient in before starting the session", code="CHECK_IN_REQUIRED")
+        # the scheduling FSM — so its rule (only a paid or checked-in visit
+        # can start) is enforced here. Without it a session started unpaid.
+        # A paid visit the CA starts directly is checked in first, so
+        # checked_in_at is still stamped and the paid -> checked_in ->
+        # in_progress history stays intact.
+        if appt["status"] == "paid":
+            await self.appointments.update_status(appointment_id, status="checked_in")
+        elif appt["status"] != "checked_in":
             raise BusinessRuleError(
                 f"This session can't be started while the appointment is '{appt['status']}'",
                 code="APPOINTMENT_NOT_READY",
@@ -505,7 +512,9 @@ class DeviceSessionService:
         created = await self.activities.create(
             {
                 "device_session_record_id": str(header["device_session_record_id"]),
-                "activities": body.activities,
+                # chk_dsa_activities_not_empty needs at least one entry — a
+                # free-text-only log is recorded under "other".
+                "activities": body.activities or ["other"],
                 "free_text": body.free_text,
                 "note": body.note,
                 "recorded_by": ctx.user_id,
@@ -531,6 +540,11 @@ class DeviceSessionService:
         need _resolve_scoped_appointment."""
         return await self.scales.list_pending_for_patient(UUID(ctx.user_id))
 
+    async def scale_summaries_for_caller(self, ctx: RequestContext) -> builtins.list[dict]:
+        """Per-session scale counts for the caller's own device sessions —
+        RLS scopes rows to the patient, same as list_pending_for_caller."""
+        return await self.scales.scale_summaries_for_patient(UUID(ctx.user_id))
+
     async def list_scales_due(self, appointment_id: UUID, ctx: RequestContext) -> builtins.list[dict]:
         """Seeds device_session_scales from the protocol's protocol_scales on
         first read, so the CA screen always shows every scale due this visit
@@ -543,23 +557,25 @@ class DeviceSessionService:
         on an RLS violation the first time they're the one to call this."""
         await self._resolve_scoped_appointment(appointment_id, ctx)
         header = await self._header_or_404(appointment_id)
+        await self._seed_scales(header, ctx)
+        return await self.scales.list_for_session(header["device_session_record_id"])
+
+    async def _seed_scales(self, header: dict, ctx: RequestContext) -> None:
+        """Insert any protocol scale not yet seeded for this session — only
+        for roles RLS lets INSERT (see list_scales_due); a no-op otherwise."""
+        if ctx.role not in _SCALE_SEED_ROLES:
+            return
         sid = header["device_session_record_id"]
-
-        if ctx.role in _SCALE_SEED_ROLES:
-            existing = await self.scales.list_for_session(sid)
-            seeded_ids = {str(r["protocol_scale_id"]) for r in existing}
-
-            protocol_scales = await self.scales.list_protocol_scales(header["protocol_id"])
-            for ps in protocol_scales:
-                if str(ps["protocol_scale_id"]) in seeded_ids:
-                    continue
-                await self.scales.upsert(
-                    sid,
-                    ps["protocol_scale_id"],
-                    {"delivery_mode": _DEFAULT_DELIVERY_MODE, "status": "pending"},
-                )
-
-        return await self.scales.list_for_session(sid)
+        existing = await self.scales.list_for_session(sid)
+        seeded_ids = {str(r["protocol_scale_id"]) for r in existing}
+        for ps in await self.scales.list_protocol_scales(header["protocol_id"]):
+            if str(ps["protocol_scale_id"]) in seeded_ids:
+                continue
+            await self.scales.upsert(
+                sid,
+                ps["protocol_scale_id"],
+                {"delivery_mode": _DEFAULT_DELIVERY_MODE, "status": "pending"},
+            )
 
     async def set_scale_delivery(self, appointment_id: UUID, protocol_scale_id: UUID, delivery_mode: str, ctx: RequestContext) -> dict:
         await self._resolve_scoped_appointment_for_patient_write(appointment_id, ctx)

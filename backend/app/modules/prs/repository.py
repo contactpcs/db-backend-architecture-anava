@@ -449,6 +449,27 @@ class AssessmentInstanceRepository:
         )
         return [dict(r) for r in rows]
 
+    async def list_for_patient_with_disease_name(self, patient_profile_id: UUID, *, assessment_stage: str | None = None) -> list[dict]:
+        clauses, params = ["i.patient_id = :pid"], {"pid": str(patient_profile_id)}
+        if assessment_stage:
+            clauses.append("i.assessment_stage = :stage")
+            params["stage"] = assessment_stage
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT i.*, d.disease_name FROM prs_assessment_instances i "
+                        "LEFT JOIN prs_diseases d ON d.disease_id = i.disease_id "
+                        f"WHERE {' AND '.join(clauses)} ORDER BY i.started_at DESC"
+                    ),
+                    params,
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
     async def list_latest_as_of(self, patient_id: UUID, cutoff_date) -> list[dict]:
         """One row per disease — the instance that was current as of a given
         visit date, inherited by a later follow-up that hasn't recorded its
@@ -693,6 +714,46 @@ class PrsScaleResultRepository:
         )
         rows = (await self.session.execute(text(sql), params)).mappings().all()
         return {r["scale_id"] for r in rows}
+
+    async def list_for_instances(self, instance_ids: list[str]) -> list[dict]:
+        """Scale results for many instances in one query, with the scale's
+        display name — the scores-summary endpoint's replacement for one
+        /results call per instance."""
+        if not instance_ids:
+            return []
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT r.*, sc.scale_code, sc.scale_name FROM prs_scale_results r "
+                        "LEFT JOIN prs_scales sc ON sc.scale_id = r.scale_id "
+                        "WHERE r.instance_id = ANY(:ids)"
+                    ),
+                    {"ids": instance_ids},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def latest_composites_for_patient(self, patient_id) -> dict[str, dict]:
+        """Latest disease_composite_scores row per disease for one patient,
+        keyed by disease_id — latest_for_patient() for every disease at once."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT DISTINCT ON (disease_id) * FROM disease_composite_scores "
+                        "WHERE patient_id = :patient_id ORDER BY disease_id, computed_at DESC"
+                    ),
+                    {"patient_id": str(patient_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return {r["disease_id"]: dict(r) for r in rows}
 
     async def final_result(self, instance_id: str) -> dict | None:
         return await fetch_optional(self.session, text("SELECT * FROM prs_final_results WHERE instance_id = :id"), {"id": instance_id})

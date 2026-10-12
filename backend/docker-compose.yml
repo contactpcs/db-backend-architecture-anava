@@ -15,16 +15,6 @@ services:
       timeout: 5s
       retries: 10
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   # SQS-protocol-compatible local queue — same boto3 SQS calls work unchanged
   # against real AWS SQS later, just swap the endpoint_url.
   elasticmq:

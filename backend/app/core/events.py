@@ -32,6 +32,7 @@ _CATEGORY_BY_AGGREGATE = {
     "protocol_custom_montage": "clinical",
     "prs_assessment_instance": "clinical",
     "anamnesis_assessment": "clinical",
+    "final_report": "clinical",
     "patient": "patient",
     "patient_clinic_transfer": "patient",
     "patient_file": "patient",

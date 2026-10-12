@@ -6,18 +6,17 @@ Two independent pieces:
    an httpOnly cookie so page scripts (and therefore XSS) can never read it;
    the browser only ever holds the short-lived access token.
 
-2. Redis-backed state: a denylist of logged-out access tokens (a signed JWT
-   would otherwise stay valid until it expires, however many times its owner
-   logged out) and one-time tickets for opening the live-notification
-   stream. Redis is already required for live push (core/pubsub.py); this
-   adds no new infrastructure.
+2. Short-lived state in Postgres (SQL/v1/103): a denylist of logged-out
+   access tokens (a signed JWT would otherwise stay valid until it expires,
+   however many times its owner logged out) and one-time tickets for opening
+   the live-notification stream.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import secrets
-import time
 
 import structlog
 from fastapi import Request, Response
@@ -25,7 +24,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.core.pubsub import get_redis
+from app.core import live
+from app.core.db import system_transaction
 
 logger = structlog.get_logger()
 settings = get_settings()
@@ -35,43 +35,6 @@ REFRESH_COOKIE_NAME = "anava_refresh"
 # /auth/refresh and /auth/logout and to nothing else, so the refresh token
 # never travels with an ordinary API call.
 REFRESH_COOKIE_PATH = "/api/v1/auth"
-
-_REVOKED_PREFIX = "revoked_jti:"
-_TICKET_PREFIX = "sse_ticket:"
-
-# The revocation check runs on EVERY authenticated request, so a slow or
-# unreachable Redis must cost almost nothing:
-#  - each call gets a hard timeout (a black-holed connection would otherwise
-#    hang for the OS connect timeout, tens of seconds, on every request), and
-#  - after one failure the breaker skips Redis entirely for a while, so the
-#    requests behind it don't each pay that timeout in turn.
-_OP_TIMEOUT_SECONDS = 1.5
-_BREAKER_SECONDS = 15.0
-_down_until = 0.0
-
-
-def breaker_open_for_seconds() -> float:
-    """0 when Redis is being used normally; otherwise how long it is still skipped."""
-    return max(_down_until - time.monotonic(), 0.0)
-
-
-class RedisUnavailable(Exception):
-    """Redis was skipped (breaker open) or failed just now."""
-
-
-async def _redis_call(operation):
-    """Runs `operation` (a zero-argument async callable) with the hard timeout
-    and breaker described above. Raises on failure — callers decide whether
-    that means fail-open (revocation) or fail-closed (tickets)."""
-    global _down_until
-    if time.monotonic() < _down_until:
-        raise RedisUnavailable("redis breaker open")
-    try:
-        return await asyncio.wait_for(operation(), timeout=_OP_TIMEOUT_SECONDS)
-    except Exception as exc:
-        _down_until = time.monotonic() + _BREAKER_SECONDS
-        logger.warning("redis_unavailable_breaker_open", seconds=_BREAKER_SECONDS, error=repr(exc))
-        raise
 
 
 # ─── refresh-token cookie ────────────────────────────────────────────────────
@@ -134,57 +97,69 @@ def read_refresh_cookie(request: Request) -> tuple[str, str] | None:
 async def revoke_access_token(jti: str | None, exp: int) -> None:
     """Denylists one access token until it would have expired anyway.
 
-    Best-effort by design: if Redis is down the logout still succeeds for the
-    user (their refresh token is revoked at Cognito and the cookie cleared);
-    the only thing lost is instant rejection of this one already-issued
-    access token, which lapses on its own within the hour."""
+    This process rejects the token at once. Every other API process is told
+    by NOTIFY, and reads the table when its listener (re)connects
+    (core/live.py). Best-effort by design: if the write fails the logout
+    still succeeds for the user (their refresh token is revoked at Cognito
+    and the cookie cleared); the only thing lost is instant rejection of this
+    one already-issued access token on the other processes, and it lapses on
+    its own within the hour."""
     if not jti:
         return
-    ttl = max(exp - int(time.time()), 1)
+    live.mark_revoked(jti, exp)
     try:
-        await _redis_call(lambda: get_redis().set(_REVOKED_PREFIX + jti, "1", ex=ttl))
+        async with system_transaction() as conn:
+            await conn.execute(text("DELETE FROM revoked_access_tokens WHERE expires_at < now()"))
+            await conn.execute(
+                text("INSERT INTO revoked_access_tokens (jti, expires_at) VALUES (:jti, to_timestamp(:exp)) ON CONFLICT (jti) DO NOTHING"),
+                {"jti": jti, "exp": exp},
+            )
+            await conn.execute(text("SELECT pg_notify(:channel, :payload)"), {"channel": live.TOKEN_REVOKED, "payload": f"{jti} {exp}"})
     except Exception as exc:  # noqa: BLE001 — see docstring
         logger.warning("token_revocation_store_failed", error=repr(exc))
 
 
-async def is_access_token_revoked(jti: str | None) -> bool:
-    """Fails OPEN: a Redis outage must not lock every user out of the app."""
-    if not jti:
-        return False
-    try:
-        return bool(await _redis_call(lambda: get_redis().exists(_REVOKED_PREFIX + jti)))
-    except Exception:  # noqa: BLE001 — see docstring; already logged when the breaker tripped
-        return False
+def is_access_token_revoked(jti: str | None) -> bool:
+    """Runs on every authenticated request, so it is a lookup in this
+    process's own copy of the denylist, with no I/O."""
+    return jti is not None and live.is_revoked(jti)
 
 
 # ─── live-stream tickets ─────────────────────────────────────────────────────
 
 
+def _ticket_hash(ticket: str) -> str:
+    return hashlib.sha256(ticket.encode()).hexdigest()
+
+
 async def issue_stream_ticket(cognito_sub: str) -> str:
     """One-time, short-lived stand-in for the access token in the SSE URL.
-    Raises if Redis is unreachable — there is no live stream without it
-    anyway (the relay publishes through Redis), and the caller turns that
-    into a 503 the client just retries later."""
+    Only its hash is stored. Raises if the database is unreachable; the
+    caller turns that into a 503 the client just retries later."""
     ticket = secrets.token_urlsafe(32)
-    await _redis_call(lambda: get_redis().set(_TICKET_PREFIX + ticket, cognito_sub, ex=settings.stream_ticket_ttl_seconds))
+    async with system_transaction() as conn:
+        await conn.execute(text("DELETE FROM sse_tickets WHERE expires_at < now()"))
+        await conn.execute(
+            text(
+                "INSERT INTO sse_tickets (ticket_hash, cognito_sub, expires_at) VALUES (:hash, :sub, now() + make_interval(secs => :ttl))"
+            ),
+            {"hash": _ticket_hash(ticket), "sub": cognito_sub, "ttl": settings.stream_ticket_ttl_seconds},
+        )
     return ticket
 
 
 async def consume_stream_ticket(ticket: str) -> str | None:
     """Returns the cognito_sub the ticket was issued to, and deletes it in
-    the same atomic step, so a ticket that leaks into a log is already dead.
-    None for unknown/expired/already-used tickets, and when Redis is down."""
-    key = _TICKET_PREFIX + ticket
-
-    async def take() -> str | None:
-        async with get_redis().pipeline(transaction=True) as pipe:
-            pipe.get(key)
-            pipe.delete(key)
-            sub, _ = await pipe.execute()
-        return sub or None
-
+    the same statement, so a ticket that leaks into a log is already dead.
+    None for unknown/expired/already-used tickets, and when the database is
+    unreachable."""
     try:
-        return await _redis_call(take)
+        async with system_transaction() as conn:
+            result = await conn.execute(
+                text("DELETE FROM sse_tickets WHERE ticket_hash = :hash AND expires_at > now() RETURNING cognito_sub"),
+                {"hash": _ticket_hash(ticket)},
+            )
+            return result.scalar()
     except Exception:  # noqa: BLE001 — a ticket we cannot verify is a ticket we refuse
         return None
 
