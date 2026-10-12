@@ -463,6 +463,33 @@ class WeeklyScheduleService:
         return await self.repo.replace_for_doctor(doctor_profile_id, clinic_id, items, created_by=doctor_profile_id)
 
 
+_DAY_OFF_NOTICE_HOURS = 24
+
+
+def _validate_own_override(data: dict) -> None:
+    """Self-service override rules for a doctor (mirrors the schedule page's
+    AddOverrideModal): no past dates, a full day off needs 24 hours' notice
+    before the day starts, and same-day custom hours must start after now.
+    Half-day leave is stored as custom hours, so it's covered by the same
+    start-after-now check; its before-noon cutoff is enforced client-side."""
+    on_date: dt.date = data["override_date"]
+    now = _now_ist_naive()
+    if on_date < now.date():
+        raise BusinessRuleError("Override date cannot be in the past", code="OVERRIDE_IN_PAST")
+    if not data.get("is_available"):
+        if _hours_until(on_date, dt.time(0, 0)) < _DAY_OFF_NOTICE_HOURS:
+            raise BusinessRuleError(
+                "A day off must be requested at least 24 hours before the day starts",
+                code="OVERRIDE_DAY_OFF_NOTICE",
+            )
+        return
+    start, end = data.get("start_time"), data.get("end_time")
+    if start and end and end <= start:
+        raise BusinessRuleError("End time must be after start time", code="OVERRIDE_INVALID_HOURS")
+    if on_date == now.date() and start and start <= now.time():
+        raise BusinessRuleError("Custom hours for today must start later than the current time", code="OVERRIDE_START_IN_PAST")
+
+
 class ScheduleOverrideService:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -473,6 +500,7 @@ class ScheduleOverrideService:
         return await self._create_for(doctor_profile_id, data["clinic_id"], data, created_by=created_by)
 
     async def create_own(self, *, doctor_profile_id: UUID, clinic_id: UUID, data: dict, created_by: UUID) -> dict:
+        _validate_own_override(data)
         return await self._create_for(doctor_profile_id, clinic_id, data, created_by=created_by)
 
     async def _create_for(self, doctor_profile_id: UUID, clinic_id: UUID, data: dict, *, created_by: UUID) -> dict:

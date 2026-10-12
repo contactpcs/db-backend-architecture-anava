@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class WeeklyScheduleCreate(BaseModel):
@@ -83,7 +83,16 @@ class MyScheduleOverrideCreate(BaseModel):
     start_time: time | None = None
     end_time: time | None = None
     slot_duration_minutes: int | None = None
-    reason: str | None = None
+    # Mandatory for a doctor's own overrides — the schedule page requires it.
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Reason is required")
+        return v
 
 
 class ScheduleOverrideRead(BaseModel):
