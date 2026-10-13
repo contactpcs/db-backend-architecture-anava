@@ -70,28 +70,28 @@ class FinalReportService:
             questions = await self.repo.anamnesis_questions_with_answers(a["anamnesis_id"], a["assessment_stage"])
             anamnesis.append(assembler.build_anamnesis(a, questions, option_labels))
 
+        protocols = ProtocolService(self.session)
+        listed = await protocols.list(ctx, patient_id=patient["patient_id"], limit=200)
+        listed.sort(key=lambda p: p["created_at"], reverse=True)
+        details = [await protocols.get_detail(p["protocol_id"], ctx) for p in assembler.pick_protocols(listed, scope)]
+
         instances = await self.repo.prs_instances(profile_id)
         weights: dict[str, dict[str, float]] = {}
         # disease_id is NULL on a general registration PRS: no formula to look up.
         for disease_id in {i["disease_id"] for i in instances if i["disease_id"]}:
             formula = await self.scale_results.active_disease_formula(disease_id)
             weights[disease_id] = formula["config"]["weights"] if formula else {}
-        linked = (i.get("ds_protocol_id") or i.get("protocol_id") for i in instances)
-        protocol_ids = {str(pid) for pid in linked if pid}
         prs = assembler.build_prs(
             instances,
             await self.scale_results.list_for_instances([i["instance_id"] for i in instances]),
             weights,
-            await self.repo.conditions_by_protocol(sorted(protocol_ids)),
+            await self.repo.conditions_by_protocol(sorted({str(i["protocol_id"]) for i in instances if i.get("protocol_id")})),
+            # Every device the patient is on gets a PRS block, PRS or not.
+            assembler.protocol_instances(details),
             window_start=window["start"],
             window_end=window["end"],
             now=now,
         )
-
-        protocols = ProtocolService(self.session)
-        listed = await protocols.list(ctx, patient_id=patient["patient_id"], limit=200)
-        listed.sort(key=lambda p: p["created_at"], reverse=True)
-        details = [await protocols.get_detail(p["protocol_id"], ctx) for p in assembler.pick_protocols(listed, scope)]
 
         sections = {
             "scope": scope,
@@ -108,7 +108,11 @@ class FinalReportService:
             "prs": prs,
             "doctor_notes": [],
             "medications": assembler.build_medications(await self.medicines.list_for_patient(profile_id)),
-            "treatment_plans": [assembler.build_treatment_plan(d) for d in details],
+            # Instance 1, 2, ... — the same order as the device-session PRS blocks.
+            "treatment_plans": [
+                assembler.build_treatment_plan(d)
+                for d in sorted(details, key=lambda d: (d.get("instance_number") is None, d.get("instance_number") or 0))
+            ],
             "sessions": assembler.build_sessions(
                 await self.repo.device_sessions(profile_id), window_start=window["start"], window_end=window["end"]
             ),

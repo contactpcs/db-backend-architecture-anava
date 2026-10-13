@@ -13,7 +13,7 @@ on:
   # workflow (jobs.ci below) and build-and-push `needs` it — real gate, not
   # two independent triggers that happen to run close together.
   push:
-    branches: [main, device_session_newflow]
+    branches: [main, device_session_newflow, dev]
   workflow_dispatch:
 
 permissions:
@@ -22,13 +22,15 @@ permissions:
 
 env:
   AWS_REGION: ap-south-1
-  ECR_REPOSITORY: anava-backend
   ECS_CLUSTER: anava-cluster
-  # The ALB-fronted service. The previous value here,
-  # anava-backend-service-xzknhp50, was deleted when the load balancer was
-  # attached — update-service against it fails with ServiceNotFoundException,
-  # so CI would go green while production kept serving the old image.
-  ECS_SERVICE: anava-backend-lb
+  # Per-branch targets are chosen in the "Select target environment" step:
+  #   main (and device_session_newflow) -> production
+  #   dev                               -> staging
+  # The production service is the ALB-fronted anava-backend-lb. The previous
+  # value here, anava-backend-service-xzknhp50, was deleted when the load
+  # balancer was attached — update-service against it fails with
+  # ServiceNotFoundException, so CI would go green while production kept
+  # serving the old image.
 
 jobs:
   ci:
@@ -43,6 +45,22 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+
+      - name: Select target environment
+        run: |
+          if [ "${GITHUB_REF_NAME}" = "dev" ]; then
+            {
+              echo "ECR_REPOSITORY=anava-backend-staging"
+              echo "ECS_SERVICE=anava-backend-staging"
+              echo "HEALTH_URL=https://staging-api.anavaclinics.com/health/version"
+            } >> "$GITHUB_ENV"
+          else
+            {
+              echo "ECR_REPOSITORY=anava-backend"
+              echo "ECS_SERVICE=anava-backend-lb"
+              echo "HEALTH_URL=https://api.anavaclinics.com/health/version"
+            } >> "$GITHUB_ENV"
+          fi
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -93,7 +111,7 @@ jobs:
           for attempt in $(seq 1 10); do
             # /openapi.json is not served in production (app/main.py) —
             # /health/version reports the same path count.
-            count=$(curl -fsS --max-time 20 https://api.anavaclinics.com/health/version \
+            count=$(curl -fsS --max-time 20 "$HEALTH_URL" \
               | python3 -c "import sys,json; print(json.load(sys.stdin).get('paths',0))" || echo 0)
             if [ "$count" -gt 150 ]; then
               echo "OK: $count paths served"

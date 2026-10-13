@@ -117,20 +117,19 @@ class FinalReportRepository:
 
     async def prs_instances(self, profile_id: UUID) -> list[dict]:
         """Every completed, non-voided clinical PRS of the patient, newest
-        first, with where it was taken: the appointment it hangs off, and —
-        for a device session capture — the protocol's device. The general
+        first, with where it was taken: the appointment it was started at,
+        and — for a device session — that protocol's device and instance. The general
         registration PRS (taken at intake, before any condition is chosen) is
         not part of the report and is never read."""
         return await self._all(
-            "SELECT i.instance_id, i.disease_id, d.disease_name, i.completed_at, i.assessment_stage, "
-            "a.appointment_type, COALESCE(ds.session_number, a.session_number) AS session_number, "
-            "ds.protocol_id AS ds_protocol_id, a.protocol_id, nd.device_name "
+            "SELECT i.instance_id, i.disease_id, d.disease_name, i.completed_at, i.assessment_stage, i.appointment_id, "
+            "a.appointment_type, a.session_number, a.protocol_id, nd.device_name, "
+            "pp.instance_id AS protocol_instance_id, pi.instance_number "
             "FROM prs_assessment_instances i "
             "LEFT JOIN reference.prs_diseases d ON d.disease_id = i.disease_id "
             "LEFT JOIN appointments a ON a.appointment_id = i.appointment_id "
-            "LEFT JOIN LATERAL (SELECT x.protocol_id, x.session_number FROM device_session_prs_responses x "
-            "  WHERE x.instance_id = i.instance_id ORDER BY x.recorded_at DESC LIMIT 1) ds ON TRUE "
-            "LEFT JOIN protocol_plan pp ON pp.protocol_id = COALESCE(ds.protocol_id, a.protocol_id) "
+            "LEFT JOIN protocol_plan pp ON pp.protocol_id = a.protocol_id "
+            "LEFT JOIN protocol_instances pi ON pi.instance_id = pp.instance_id "
             "LEFT JOIN reference.neuromod_devices nd ON nd.device_id = pp.device_id "
             "WHERE i.patient_id = :pid AND i.status = 'completed' AND NOT COALESCE(i.is_voided, FALSE) "
             "AND i.assessment_stage <> 'general_registration' "
