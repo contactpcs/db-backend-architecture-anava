@@ -64,7 +64,7 @@ curl -X POST http://localhost:8000/api/v1/auth/local-login \
 
 ```
 app/
-├── main.py              FastAPI app factory, middleware, router mounting                                               
+├── main.py              FastAPI app factory, middleware, router mounting                                             
 ├── config.py             Settings (env-driven via pydantic-settings)
 ├── core/                 Cross-cutting: db/RLS context, auth, exceptions, permissions, outbox events, SQL helpers
 ├── modules/<name>/        One folder per bounded context — router.py / service.py / repository.py / schemas.py
@@ -81,6 +81,7 @@ This schema has `patients.patient_id` (the public API identifier) and `profiles.
 ## Testing
 
 ```bash
+
 pytest
 ruff check .
 mypy app
