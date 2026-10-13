@@ -386,7 +386,9 @@ class AssessmentInstanceRepository:
             self.session,
             text(
                 "SELECT * FROM prs_assessment_instances WHERE patient_id = :pid AND disease_id IS NOT DISTINCT FROM :disease_id "
-                "AND assessment_stage = :stage AND appointment_id = :appointment_id ORDER BY started_at DESC LIMIT 1"
+                # A voided instance is never resumed: it is a removed duplicate.
+                "AND assessment_stage = :stage AND appointment_id = :appointment_id AND is_voided = FALSE "
+                "ORDER BY started_at DESC LIMIT 1"
             ),
             {"pid": str(patient_id), "disease_id": disease_id, "stage": assessment_stage, "appointment_id": str(appointment_id)},
         )
@@ -450,7 +452,9 @@ class AssessmentInstanceRepository:
         return [dict(r) for r in rows]
 
     async def list_for_patient_with_disease_name(self, patient_profile_id: UUID, *, assessment_stage: str | None = None) -> list[dict]:
-        clauses, params = ["i.patient_id = :pid"], {"pid": str(patient_profile_id)}
+        # Voided instances (removed duplicates, SQL/v1/84) are not results:
+        # they stay out of the scores card and the results lists.
+        clauses, params = ["i.patient_id = :pid", "i.is_voided = FALSE"], {"pid": str(patient_profile_id)}
         if assessment_stage:
             clauses.append("i.assessment_stage = :stage")
             params["stage"] = assessment_stage

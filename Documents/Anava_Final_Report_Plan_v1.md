@@ -134,10 +134,8 @@ admins, notification deep link.
 
 Decisions taken while building (all inside the locked plan, recorded so nobody has to rediscover them):
 
-- **PRS aggregate is per sitting.** Each of the last 5 rows shows that one PRS's scales run through the
-  disease's weight formula. `disease_composite_scores` was not used: it is an as-of-latest blend and
-  would print the same number on every row. A scale with no stored percentage shows its raw value and
-  leaves the aggregate blank.
+- **PRS aggregate** (superseded 2026-10-13, see section 10): each row's score was first computed from
+  that one sitting's own scales only.
 - **5-week progress row uses PRS of any origin**, per disease. The doctor dashboard's weekly table uses
   device-session captures only, so the two can differ for a patient who also has consultation PRS.
 - **Treatment Plan lists active and completed protocols.** Draft, cancelled and superseded (replaced by
@@ -154,3 +152,94 @@ Decisions taken while building (all inside the locked plan, recorded so nobody h
 
 Not done yet: alembic 0063 is NOT applied to any database. `/final-reports` writes and lists return 500
 until it is; the preview endpoint works without it.
+
+## 9. Report template (2026-10-13)
+
+The report now follows the "Patient Medical Report and Treatment Plan" template package
+(`anava-patient-report-template`, design language of Form ACPL-PT v2.0). Frontend only; the snapshot
+and the API are unchanged.
+
+- `Combo/frontend/src/components/reports/final-report.css` is a port of the package's
+  `patient_report.css` (same class names and tokens, scoped under `.anava-report`).
+  `FinalReportDocument.tsx` mirrors `patient_report.html.j2`. Logos and fonts (Lato, Gelasio, OFL)
+  live in `src/assets/report/`.
+- Report ID (superseded 2026-10-13, see section 10): was first the leading 16 characters of `content_hash`.
+- An unsigned preview carries the DRAFT watermark and an "Awaiting signature" seal.
+- All dates print in IST, whatever the viewer's timezone.
+- **Printing stays in the browser**, not the server-side WeasyPrint render the package's README asks
+  for. WeasyPrint needs Pango/GTK and does not run on the Windows dev machines (checked: it fails to
+  load `libgobject`). The running header (pages 2+) and the "Page X of Y" footer are CSS page-margin
+  boxes, which Chrome and Edge 131+ print; other browsers print the report without them.
+  Server-side rendering remains the way to get one stored PDF per Report No.; it needs the system
+  libraries added to the backend Docker image and a way to run it locally.
+- Differences from the reference that the browser route forces: in the running header the patient
+  name is not bold, and the footer has no rose dot before "Page".
+- Dropped because the template has no place for them: the full-page logo watermark (the template
+  uses the faint arcs behind the title) and the handwriting-style signature (the template uses the
+  "Electronically signed" seal).
+- Template fields we have no data for yet: patient age, doctor qualification and registration
+  council, clinic email, a signature image.
+
+## 10. Owner changes (2026-10-13)
+
+- **Report ID = `final_reports.report_id`**, the ID the report is stored under. Shown in the footer
+  only, in small type: under the footer line of every printed page, and at the foot of the sheet on
+  screen. Not in the patient panel or the signature block (owner, 2026-10-13). It exists only once the
+  report is signed, so a preview's printed footer reads "Draft — not signed".
+  `content_hash` is still stored as tamper evidence but is no longer printed.
+- **Letterhead:** the CIN / Udyam line is removed. Company name and contact line stay.
+- **PRS rows list every scale.** A sitting often answers only some scales (a device session, one or
+  two). Each row now shows all of the disease's scales: the ones answered in that sitting, and for
+  each other scale the patient's latest earlier result, marked "from <date>". The row's overall score
+  is the weighted composite of those, i.e. the patient's composite as of that sitting — the same
+  as-of-latest-per-scale rule the disease composite uses, evaluated at the sitting's date, so a later
+  result never changes an earlier row. Results carried forward may come from before a
+  `last_consultation` window. Registration PRS is still never used as a source.
+  Snapshot change: each scale gains `carried` and `taken_at`. Reports signed earlier do not have them
+  and print as before.
+- **Weekly progress:** each week shows the score as "/100" with the change from the previous week
+  below it (minus = improvement, since lower is better; green for better, rose for worse).
+- **Section titles:** 07 is "Treatment protocol", 08 is "Device session details".
+- **Duplicate device-session PRS (data issue, not a report bug).** Before commit 67735a3 (2026-09-23)
+  opening a session's PRS again created a new PRS instead of reopening the first, so a scale answered
+  three times left three completed PRS and the report printed three rows for one session.
+  2026-10-13: the leftovers on the dev DB (`Anava_App_v1`) were voided with
+  `SQL/v1/_fix_void_duplicate_session_prs.sql` (2 PRS, one patient, session #10; the last attempt is
+  kept). Voided PRS are now also left out of the scores-summary lists and are never resumed
+  (`prs/repository.py`). Still open: one other session holds two full PRS that are BOTH linked to
+  session records (left alone, needs a decision); `disease_composite_scores` keeps the composite rows
+  computed from the voided attempts (the doctor dashboard still shows them); and the database has no
+  unique rule for one PRS per appointment + condition, only the code check. Other environments have
+  not been cleaned.
+- **PRS is reported in two kinds** (owner, 2026-10-13).
+  - *Main PRS* (consultation or standalone): grouped under its condition, with the overall score and
+    weekly progress, as before.
+  - *Device session PRS*: its own block labelled "Device session PRS", with the protocol's device and
+    conditions beside it. One row per session (a session's scales are merged even when they were
+    saved as separate PRS), scale-wise scores only, no overall score, and weekly progress per scale in
+    the scale's own points with a grey +/- change.
+  - Why: a protocol prescribes individual scales. When one is opened, the frontend files it under the
+    first catalogue condition, alphabetically, that contains the scale
+    (`prsAssessment.service.ts` `resolveDiseaseAndScaleId`), so BDI-II for a depression protocol is
+    stored under "ALS". That label is not printed and no composite is computed from it.
+    The stored `disease_id` itself is NOT fixed: the doctor dashboard and the patient's My Results
+    still show those PRS under "ALS" / "ADHD".
+  - Snapshot change: `prs.device_sessions` (new). Reports signed earlier have none and print as before.
+  - A PRS is a device-session PRS only when it was itself started at a device-session appointment.
+    A standalone main PRS that a session record merely points at stays the main PRS of its condition.
+    Checked 2026-10-13 on the dev DB, `overall` scope, 20 patients: 17 main PRS in the database = 17
+    rows shown, 13 device sessions with PRS = 13 rows shown, and all 3 patients who have both kinds
+    get both blocks. Each block still lists at most the last 5 rows per condition / per protocol.
+- **Later the same day (owner):**
+  - Device-session PRS is one block per **protocol instance**: "Device session PRS · Instance 1",
+    "· Instance 2", ... (`protocol_instances.instance_number`), with the device and conditions beside
+    it. Every instance among the report's treatment protocols gets a block, also with no PRS yet
+    ("No PRS recorded at this device's sessions yet."). Treatment protocol cards carry the same
+    "Instance n" and are listed in that order.
+  - Device-session weekly progress is ONE row, not one per scale. Its number, and the Overall column of
+    each session row, is the plain average of the session's scales (direction-corrected %, carried
+    values included; `assembler._session_score`). Equal weights on purpose: no condition formula
+    applies. A scale stored with 0 % pulls the average down.
+  - Main PRS shows the last 3 per condition (was 5); device sessions the last 5 per instance. Main PRS
+    blocks print before the device-session blocks.
+  - Watermark: the Anava logo in the centre of every page (the arcs behind the title are gone).

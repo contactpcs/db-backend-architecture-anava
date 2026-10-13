@@ -105,14 +105,14 @@ def test_anamnesis_prints_every_question_and_resolves_option_labels():
 # -- PRS ---------------------------------------------------------------------
 
 
-def test_prs_keeps_the_last_five_per_disease_with_a_per_sitting_aggregate():
+def test_main_prs_keeps_the_last_three_per_condition_each_with_its_own_score():
     instances = [_instance(n, day=n) for n in range(7, 0, -1)]  # newest first
     scales = [_scale(f"i{n}", "PHQ9", n * 10) for n in range(1, 8)]
     prs = a.build_prs(instances, scales, {"DEP": {"PHQ9": 100}}, {}, now=NOW)
     entries = prs["diseases"][0]["entries"]
-    assert [e["instance_id"] for e in entries] == ["i7", "i6", "i5", "i4", "i3"]
+    assert [e["instance_id"] for e in entries] == ["i7", "i6", "i5"]
     # Each row is its own sitting's score, not one blended number repeated.
-    assert [e["score"] for e in entries] == [70.0, 60.0, 50.0, 40.0, 30.0]
+    assert [e["score"] for e in entries] == [70.0, 60.0, 50.0]
     assert entries[0]["scales"][0]["scale_code"] == "PHQ9"
 
 
@@ -130,18 +130,86 @@ def test_prs_without_any_weight_has_no_aggregate_but_keeps_its_scales():
     assert len(entry["scales"]) == 1
 
 
-def test_device_session_prs_carries_device_and_condition_others_do_not():
-    session_prs = _instance(1, day=6, appointment_type=None, ds_protocol_id="p1", device_name="Sooma tDCS", session_number=4)
-    consult_prs = _instance(2, day=5, protocol_id="p1", device_name="Sooma tDCS")
-    prs = a.build_prs([session_prs, consult_prs], [], {}, {"p1": ["Depression"]}, now=NOW)
-    first, second = prs["diseases"][0]["entries"]
-    assert (first["origin"], first["device_name"], first["conditions"], first["session_number"]) == (
-        "device_session",
-        "Sooma tDCS",
-        ["Depression"],
-        4,
+def test_device_session_prs_gets_its_own_block_not_the_disease_it_was_filed_under():
+    # A depression protocol prescribes BDI-II; the app filed it under "ALS".
+    session_prs = _instance(
+        1, day=6, disease="ALS", disease_name="ALS", appointment_type="device_session", appointment_id="s4", protocol_id="p1"
     )
-    assert (second["origin"], second["device_name"], second["conditions"]) == ("follow_up", None, [])
+    session_prs.update(device_name="Sooma tDCS", session_number=4)
+    consult_prs = _instance(2, day=5, protocol_id="p1", device_name="Sooma tDCS")
+    prs = a.build_prs([session_prs, consult_prs], [_scale("i1", "BDI", 30)], {"ALS": {"BDI": 100}}, {"p1": ["Depression"]}, now=NOW)
+
+    assert [d["disease_name"] for d in prs["diseases"]] == ["Depression"]  # no "ALS" block
+    assert prs["diseases"][0]["entries"][0]["origin"] == "follow_up"
+    (group,) = prs["device_sessions"]
+    assert (group["device_name"], group["conditions"]) == ("Sooma tDCS", ["Depression"])
+    (row,) = group["entries"]
+    assert (row["session_number"], [s["scale_code"] for s in row["scales"]]) == (4, ["BDI"])
+    assert row["score"] == 30.0  # the scale average, not the ALS weight formula
+
+
+def test_a_main_prs_a_session_later_linked_to_is_still_a_main_prs():
+    # Standalone ADHD PRS (no appointment). A device session's record points at it.
+    main = _instance(1, day=5, appointment_type=None, assessment_stage="main_clinical", ds_protocol_id="p1", session_number=4)
+    prs = a.build_prs([main], [_scale("i1", "PHQ9", 50)], {"DEP": {"PHQ9": 100}}, {"p1": ["Depression"]}, now=NOW)
+    assert prs["device_sessions"] == []
+    assert [(e["origin"], e["score"]) for e in prs["diseases"][0]["entries"]] == [("main_clinical", 50.0)]
+
+
+def test_one_row_per_device_session_even_when_its_scales_were_filed_separately():
+    # Session 6 answered BDI and EQ5D; the app saved them as two PRS under two diseases.
+    bdi = _instance(1, day=6, disease="ALS", appointment_type="device_session", appointment_id="s6", protocol_id="p1", session_number=6)
+    eq5d = _instance(2, day=6, disease="ADHD", appointment_type="device_session", appointment_id="s6", protocol_id="p1", session_number=6)
+    later = _instance(3, day=9, disease="ALS", appointment_type="device_session", appointment_id="s7", protocol_id="p1", session_number=7)
+    scales = [_scale("i1", "BDI", 30), _scale("i2", "EQ5D", 60), _scale("i3", "BDI", 20)]
+    (group,) = a.build_prs([later, eq5d, bdi], scales, {}, {"p1": ["Depression"]}, now=NOW)["device_sessions"]
+
+    assert [e["session_number"] for e in group["entries"]] == [7, 6]
+    session7, session6 = group["entries"]
+    assert [(s["scale_code"], s["carried"]) for s in session6["scales"]] == [("BDI", False), ("EQ5D", False)]
+    # Session 7 answered BDI only: EQ5D is carried from session 6, and marked so.
+    assert [(s["scale_code"], s["percentage"], s["carried"]) for s in session7["scales"]] == [("BDI", 20, False), ("EQ5D", 60, True)]
+    # A session's score is the plain average of its scales (carried ones included) ...
+    assert [e["score"] for e in group["entries"]] == [40.0, 45.0]  # (20 + 60) / 2, (30 + 60) / 2
+    # ... and the weekly progress is ONE row of that score, carried forward.
+    assert group["weekly_progress"]["scores"] == [None, None, None, 40.0, 40.0]
+
+
+def test_every_protocol_instance_gets_a_block_numbered_and_in_order():
+    # The patient runs two devices in parallel. Only instance 1 has PRS so far.
+    listed = [
+        {"instance_id": "pi-2", "instance_number": 2, "device_name": "Sooma tDCS", "conditions": ["Anxiety"]},
+        {"instance_id": "pi-1", "instance_number": 1, "device_name": "Biothm tDCS", "conditions": ["Depression"]},
+    ]
+    old = _instance(1, day=2, appointment_type="device_session", appointment_id="s1", protocol_id="p-old", protocol_instance_id="pi-1")
+    new = _instance(2, day=6, appointment_type="device_session", appointment_id="s2", protocol_id="p-new", protocol_instance_id="pi-1")
+    prs = a.build_prs([new, old], [_scale("i1", "BDI", 50), _scale("i2", "BDI", 30)], {}, {}, listed, now=NOW)
+
+    first, second = prs["device_sessions"]
+    assert (first["instance_number"], first["device_name"], first["conditions"]) == (1, "Biothm tDCS", ["Depression"])
+    assert len(first["entries"]) == 2  # two versions of the protocol, one instance, one block
+    assert (second["instance_number"], second["device_name"], second["entries"]) == (2, "Sooma tDCS", [])
+    assert second["weekly_progress"]["scores"] == [None] * a.PROGRESS_WEEKS
+
+
+def test_an_unlisted_instance_with_nothing_in_the_window_gets_no_block():
+    old = _instance(1, day=2, appointment_type="device_session", appointment_id="s1", protocol_instance_id="pi-9", instance_number=1)
+    prs = a.build_prs([old], [_scale("i1", "BDI", 50)], {}, {}, [], window_start=datetime(2026, 10, 5), window_end=NOW, now=NOW)
+    assert prs["device_sessions"] == []
+
+
+def test_device_sessions_keep_the_last_five_sessions():
+    rows = [_instance(n, day=n, appointment_type="device_session", appointment_id=f"s{n}", session_number=n) for n in range(8, 0, -1)]
+    (group,) = a.build_prs(rows, [_scale(f"i{n}", "BDI", n) for n in range(1, 9)], {}, {}, now=NOW)["device_sessions"]
+    assert [e["session_number"] for e in group["entries"]] == [8, 7, 6, 5, 4]
+
+
+def test_device_session_scales_do_not_leak_into_a_condition_block():
+    # BDI was filed under DEP by a device session; the DEP main PRS only ever answered PHQ9.
+    main = _instance(1, day=8, appointment_type="initial")
+    session = _instance(2, day=3, appointment_type="device_session", appointment_id="s1")
+    prs = a.build_prs([main, session], [_scale("i1", "PHQ9", 50), _scale("i2", "BDI", 30)], {"DEP": {"PHQ9": 100}}, {}, now=NOW)
+    assert [s["scale_code"] for s in prs["diseases"][0]["entries"][0]["scales"]] == ["PHQ9"]
 
 
 def test_prs_repeats_per_disease_and_respects_the_window():
@@ -165,6 +233,40 @@ def test_a_scale_missing_from_the_catalogue_falls_back_to_its_id():
     orphan = {**_scale("i1", None, 50), "scale_id": "OLD9/2026", "scale_name": None}
     entry = a.build_prs([_instance(1, day=5)], [orphan], {}, {}, now=NOW)["diseases"][0]["entries"][0]
     assert (entry["scales"][0]["scale_code"], entry["scales"][0]["scale_name"]) == ("OLD9", "OLD9")
+
+
+def test_a_sitting_lists_every_scale_carrying_earlier_results_forward():
+    # Day 1: main PRS, both scales. Day 5: follow-up PRS, PHQ9 only.
+    first_prs = _instance(1, day=1, appointment_type="initial")
+    follow_up = _instance(2, day=5)
+    scales = [_scale("i1", "PHQ9", 80), _scale("i1", "GAD7", 40), _scale("i2", "PHQ9", 60)]
+    later, first = a.build_prs([follow_up, first_prs], scales, {"DEP": {"PHQ9": 75, "GAD7": 25}}, {}, now=NOW)["diseases"][0]["entries"]
+
+    assert [(s["scale_code"], s["percentage"], s["carried"]) for s in later["scales"]] == [("GAD7", 40, True), ("PHQ9", 60, False)]
+    assert later["scales"][0]["taken_at"] == first_prs["completed_at"]  # when the carried value was really taken
+    assert later["score"] == 55.0  # (60*75 + 40*25) / 100: the composite as of the follow-up
+    # The earlier sitting is untouched by what came after it.
+    assert [(s["scale_code"], s["percentage"], s["carried"]) for s in first["scales"]] == [("GAD7", 40, False), ("PHQ9", 80, False)]
+    assert first["score"] == 70.0
+
+
+def test_carried_value_is_the_latest_earlier_one_never_a_later_one():
+    rows = [_instance(n, day=day) for n, day in ((4, 9), (3, 6), (2, 3), (1, 1))]  # newest first
+    scales = [_scale("i1", "GAD7", 10), _scale("i2", "PHQ9", 50), _scale("i3", "GAD7", 30), _scale("i4", "GAD7", 90)]
+    entries = a.build_prs(rows, scales, {"DEP": {"PHQ9": 50, "GAD7": 50}}, {}, now=NOW)["diseases"][0]["entries"]
+    day3 = next(e for e in entries if e["instance_id"] == "i2")
+    # GAD7 as of day 3 is day 1's 10 — not day 6's 30 or day 9's 90.
+    assert [(s["scale_code"], s["percentage"], s["carried"]) for s in day3["scales"]] == [("GAD7", 10, True), ("PHQ9", 50, False)]
+    day9 = next(e for e in entries if e["instance_id"] == "i4")
+    assert [(s["scale_code"], s["percentage"], s["carried"]) for s in day9["scales"]] == [("GAD7", 90, False), ("PHQ9", 50, True)]
+
+
+def test_a_row_inside_the_window_still_carries_results_from_before_it():
+    rows = [_instance(2, day=8), _instance(1, day=2)]
+    scales = [_scale("i1", "GAD7", 40), _scale("i2", "PHQ9", 60)]
+    prs = a.build_prs(rows, scales, {"DEP": {"PHQ9": 50, "GAD7": 50}}, {}, window_start=datetime(2026, 10, 5), window_end=NOW, now=NOW)
+    (entry,) = prs["diseases"][0]["entries"]  # day 2 is outside the window: no row of its own
+    assert [(s["scale_code"], s["carried"]) for s in entry["scales"]] == [("GAD7", True), ("PHQ9", False)]
 
 
 def test_weekly_progress_is_five_weeks_and_carries_the_last_score_forward():
@@ -211,6 +313,8 @@ def test_last_consultation_shows_active_protocols_else_the_latest_completed():
 def test_treatment_plan_has_placement_dosage_and_schedule():
     detail = {
         "protocol_id": "p1",
+        "instance_id": "pi-1",
+        "instance_number": 2,
         "status": "active",
         "version_major": 1,
         "version_minor": 2,
@@ -229,6 +333,10 @@ def test_treatment_plan_has_placement_dosage_and_schedule():
     }
     plan = a.build_treatment_plan(detail)
     assert plan["version"] == "1.2"
+    assert plan["instance_number"] == 2
+    assert a.protocol_instances([detail, detail]) == [
+        {"instance_id": "pi-1", "instance_number": 2, "device_name": "Sooma tDCS", "conditions": ["Depression", "Tinnitus"]}
+    ]
     assert plan["placement"] == "Anode F3 / Cathode F4"
     assert plan["dosage"] == {"prescribed_current_ma": 2, "prescribed_duration_min": 30}  # unset fields omitted
     assert plan["conditions"] == ["Depression", "Tinnitus"]
