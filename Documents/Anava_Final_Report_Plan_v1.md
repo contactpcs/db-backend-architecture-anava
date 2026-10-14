@@ -188,7 +188,7 @@ and the API are unchanged.
   report is signed, so a preview's printed footer reads "Draft — not signed".
   `content_hash` is still stored as tamper evidence but is no longer printed.
 - **Letterhead:** the CIN / Udyam line is removed. Company name and contact line stay.
-- **PRS rows list every scale.** A sitting often answers only some scales (a device session, one or
+- **[Superseded 2026-10-14, see section 11]** **PRS rows list every scale.** A sitting often answers only some scales (a device session, one or
   two). Each row now shows all of the disease's scales: the ones answered in that sitting, and for
   each other scale the patient's latest earlier result, marked "from <date>". The row's overall score
   is the weighted composite of those, i.e. the patient's composite as of that sitting — the same
@@ -237,9 +237,64 @@ and the API are unchanged.
     ("No PRS recorded at this device's sessions yet."). Treatment protocol cards carry the same
     "Instance n" and are listed in that order.
   - Device-session weekly progress is ONE row, not one per scale. Its number, and the Overall column of
-    each session row, is the plain average of the session's scales (direction-corrected %, carried
-    values included; `assembler._session_score`). Equal weights on purpose: no condition formula
+    each session row, is the plain average of the session's scales (direction-corrected %; `assembler._session_score`). Equal weights on purpose: no condition formula
     applies. A scale stored with 0 % pulls the average down.
   - Main PRS shows the last 3 per condition (was 5); device sessions the last 5 per instance. Main PRS
     blocks print before the device-session blocks.
   - Watermark: the Anava logo in the centre of every page (the arcs behind the title are gone).
+
+## 11. Final Report as a workspace section, with per-section picking (2026-10-14, leadership request)
+
+What leadership asked for: the Final Report is no longer a pop-up window. It is a section of the
+doctor's patient workspace, laid out like the Treatment Plan section (header, action buttons, cards).
+Printing still produces the "Patient Medical Report and Treatment Plan" template. Every section card
+has a pencil icon; it opens the patient's full history for that section, and the doctor ticks what
+goes into the report.
+
+No database change: the selection only changes what is frozen into `final_reports.snapshot`.
+
+### API
+- `POST /patients/{id}/final-report/preview` (replaces the GET) — body `{scope, selection?}`. Returns
+  the sections built with the selection, the effective `selection`, and `candidates` per section
+  (everything the doctor can pick from). Nothing is stored.
+- `POST /patients/{id}/final-reports` (sign) — body gains `selection`. The server rebuilds the
+  sections from it; the client never sends report content.
+
+### Selection (every key optional; missing = the scope's default)
+| Key | Section | Picks from | Default |
+|---|---|---|---|
+| `anamnesis_ids` | 01 Anamnesis | every consultation anamnesis | overall: all, last consultation: that visit's |
+| `prs_ids` | 04 PRS, main | every main PRS record (any condition) | last 3 per condition in the window |
+| `session_prs_ids` | 04 PRS, device sessions | every device-session PRS record (PRS instance id) | last 5 per instance in the window |
+| `note_ids` | 05 Doctor's notes | every clinical note | notes in the window |
+| `medicine_ids` | 06 Medication | every prescribed medicine | all |
+| `protocol_ids` | 07 Treatment protocol | every protocol except draft / cancelled (superseded versions included) | overall: active + completed; last consultation: active |
+| `session_ids` | 08 Device session details | every run device session | sessions in the window |
+
+- An id that is not the patient's is simply not found and has no effect (the candidate lists are
+  built from the patient's own records). Notes keep the explicit 403 for a foreign note.
+- Weekly progress rows always use all of the patient's PRS, whatever rows are ticked.
+- ICD-10 codes under the diagnosis follow the ticked protocols. Device-session PRS blocks are shown
+  for the ticked protocols' instances.
+- 02 Diagnosis: its pencil lists the diagnoses of the patient's previous signed reports; picking one
+  fills the box. 03 Brain mapping has no pencil (not built). 09 Signature has none.
+
+### Screen
+- Sidebar "Final Report", the banner buttons and "Convert to Final Report" open the section; the
+  pop-up is removed.
+- Header: title, Draft / Signed pill, scope switch (Overall / Last consultation), Sign & Print.
+- One card per report section, in report order, summarising what is ticked, pencil top-right.
+- Bottom: confirm-signature checkbox and the previous signed reports.
+- After signing: cards read-only, "Print" prints the signed snapshot in the template.
+- 2026-10-14: the anamnesis and PRS pencils show every earlier record in full, not just its date:
+  each anamnesis with all its questions and answers, each PRS (main and device session) with its
+  overall score and every scale. The candidates carry these (`candidates.anamnesis[].sections`,
+  `candidates.prs[] / session_prs[]` `score`, `severity_label`, `scales`).
+- 2026-10-14 (owner): **PRS is reported record by record.** Every row, in the report and in the
+  pencil, is one PRS (`prs_assessment_instances` row) with only the scales answered in it. No
+  carrying earlier results into a row ("from <date>" is gone) and no merging the PRS of one device
+  session into one row. The pencil lists every PRS record of the patient, completed and in
+  progress. Defaults print completed PRS only; an in-progress PRS is printed only when ticked and is
+  marked "In progress". Weekly progress counts completed PRS only. Still excluded: voided PRS
+  (duplicates) and the registration PRS. `session_prs_ids` are now PRS instance ids. Reports signed
+  before this keep their snapshot (rows with `carried` scales still print the "from" date).

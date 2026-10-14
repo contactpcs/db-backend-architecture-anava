@@ -156,7 +156,7 @@ def test_a_main_prs_a_session_later_linked_to_is_still_a_main_prs():
     assert [(e["origin"], e["score"]) for e in prs["diseases"][0]["entries"]] == [("main_clinical", 50.0)]
 
 
-def test_one_row_per_device_session_even_when_its_scales_were_filed_separately():
+def test_every_device_session_prs_record_is_its_own_row_with_only_its_own_scales():
     # Session 6 answered BDI and EQ5D; the app saved them as two PRS under two diseases.
     bdi = _instance(1, day=6, disease="ALS", appointment_type="device_session", appointment_id="s6", protocol_id="p1", session_number=6)
     eq5d = _instance(2, day=6, disease="ADHD", appointment_type="device_session", appointment_id="s6", protocol_id="p1", session_number=6)
@@ -164,15 +164,44 @@ def test_one_row_per_device_session_even_when_its_scales_were_filed_separately()
     scales = [_scale("i1", "BDI", 30), _scale("i2", "EQ5D", 60), _scale("i3", "BDI", 20)]
     (group,) = a.build_prs([later, eq5d, bdi], scales, {}, {"p1": ["Depression"]}, now=NOW)["device_sessions"]
 
-    assert [e["session_number"] for e in group["entries"]] == [7, 6]
-    session7, session6 = group["entries"]
-    assert [(s["scale_code"], s["carried"]) for s in session6["scales"]] == [("BDI", False), ("EQ5D", False)]
-    # Session 7 answered BDI only: EQ5D is carried from session 6, and marked so.
-    assert [(s["scale_code"], s["percentage"], s["carried"]) for s in session7["scales"]] == [("BDI", 20, False), ("EQ5D", 60, True)]
-    # A session's score is the plain average of its scales (carried ones included) ...
-    assert [e["score"] for e in group["entries"]] == [40.0, 45.0]  # (20 + 60) / 2, (30 + 60) / 2
-    # ... and the weekly progress is ONE row of that score, carried forward.
-    assert group["weekly_progress"]["scores"] == [None, None, None, 40.0, 40.0]
+    # One row per PRS record, not merged per session.
+    assert sorted(e["instance_id"] for e in group["entries"]) == ["i1", "i2", "i3"]
+    by_id = {e["instance_id"]: e for e in group["entries"]}
+    # Each row has only what was answered in it — nothing carried in from another record.
+    assert [s["scale_code"] for s in by_id["i3"]["scales"]] == ["BDI"]
+    assert [s["scale_code"] for s in by_id["i2"]["scales"]] == ["EQ5D"]
+    assert (by_id["i3"]["score"], by_id["i2"]["score"], by_id["i1"]["score"]) == (20.0, 60.0, 30.0)
+    assert group["weekly_progress"]["scores"][-1] == 20.0
+
+
+def test_an_in_progress_prs_is_printed_only_when_ticked_and_never_in_the_progress_row():
+    done = _instance(1, day=6, appointment_type="device_session", appointment_id="s6", protocol_id="p1", session_number=6)
+    open_ = _instance(
+        2, day=9, appointment_type="device_session", appointment_id="s7", protocol_id="p1", session_number=7, status="in_progress"
+    )
+    scales = [_scale("i1", "BDI", 30), _scale("i2", "EQ5D", 90)]
+    (group,) = a.build_prs([open_, done], scales, {}, {}, now=NOW)["device_sessions"]
+    assert [e["instance_id"] for e in group["entries"]] == ["i1"]  # default: completed only
+    assert group["weekly_progress"]["scores"][-1] == 30.0
+
+    (group,) = a.build_prs([open_, done], scales, {}, {}, now=NOW, selected_sessions={"i1", "i2"})["device_sessions"]
+    assert [(e["instance_id"], e["status"]) for e in group["entries"]] == [("i2", "in_progress"), ("i1", "completed")]
+    assert group["weekly_progress"]["scores"][-1] == 30.0  # the unfinished PRS never scores the progress
+
+
+def test_the_pencil_lists_every_prs_record_with_status_and_own_scores():
+    main = _instance(1, day=1)
+    s6 = _instance(2, day=6, appointment_type="device_session", appointment_id="s6", protocol_id="p1", session_number=6, instance_number=1)
+    s6b = _instance(
+        3, day=6, appointment_type="device_session", appointment_id="s6", protocol_id="p1", session_number=6, status="in_progress"
+    )
+    scales = [_scale("i1", "PHQ9", 80), _scale("i2", "BDI", 30), _scale("i3", "EQ5D", 40)]
+    c = a.prs_candidates([main, s6, s6b], scales, {"DEP": {"PHQ9": 100}})
+    assert [(m["id"], m["score"], m["status"]) for m in c["main"]] == [("i1", 80.0, "completed")]
+    assert sorted((x["id"], x["status"], [s["scale_code"] for s in x["scales"]][0]) for x in c["sessions"]) == [
+        ("i2", "completed", "BDI"),
+        ("i3", "in_progress", "EQ5D"),
+    ]
 
 
 def test_every_protocol_instance_gets_a_block_numbered_and_in_order():
@@ -235,38 +264,17 @@ def test_a_scale_missing_from_the_catalogue_falls_back_to_its_id():
     assert (entry["scales"][0]["scale_code"], entry["scales"][0]["scale_name"]) == ("OLD9", "OLD9")
 
 
-def test_a_sitting_lists_every_scale_carrying_earlier_results_forward():
+def test_a_prs_record_shows_only_its_own_scales_and_score():
     # Day 1: main PRS, both scales. Day 5: follow-up PRS, PHQ9 only.
     first_prs = _instance(1, day=1, appointment_type="initial")
     follow_up = _instance(2, day=5)
     scales = [_scale("i1", "PHQ9", 80), _scale("i1", "GAD7", 40), _scale("i2", "PHQ9", 60)]
     later, first = a.build_prs([follow_up, first_prs], scales, {"DEP": {"PHQ9": 75, "GAD7": 25}}, {}, now=NOW)["diseases"][0]["entries"]
 
-    assert [(s["scale_code"], s["percentage"], s["carried"]) for s in later["scales"]] == [("GAD7", 40, True), ("PHQ9", 60, False)]
-    assert later["scales"][0]["taken_at"] == first_prs["completed_at"]  # when the carried value was really taken
-    assert later["score"] == 55.0  # (60*75 + 40*25) / 100: the composite as of the follow-up
-    # The earlier sitting is untouched by what came after it.
-    assert [(s["scale_code"], s["percentage"], s["carried"]) for s in first["scales"]] == [("GAD7", 40, False), ("PHQ9", 80, False)]
+    assert [(s["scale_code"], s["percentage"]) for s in later["scales"]] == [("PHQ9", 60)]  # nothing carried in
+    assert later["score"] == 60.0
+    assert [(s["scale_code"], s["percentage"]) for s in first["scales"]] == [("GAD7", 40), ("PHQ9", 80)]
     assert first["score"] == 70.0
-
-
-def test_carried_value_is_the_latest_earlier_one_never_a_later_one():
-    rows = [_instance(n, day=day) for n, day in ((4, 9), (3, 6), (2, 3), (1, 1))]  # newest first
-    scales = [_scale("i1", "GAD7", 10), _scale("i2", "PHQ9", 50), _scale("i3", "GAD7", 30), _scale("i4", "GAD7", 90)]
-    entries = a.build_prs(rows, scales, {"DEP": {"PHQ9": 50, "GAD7": 50}}, {}, now=NOW)["diseases"][0]["entries"]
-    day3 = next(e for e in entries if e["instance_id"] == "i2")
-    # GAD7 as of day 3 is day 1's 10 — not day 6's 30 or day 9's 90.
-    assert [(s["scale_code"], s["percentage"], s["carried"]) for s in day3["scales"]] == [("GAD7", 10, True), ("PHQ9", 50, False)]
-    day9 = next(e for e in entries if e["instance_id"] == "i4")
-    assert [(s["scale_code"], s["percentage"], s["carried"]) for s in day9["scales"]] == [("GAD7", 90, False), ("PHQ9", 50, True)]
-
-
-def test_a_row_inside_the_window_still_carries_results_from_before_it():
-    rows = [_instance(2, day=8), _instance(1, day=2)]
-    scales = [_scale("i1", "GAD7", 40), _scale("i2", "PHQ9", 60)]
-    prs = a.build_prs(rows, scales, {"DEP": {"PHQ9": 50, "GAD7": 50}}, {}, window_start=datetime(2026, 10, 5), window_end=NOW, now=NOW)
-    (entry,) = prs["diseases"][0]["entries"]  # day 2 is outside the window: no row of its own
-    assert [(s["scale_code"], s["carried"]) for s in entry["scales"]] == [("GAD7", True), ("PHQ9", False)]
 
 
 def test_weekly_progress_is_five_weeks_and_carries_the_last_score_forward():

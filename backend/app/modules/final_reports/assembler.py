@@ -108,29 +108,14 @@ def _origin(row: dict) -> str:
     return row.get("appointment_type") or row.get("assessment_stage") or "assessment"
 
 
-def _scales_as_of(taken_at, own: list[dict], history: dict[str, list[dict]], codes: set[str], own_instances: set[str]) -> list[dict]:
-    """Every scale in `codes` as it stood at `taken_at`: the scales answered in
-    this sitting (`own`), plus — for each other scale — the patient's most
-    recent earlier result, marked `carried` with the date it was taken. Same
-    as-of-latest-per-scale rule the disease composite uses
-    (prs/repository.py asof_scale_values_for_disease), evaluated at this
-    sitting's date, so a later result never leaks into an earlier row."""
-    taken = _naive(taken_at)
-    by_code: dict[str, dict] = {}
-    for s in sorted(own, key=lambda s: (s["_at"] is not None, s["_at"] or datetime.min)):  # latest answer of a scale wins
-        by_code[s["scale_code"]] = {**s, "carried": False, "taken_at": s["_taken_at"] or taken_at}
-    for code in codes - set(by_code):
-        earlier = next(
-            (
-                s
-                for s in history.get(code, [])  # newest first
-                if s["instance_id"] not in own_instances and taken is not None and s["_at"] is not None and s["_at"] <= taken
-            ),
-            None,
-        )
-        if earlier:
-            by_code[code] = {**earlier, "carried": True, "taken_at": earlier["_taken_at"]}
-    return [by_code[code] for code in sorted(by_code)]
+def _taken(row: dict):
+    """When a PRS record was taken: completed_at, or started_at while it is
+    still in progress."""
+    return row.get("completed_at") or row.get("started_at")
+
+
+def _newest_first(rows: list[dict]) -> list[dict]:
+    return sorted(rows, key=lambda r: (_naive(_taken(r)) is not None, _naive(_taken(r)) or datetime.min), reverse=True)
 
 
 def _scale_out(s: dict) -> dict:
@@ -141,20 +126,16 @@ def _scale_out(s: dict) -> dict:
         "max": s.get("max_possible"),
         "percentage": s.get("percentage"),
         "severity_label": s.get("severity_label"),
-        # True = not answered in this sitting: the latest earlier result,
-        # taken on taken_at.
-        "carried": s["carried"],
-        "taken_at": s["taken_at"],
     }
 
 
 def _session_score(scales: list[dict]) -> dict:
-    """One number for a device session, so its progress can be followed week
-    to week: the plain average of its scales' direction-corrected percentages
-    (0-100, higher = worse — the same per-scale value every composite uses).
-    Equal weights on purpose: a protocol prescribes individual scales, so no
-    condition's weight formula applies. Scales without a stored percentage are
-    left out; none at all gives no score."""
+    """One number for a device-session PRS, so its progress can be followed
+    week to week: the plain average of its scales' direction-corrected
+    percentages (0-100, higher = worse — the same per-scale value every
+    composite uses). Equal weights on purpose: a protocol prescribes
+    individual scales, so no condition's weight formula applies. Scales
+    without a stored percentage are left out; none at all gives no score."""
     return compute_disease_composite(
         [
             {"scale_code": s["scale_code"], "percentage": float(s["direction_corrected_percentage"]), "weight_pct": 1}
@@ -164,18 +145,69 @@ def _session_score(scales: list[dict]) -> dict:
     )
 
 
+def _record(row: dict, scales: list[dict], score: dict) -> dict:
+    """One PRS record as the report prints it: its own scales only — what was
+    answered in that PRS, nothing carried in from other records."""
+    return {
+        "instance_id": row["instance_id"],
+        "appointment_id": row.get("appointment_id"),
+        "status": row.get("status") or "completed",
+        "completed_at": _taken(row),  # the date it was taken (started_at while in progress)
+        "origin": _origin(row),
+        "session_number": row.get("session_number"),
+        "score": score["composite_score"],
+        "severity_level": score["severity_level"],
+        "severity_label": score["severity_label"],
+        "scales": [_scale_out(s) for s in sorted(scales, key=lambda s: s["scale_code"] or "")],
+    }
+
+
+def _main_score(row: dict, scales: list[dict], weights_by_disease: dict[str, dict[str, float]]) -> dict:
+    """A main PRS's overall score: its own scales through its condition's
+    weight formula (compute_disease_composite, as every composite)."""
+    weights = weights_by_disease.get(row["disease_id"], {})
+    return compute_disease_composite(
+        [
+            {
+                "scale_code": s["scale_code"],
+                "percentage": float(s["direction_corrected_percentage"]),
+                "weight_pct": weights[s["scale_code"]],
+            }
+            for s in scales
+            if s.get("direction_corrected_percentage") is not None and weights.get(s["scale_code"], 0) > 0
+        ]
+    )
+
+
+def _scales_by_instance(scale_rows: list[dict]) -> dict[str, list[dict]]:
+    out: dict[str, list[dict]] = {}
+    for sr in scale_rows:
+        # A result whose scale left the catalogue still has its id ("PHQ9/2026").
+        code = sr.get("scale_code") or str(sr.get("scale_id") or "").split("/")[0]
+        out.setdefault(sr["instance_id"], []).append({**sr, "scale_code": code})
+    return out
+
+
+def _shown(row: dict, selected: set[str] | None, window_start, window_end) -> bool:
+    """Ticked by the doctor; else, by default, a completed PRS in the window.
+    An in-progress PRS is printed only when the doctor ticks it."""
+    if selected is not None:
+        return row["instance_id"] in selected
+    return row.get("status", "completed") == "completed" and in_window(_taken(row), window_start, window_end)
+
+
 def _device_session_groups(
     rows: list[dict],
     scales_by_instance: dict[str, list[dict]],
-    history: dict[str, list[dict]],
     conditions_by_protocol: dict[str, list[str]],
     protocol_instances: list[dict],
     *,
     window_start,
     window_end,
     now,
+    selected: set[str] | None = None,
 ) -> list[dict]:
-    """PRS taken at device sessions, one row per SESSION, one block per
+    """PRS taken at device sessions, one row per PRS RECORD, one block per
     PROTOCOL INSTANCE (a patient can run several devices in parallel, SQL 90):
     "Instance 1", "Instance 2", ... Every instance in `protocol_instances`
     (the report's treatment protocols) gets a block, also when it has no PRS
@@ -187,83 +219,49 @@ def _device_session_groups(
     contains the scale (prsAssessment.service.ts resolveDiseaseAndScaleId) —
     BDI-II lands under "ALS" for a depression protocol. That label says
     nothing about the patient, so it is not printed."""
-    sessions: dict = {}  # appointment (or lone instance) -> its PRS rows
-    for row in rows:
-        sessions.setdefault(row.get("appointment_id") or row["instance_id"], []).append(row)
-
     groups: dict = {}
     for inst in protocol_instances:
         groups[str(inst["instance_id"])] = {
             "instance_number": inst.get("instance_number"),
             "device_name": inst.get("device_name"),
             "conditions": inst.get("conditions") or [],
-            "sessions": [],
+            "rows": [],
             "listed": True,
         }
-    for key, parts in sessions.items():
-        latest = max(parts, key=lambda r: (_naive(r["completed_at"]) is not None, _naive(r["completed_at"]) or datetime.min))
-        first = next((r for r in parts if r.get("protocol_id")), parts[0])
-        device_name = next((r.get("device_name") for r in parts if r.get("device_name")), None)
-        conditions = conditions_by_protocol.get(str(first.get("protocol_id")), []) if first.get("protocol_id") else []
-        # Versions of one protocol share its instance. A session with no
+    for row in rows:
+        conditions = conditions_by_protocol.get(str(row.get("protocol_id")), []) if row.get("protocol_id") else []
+        # Versions of one protocol share its instance. A PRS with no
         # instance on record falls back to its device + conditions.
-        group_key = str(first["protocol_instance_id"]) if first.get("protocol_instance_id") else (device_name, tuple(conditions))
-        group = groups.setdefault(
-            group_key,
+        key = str(row["protocol_instance_id"]) if row.get("protocol_instance_id") else (row.get("device_name"), tuple(conditions))
+        groups.setdefault(
+            key,
             {
-                "instance_number": first.get("instance_number"),
-                "device_name": device_name,
+                "instance_number": row.get("instance_number"),
+                "device_name": row.get("device_name"),
                 "conditions": conditions,
-                "sessions": [],
+                "rows": [],
                 "listed": False,
             },
-        )
-        group["sessions"].append(
-            {
-                "appointment_id": key,
-                "completed_at": latest["completed_at"],
-                "session_number": next((r.get("session_number") for r in parts if r.get("session_number") is not None), None),
-                "instances": {r["instance_id"] for r in parts},
-                "own": [s for r in parts for s in scales_by_instance.get(r["instance_id"], [])],
-            }
-        )
+        )["rows"].append(row)
 
     out = []
     for group in groups.values():
-        newest_first = sorted(
-            group.pop("sessions"),
-            key=lambda x: (_naive(x["completed_at"]) is not None, _naive(x["completed_at"]) or datetime.min),
-            reverse=True,
-        )
-        listed = group.pop("listed")
-        # "All scales": every scale answered at any session of this instance.
-        codes = {s["scale_code"] for x in newest_first for s in x["own"]}
+        records, listed = _newest_first(group.pop("rows")), group.pop("listed")
         entries, scored = [], []
-        for x in newest_first:
-            scales = _scales_as_of(x["completed_at"], x["own"], history, codes, x["instances"])
+        for row in records:
+            scales = scales_by_instance.get(row["instance_id"], [])
             score = _session_score(scales)
-            if score["composite_score"] is not None:
-                scored.append({"date": x["completed_at"], "score": score["composite_score"]})
-            if not in_window(x["completed_at"], window_start, window_end):
-                continue
-            entries.append(
-                {
-                    "appointment_id": x["appointment_id"],
-                    "completed_at": x["completed_at"],
-                    "session_number": x["session_number"],
-                    "score": score["composite_score"],
-                    "severity_level": score["severity_level"],
-                    "severity_label": score["severity_label"],
-                    "scales": [_scale_out(s) for s in scales],
-                }
-            )
+            if row.get("status", "completed") == "completed" and score["composite_score"] is not None:
+                scored.append({"date": _taken(row), "score": score["composite_score"]})
+            if _shown(row, selected, window_start, window_end):
+                entries.append(_record(row, scales, score))
         if not entries and not listed:
-            continue  # an old instance with nothing in this report's window
+            continue  # an old instance with nothing in this report
         trend = compute_weekly_trend([{"patient_id": "", "name": "", "visits": scored}], PROGRESS_WEEKS, as_of=now)
         out.append(
             {
                 **group,
-                "entries": entries[:PRS_SESSIONS_PER_INSTANCE],
+                "entries": entries if selected is not None else entries[:PRS_SESSIONS_PER_INSTANCE],
                 "weekly_progress": {"weeks": trend["weeks"], "scores": trend["patients"][0]["scores"]},
             }
         )
@@ -280,111 +278,109 @@ def build_prs(
     window_start=None,
     window_end=None,
     now=None,
+    selected_main: set[str] | None = None,
+    selected_sessions: set[str] | None = None,
 ) -> dict:
-    """Two kinds of PRS, reported separately.
+    """PRS, record by record: every row is one PRS (prs_assessment_instances
+    row) with exactly the scales answered in it.
 
     `diseases` — the main PRS (consultation or standalone), which the doctor
-    assigned for a condition. Last PRS_ENTRIES_PER_DISEASE per condition, each
-    with every scale of the condition and a weighted overall score, plus one
-    PROGRESS_WEEKS-week progress row. A sitting may answer only some scales;
-    its row still lists ALL of them: the ones answered then, and the latest
-    earlier value of each other one (see _scales_as_of). The overall score
-    runs those through the same weighted formula as every other composite in
-    the system (compute_disease_composite), so each row is the patient's
-    composite as of that sitting. A scale with no weight for the condition is
-    listed but does not move the score.
+    assigned for a condition. Overall score = its own scales through the
+    condition's weight formula. Last PRS_ENTRIES_PER_DISEASE per condition by
+    default, plus one PROGRESS_WEEKS-week progress row.
 
     `device_sessions` — PRS taken at device sessions, one block per protocol
-    instance and no condition (see _device_session_groups for why). Its
-    overall score is the plain average of the scales (_session_score).
+    instance and no condition (see _device_session_groups for why). Overall
+    score = the plain average of its scales (_session_score).
 
-    instance_rows are ALL of the patient's reportable PRS, newest first: the
-    window limits which sittings get a row, not which earlier results a row
-    may carry forward."""
-    disease_of = {row["instance_id"]: row["disease_id"] for row in instance_rows}
-    taken_at = {row["instance_id"]: row["completed_at"] for row in instance_rows}
-    main_instances = {row["instance_id"] for row in instance_rows if _origin(row) != "device_session"}
-    scales_by_instance: dict[str, list[dict]] = {}
-    history: dict[str, list[dict]] = {}  # scale_code -> its results, newest first
-    codes_of_disease: dict[str | None, set[str]] = {}
-    for sr in scale_rows:
-        # A result whose scale left the catalogue still has its id ("PHQ9/2026").
-        code = sr.get("scale_code") or str(sr.get("scale_id") or "").split("/")[0]
-        at = taken_at.get(sr["instance_id"])
-        result = {**sr, "scale_code": code, "_at": _naive(at), "_taken_at": at}
-        scales_by_instance.setdefault(sr["instance_id"], []).append(result)
-        history.setdefault(code, []).append(result)
-        # The disease a device-session scale was filed under is arbitrary: it
-        # must not add scales to that condition's rows.
-        if sr["instance_id"] in main_instances:
-            codes_of_disease.setdefault(disease_of.get(sr["instance_id"]), set()).add(code)
-    for results in history.values():
-        results.sort(key=lambda s: (s["_at"] is not None, s["_at"] or datetime.min, s["instance_id"]), reverse=True)
+    By default only completed PRS in the window are rows; selected_main /
+    selected_sessions (PRS instance ids the doctor ticked) replace that, and
+    may include a PRS still in progress. Weekly progress always uses every
+    completed PRS."""
+    by_instance = _scales_by_instance(scale_rows)
+    main_rows = [r for r in instance_rows if _origin(r) != "device_session"]
+    session_rows = [r for r in instance_rows if _origin(r) == "device_session"]
 
     by_disease: dict[str, dict] = {}
-    for row in instance_rows:  # newest first
-        if row["instance_id"] not in main_instances or not in_window(row["completed_at"], window_start, window_end):
-            continue
-        weights = weights_by_disease.get(row["disease_id"], {})
-        scales = _scales_as_of(
-            row["completed_at"],
-            scales_by_instance.get(row["instance_id"], []),
-            history,
-            # The condition's weighted scales, and any other scale answered under it.
-            set(weights) | codes_of_disease.get(row["disease_id"], set()),
-            {row["instance_id"]},
-        )
-        composite = compute_disease_composite(
-            [
-                {
-                    "scale_code": s["scale_code"],
-                    "percentage": float(s["direction_corrected_percentage"]),
-                    "weight_pct": weights[s["scale_code"]],
-                }
-                for s in scales
-                if s.get("direction_corrected_percentage") is not None and weights.get(s["scale_code"], 0) > 0
-            ]
-        )
-        entry = {
-            "instance_id": row["instance_id"],
-            "completed_at": row["completed_at"],
-            "origin": _origin(row),
-            "score": composite["composite_score"],
-            "severity_level": composite["severity_level"],
-            "severity_label": composite["severity_label"],
-            # Kept for reports signed before device sessions got their own block.
-            "device_name": None,
-            "session_number": None,
-            "conditions": [],
-            "scales": [_scale_out(s) for s in scales],
-        }
+    for row in _newest_first(main_rows):
+        scales = by_instance.get(row["instance_id"], [])
+        entry = {**_record(row, scales, _main_score(row, scales, weights_by_disease)), "device_name": None, "conditions": []}
         disease = by_disease.setdefault(
             row["disease_id"],
-            {"disease_id": row["disease_id"], "disease_name": row.get("disease_name") or row["disease_id"] or GENERAL_PRS_NAME, "all": []},
+            {
+                "disease_id": row["disease_id"],
+                "disease_name": row.get("disease_name") or row["disease_id"] or GENERAL_PRS_NAME,
+                "all": [],
+                "shown": [],
+            },
         )
         disease["all"].append(entry)
+        if _shown(row, selected_main, window_start, window_end):
+            disease["shown"].append(entry)
 
     diseases = []
     for disease in by_disease.values():
-        entries = disease.pop("all")
-        scored = [{"date": e["completed_at"], "score": e["score"]} for e in entries if e["score"] is not None]
+        everything, shown = disease.pop("all"), disease.pop("shown")
+        if not shown:
+            continue  # nothing of this condition ticked / in the window
+        scored = [
+            {"date": e["completed_at"], "score": e["score"]} for e in everything if e["status"] == "completed" and e["score"] is not None
+        ]
         trend = compute_weekly_trend([{"patient_id": "", "name": "", "visits": scored}], PROGRESS_WEEKS, as_of=now)
-        disease["entries"] = entries[:PRS_ENTRIES_PER_DISEASE]
+        disease["entries"] = shown if selected_main is not None else shown[:PRS_ENTRIES_PER_DISEASE]
         disease["weekly_progress"] = {"weeks": trend["weeks"], "scores": trend["patients"][0]["scores"]}
         diseases.append(disease)
     return {
         "diseases": sorted(diseases, key=lambda d: d["disease_name"]),
         "device_sessions": _device_session_groups(
-            [row for row in instance_rows if row["instance_id"] not in main_instances],
-            scales_by_instance,
-            history,
+            session_rows,
+            by_instance,
             conditions_by_protocol,
             protocol_instances or [],
             window_start=window_start,
             window_end=window_end,
             now=now,
+            selected=selected_sessions,
         ),
     }
+
+
+def prs_candidates(
+    instance_rows: list[dict],
+    scale_rows: list[dict],
+    weights_by_disease: dict[str, dict[str, float]],
+    conditions_by_protocol: dict[str, list[str]] | None = None,
+) -> dict:
+    """Section 04's pencil: EVERY PRS record of the patient, one entry each,
+    newest first — completed and in progress — with its own overall score
+    and scales (exactly what its row would print)."""
+    by_instance = _scales_by_instance(scale_rows)
+    main, sessions = [], []
+    for row in _newest_first(instance_rows):
+        scales = by_instance.get(row["instance_id"], [])
+        device = _origin(row) == "device_session"
+        record = _record(row, scales, _session_score(scales) if device else _main_score(row, scales, weights_by_disease))
+        base = {
+            "id": row["instance_id"],
+            "status": record["status"],
+            "completed_at": record["completed_at"],
+            "score": record["score"],
+            "severity_label": record["severity_label"],
+            "scales": record["scales"],
+        }
+        if device:
+            sessions.append(
+                {
+                    **base,
+                    "instance_number": row.get("instance_number"),
+                    "device_name": row.get("device_name"),
+                    "session_number": row.get("session_number"),
+                    "conditions": (conditions_by_protocol or {}).get(str(row.get("protocol_id")), []),
+                }
+            )
+        else:
+            main.append({**base, "condition": row.get("disease_name") or row["disease_id"] or GENERAL_PRS_NAME, "origin": record["origin"]})
+    return {"main": main, "sessions": sessions}
 
 
 def select_notes(notes: list[dict], note_ids: list[str]) -> list[dict]:
@@ -412,6 +408,7 @@ def select_notes(notes: list[dict], note_ids: list[str]) -> list[dict]:
 def build_medications(rows: list[dict]) -> list[dict]:
     """Full history, active first then stopped (plan decision 7)."""
     keys = (
+        "medicine_id",
         "medicine_name",
         "dose",
         "timing",
@@ -435,6 +432,23 @@ def pick_protocols(protocols: list[dict], scope: str) -> list[dict]:
     if scope == "overall":
         return plans
     return [p for p in plans if p["status"] == "active"] or plans[:1]
+
+
+def protocol_candidates(protocols: list[dict]) -> list[dict]:
+    """Section 07's pencil: every protocol that was ever prescribed — older
+    (superseded) versions included, drafts and cancelled ones not."""
+    return [
+        {
+            "id": p["protocol_id"],
+            "device_name": p.get("device_name"),
+            "version": f"{p.get('version_major', 1)}.{p.get('version_minor', 0)}",
+            "status": p["status"],
+            "instance_number": p.get("instance_number"),
+            "created_at": p.get("created_at"),
+        }
+        for p in protocols
+        if p["status"] not in ("draft", "cancelled")
+    ]
 
 
 def build_treatment_plan(detail: dict) -> dict:
@@ -514,16 +528,21 @@ def diagnosis_codes(details: list[dict]) -> list[dict]:
     return sorted(seen.values(), key=lambda d: d["icd10_code"])
 
 
-def build_sessions(rows: list[dict], *, window_start=None, window_end=None) -> list[dict]:
+def build_sessions(rows: list[dict], *, window_start=None, window_end=None, selected: set[str] | None = None) -> list[dict]:
     """Done device sessions, oldest first: what was prescribed, what was
     delivered, which parameters deviated, and symptom / adverse-event counts.
-    The CA's free-text notes are internal and deliberately left out (plan Q-C)."""
+    The CA's free-text notes are internal and deliberately left out (plan Q-C).
+    selected (appointment ids the doctor ticked) replaces the window."""
     out = []
     for r in rows:
-        if not in_window(r.get("completed_at") or r.get("stopped_at") or r.get("started_at"), window_start, window_end):
+        if selected is not None:
+            if str(r.get("appointment_id")) not in selected:
+                continue
+        elif not in_window(r.get("completed_at") or r.get("stopped_at") or r.get("started_at"), window_start, window_end):
             continue
         out.append(
             {
+                "appointment_id": r.get("appointment_id"),
                 "session_number": r.get("session_number"),
                 "date": r["appointment_date"],
                 "status": r["session_status"],

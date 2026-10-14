@@ -15,16 +15,18 @@ router = APIRouter()
 _STAFF_READERS = ("doctor", "clinic_admin", "regional_admin", "super_admin")
 
 
-@router.get("/patients/{patient_id}/final-report/preview", response_model=s.FinalReportPreview)
+@router.post("/patients/{patient_id}/final-report/preview", response_model=s.FinalReportPreview)
 async def preview_final_report(
     patient_id: UUID,
-    scope: s.Scope = Query(...),
+    body: s.FinalReportDraft,
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role("doctor")),
 ):
-    """The sections as they would be signed right now, plus the clinical notes
-    the doctor can tick. Nothing is stored."""
-    return await FinalReportService(db).preview(patient_id, scope, ctx)
+    """The sections as they would be signed with this selection, the
+    selection they hold, and every candidate each section's pencil can offer.
+    Nothing is stored."""
+    selection = body.selection.model_dump() if body.selection else None
+    return await FinalReportService(db).preview(patient_id, body.scope, ctx, selection)
 
 
 @router.post("/patients/{patient_id}/final-reports", response_model=s.FinalReportRead, status_code=201)
