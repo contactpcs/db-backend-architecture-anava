@@ -356,6 +356,17 @@ class ScheduleService:
     re-preview as often as they like without writing anything."""
 
     @staticmethod
+    def follow_up_date(after: dt.date, weekdays) -> dt.date:
+        """The day after the triggering session, walked forward onto the next
+        day this cadence actually treats on."""
+        day = after + dt.timedelta(days=1)
+        for _ in range(7):
+            if day.weekday() in weekdays:
+                break
+            day += dt.timedelta(days=1)
+        return day
+
+    @staticmethod
     def build(req: s.SchedulePreviewRequest) -> dict:
         weekdays = _WEEKDAYS_FOR[req.sessions_per_week]
         skip = {d for d in req.skip_dates}
@@ -401,15 +412,10 @@ class ScheduleService:
                     # blind +1 day landed on whatever day followed, including
                     # a day the clinic doesn't run this cadence on at all
                     # (e.g. Saturday for a Mon/Wed/Fri 3x/week protocol).
-                    follow_up_date = planned + dt.timedelta(days=1)
-                    for _ in range(7):
-                        if follow_up_date.weekday() in weekdays:
-                            break
-                        follow_up_date += dt.timedelta(days=1)
                     follow_ups.append(
                         {
                             "after_session_number": number,
-                            "planned_date": follow_up_date,
+                            "planned_date": ScheduleService.follow_up_date(planned, weekdays),
                         }
                     )
 
@@ -549,69 +555,16 @@ class ProtocolService:
         parent = await self._resolve_parent(body)
         await assert_clinic_scope(ctx, self.session, parent["clinic_id"])
 
-        device = await self.catalogue_svc.get_device_or_404(body.device_id)
-        if not device["is_active"]:
-            raise BusinessRuleError("Device is not active", code="DEVICE_INACTIVE")
-        if device["phase"] != 1:
-            raise BusinessRuleError(
-                f"{device['device_name']} is catalogued but not yet enabled for prescribing (phase {device['phase']}).",
-                code="DEVICE_NOT_ENABLED",
-            )
-
+        device = await self._prescribable_device(body.device_id, parent["clinic_id"])
         slug = _slug_for_modality(device["modality"])
-
-        # Exactly one of placement_id or custom_montage_id, enforced already
-        # by ProtocolCreate's own validator (schemas.py) - this branch just
-        # decides which write path to take, not which is allowed.
-        custom_montage: dict | None = None
-        if body.custom_montage_id is not None:
-            custom_montage = await self.custom_montages.get(body.custom_montage_id)
-            if not custom_montage:
-                raise NotFoundError("Custom montage not found", code="MONTAGE_NOT_FOUND")
-            if not custom_montage["is_active"]:
-                raise BusinessRuleError("Custom montage has been retired and can no longer be prescribed", code="MONTAGE_INACTIVE")
-            if str(custom_montage["device_id"]) != str(body.device_id):
-                raise ValidationError("Custom montage belongs to a different device", code="MONTAGE_DEVICE_MISMATCH")
-            # A custom montage is a clinical record any staff at its clinic
-            # may prescribe with, not just its author - unlike deactivate()
-            # (CustomMontageService.deactivate), which is an ownership
-            # action and stays author-or-admin. clinic_id is nullable on
-            # protocol_custom_montages (superadmin-authored montages may have
-            # none); only refuse a montage authored at a DIFFERENT clinic.
-            if custom_montage["clinic_id"] is not None and str(custom_montage["clinic_id"]) != str(parent["clinic_id"]):
-                raise ValidationError("Custom montage belongs to a different clinic", code="MONTAGE_CLINIC_MISMATCH")
-        else:
-            # ProtocolCreate's own validator (schemas.py) already guarantees
-            # placement_id/dosing_id are both set whenever custom_montage_id
-            # is not - mypy can't follow that cross-field invariant through
-            # the branch, so it's asserted explicitly rather than cast.
-            assert body.placement_id is not None
-            assert body.dosing_id is not None
-
-            # Same-device consistency. The schema enforces this with a trigger
-            # because a CHECK cannot read another table; checking here first
-            # turns a raw PL/pgSQL exception into a readable 422.
-            placement = await self.catalogue.get_placement(slug, body.placement_id)
-            if not placement:
-                raise NotFoundError("Placement not found for this device family", code="PLACEMENT_NOT_FOUND")
-            if str(placement["device_id"]) != str(body.device_id):
-                raise ValidationError("Placement belongs to a different device", code="PLACEMENT_DEVICE_MISMATCH")
-
-            dosing = await self.catalogue.get_dosing(slug, body.dosing_id)
-            if not dosing:
-                raise NotFoundError("Dosing not found for this device family", code="DOSING_NOT_FOUND")
-            if str(dosing["device_id"]) != str(body.device_id):
-                raise ValidationError("Dosing belongs to a different device", code="DOSING_DEVICE_MISMATCH")
-
-        # The clinic must actually own the machine. trg_check_device_available
-        # _at_clinic (37) enforces this, but a readable 422 beats a raised
-        # PL/pgSQL exception, and the doctor needs to know it is an inventory
-        # problem rather than a prescribing one.
-        if not await self.repo.clinic_has_device(parent["clinic_id"], body.device_id):
-            raise BusinessRuleError(
-                f"{device['device_name']} is not available at this clinic.",
-                code="DEVICE_NOT_AT_CLINIC",
-            )
+        montage_columns = await self._montage_columns(
+            slug=slug,
+            device_id=body.device_id,
+            clinic_id=parent["clinic_id"],
+            placement_id=body.placement_id,
+            dosing_id=body.dosing_id,
+            custom_montage_id=body.custom_montage_id,
+        )
 
         if body.device_unit_id is not None and not await self.repo.device_unit_belongs_to_clinic_device(
             parent["clinic_id"], body.device_id, body.device_unit_id
@@ -673,11 +626,7 @@ class ProtocolService:
             "device_id": str(body.device_id),
             "device_unit_id": str(body.device_unit_id) if body.device_unit_id else None,
             "set_by": ctx.user_id,
-            **(
-                {"custom_montage_id": str(body.custom_montage_id)}
-                if custom_montage is not None
-                else {placement_pk(slug): str(body.placement_id), dosing_pk(slug): str(body.dosing_id)}
-            ),
+            **montage_columns,
             "session_count": body.session_count,
             "follow_up_every_n": body.follow_up_every_n,
             "status": "draft",
@@ -805,6 +754,76 @@ class ProtocolService:
             },
         )
         return await self.get_or_404(protocol_id)
+
+    async def _prescribable_device(self, device_id: UUID, clinic_id: Any) -> dict:
+        """A device a protocol may be written for: active, enabled for
+        prescribing, and owned by the clinic."""
+        device = await self.catalogue_svc.get_device_or_404(device_id)
+        if not device["is_active"]:
+            raise BusinessRuleError("Device is not active", code="DEVICE_INACTIVE")
+        if device["phase"] != 1:
+            raise BusinessRuleError(
+                f"{device['device_name']} is catalogued but not yet enabled for prescribing (phase {device['phase']}).",
+                code="DEVICE_NOT_ENABLED",
+            )
+        # The clinic must actually own the machine. trg_check_device_available
+        # _at_clinic (37) enforces this, but a readable 422 beats a raised
+        # PL/pgSQL exception, and the doctor needs to know it is an inventory
+        # problem rather than a prescribing one.
+        if not await self.repo.clinic_has_device(clinic_id, device_id):
+            raise BusinessRuleError(
+                f"{device['device_name']} is not available at this clinic.",
+                code="DEVICE_NOT_AT_CLINIC",
+            )
+        return device
+
+    async def _montage_columns(
+        self,
+        *,
+        slug: str,
+        device_id: UUID,
+        clinic_id: Any,
+        placement_id: UUID | None,
+        dosing_id: UUID | None,
+        custom_montage_id: UUID | None,
+    ) -> dict:
+        """Validates the montage and maps it onto protocol_plan's columns:
+        the device family's own placement/dosing pair, or custom_montage_id
+        alone. Callers have already enforced exactly-one-source."""
+        if custom_montage_id is not None:
+            custom_montage = await self.custom_montages.get(custom_montage_id)
+            if not custom_montage:
+                raise NotFoundError("Custom montage not found", code="MONTAGE_NOT_FOUND")
+            if not custom_montage["is_active"]:
+                raise BusinessRuleError("Custom montage has been retired and can no longer be prescribed", code="MONTAGE_INACTIVE")
+            if str(custom_montage["device_id"]) != str(device_id):
+                raise ValidationError("Custom montage belongs to a different device", code="MONTAGE_DEVICE_MISMATCH")
+            # A custom montage is a clinical record any staff at its clinic
+            # may prescribe with, not just its author - unlike deactivate()
+            # (CustomMontageService.deactivate), which is an ownership
+            # action and stays author-or-admin. clinic_id is nullable on
+            # protocol_custom_montages (superadmin-authored montages may have
+            # none); only refuse a montage authored at a DIFFERENT clinic.
+            if custom_montage["clinic_id"] is not None and str(custom_montage["clinic_id"]) != str(clinic_id):
+                raise ValidationError("Custom montage belongs to a different clinic", code="MONTAGE_CLINIC_MISMATCH")
+            return {"custom_montage_id": str(custom_montage_id)}
+
+        assert placement_id is not None
+        assert dosing_id is not None
+        # Same-device consistency. The schema enforces this with a trigger
+        # because a CHECK cannot read another table; checking here first
+        # turns a raw PL/pgSQL exception into a readable 422.
+        placement = await self.catalogue.get_placement(slug, placement_id)
+        if not placement:
+            raise NotFoundError("Placement not found for this device family", code="PLACEMENT_NOT_FOUND")
+        if str(placement["device_id"]) != str(device_id):
+            raise ValidationError("Placement belongs to a different device", code="PLACEMENT_DEVICE_MISMATCH")
+        dosing = await self.catalogue.get_dosing(slug, dosing_id)
+        if not dosing:
+            raise NotFoundError("Dosing not found for this device family", code="DOSING_NOT_FOUND")
+        if str(dosing["device_id"]) != str(device_id):
+            raise ValidationError("Dosing belongs to a different device", code="DOSING_DEVICE_MISMATCH")
+        return {placement_pk(slug): str(placement_id), dosing_pk(slug): str(dosing_id)}
 
     # -- pre-flight validation for the child tables ------------------------
 
@@ -1029,6 +1048,304 @@ class ProtocolService:
                 payload=jsonable_encoder({"protocol_id": str(protocol_id), "instance_id": str(row["instance_id"]), "changes": changes}),
             )
         return updated or row
+
+    async def amend(self, protocol_id: UUID, body: s.ProtocolAmend, ctx: RequestContext) -> dict:
+        """'Modify protocol': a new minor version that copies the current one,
+        applies only what the request sent, takes over the course's remaining
+        sessions and goes live — one transaction. Sessions already delivered
+        stay on the version they were delivered under. See ProtocolAmend for
+        when the remaining sessions are re-planned instead of carried over."""
+        target = await self.get_or_404(protocol_id)
+        await assert_clinic_scope(ctx, self.session, target["clinic_id"])
+        if target["status"] != "active":
+            raise BusinessRuleError(
+                f"Only an active protocol can be modified (current status: '{target['status']}')",
+                code="PROTOCOL_NOT_ACTIVE",
+            )
+        raw = await self.repo.get_plan_row(protocol_id)
+        assert raw is not None
+
+        sent = body.model_dump(exclude_unset=True)
+        # A field explicitly sent as null keeps its current value — clearing a
+        # prescribed setting is never a modification, activation would refuse it.
+        sent = {k: v for k, v in sent.items() if v is not None}
+        lists = {k: sent.pop(k) for k in ("conditions", "diagnosis_ids", "scales") if k in sent}
+        schedule_only = {k: sent.pop(k) for k in ("start_date", "skip_dates", "extra_dates") if k in sent}
+        for k in ("reason", "clinical_note"):
+            sent.pop(k, None)
+        montage_sent = {k: sent.pop(k) for k in ("placement_id", "dosing_id", "custom_montage_id") if k in sent}
+
+        # -- device and montage --------------------------------------------
+        device_id = sent.get("device_id", target["device_id"])
+        device_changed = str(device_id) != str(target["device_id"])
+        device = await self._prescribable_device(device_id, target["clinic_id"]) if device_changed else None
+        modality = device["modality"] if device else target["modality"]
+        slug = _slug_for_modality(modality)
+        if device_changed and not montage_sent:
+            raise ValidationError("A new device needs its own montage and dosing", code="MONTAGE_REQUIRED_FOR_DEVICE")
+        merged = {**raw, **sent}
+        if device_changed and "device_unit_id" not in sent:
+            merged["device_unit_id"] = None  # the old unit belongs to the old device
+        if montage_sent:
+            columns = await self._montage_columns(
+                slug=slug,
+                device_id=device_id,
+                clinic_id=target["clinic_id"],
+                placement_id=montage_sent.get("placement_id"),
+                dosing_id=montage_sent.get("dosing_id"),
+                custom_montage_id=montage_sent.get("custom_montage_id"),
+            )
+            # One montage source at a time (chk_protocol_plan_one_placement):
+            # clear every family's pair and the custom montage, then set the new one.
+            for family in ("tdcs", "hd_tdcs", "tvns", "tps", "rtms", "other"):
+                merged[f"{family}_placement_id"] = None
+                merged[f"{family}_dosing_id"] = None
+            merged["custom_montage_id"] = None
+            merged.update(columns)
+        if merged.get("device_unit_id") and (device_changed or "device_unit_id" in sent):
+            if not await self.repo.device_unit_belongs_to_clinic_device(target["clinic_id"], device_id, merged["device_unit_id"]):
+                raise BusinessRuleError("That unit is not an active unit of this device at this clinic.", code="DEVICE_UNIT_NOT_AT_CLINIC")
+
+        # -- dose -----------------------------------------------------------
+        is_tvns = modality == "tVNS"
+        if is_tvns and ({"prescribed_current_ma", "prescribed_duration_min", "ramp_seconds"} & sent.keys()):
+            raise ValidationError("A tVNS protocol is dosed with the tVNS fields", code="DOSE_FIELDS_MISMATCH")
+        if not is_tvns and any(k.startswith("prescribed_tvns_") for k in sent):
+            raise ValidationError(f"A {modality} protocol has no tVNS dose fields", code="DOSE_FIELDS_MISMATCH")
+        if device_changed:
+            # The other family's dose doesn't carry over to a new modality;
+            # activation then insists the new family's dose is complete.
+            stale = (
+                ("prescribed_current_ma", "prescribed_duration_min")
+                if is_tvns
+                else tuple(k for k in raw if k.startswith("prescribed_tvns_"))
+            )
+            for k in stale:
+                if k not in sent:
+                    merged[k] = None
+        if is_tvns and merged.get("prescribed_tvns_pattern") != "intermittent":
+            if "prescribed_tvns_ramp_up_sec" in sent or "prescribed_tvns_ramp_down_sec" in sent:
+                raise ValidationError(
+                    "prescribed_tvns_ramp_up_sec/prescribed_tvns_ramp_down_sec only apply to pattern='intermittent'",
+                    code="TVNS_RAMP_NOT_INTERMITTENT",
+                )
+            # Moving off intermittent drops the ramps that belonged to it.
+            merged["prescribed_tvns_ramp_up_sec"] = None
+            merged["prescribed_tvns_ramp_down_sec"] = None
+        if merged.get("follow_up_every_n") and merged["follow_up_every_n"] > merged["session_count"]:
+            raise ValidationError("follow_up_every_n cannot exceed session_count", code="FOLLOW_UP_TOO_LARGE")
+
+        # -- child lists ----------------------------------------------------
+        if "conditions" in lists:
+            await self._assert_conditions_exist(body.conditions or [])
+        if "diagnosis_ids" in lists:
+            await self._assert_diagnoses_exist(body.diagnosis_ids or [])
+        if "scales" in lists:
+            await self._assert_scales_exist(body.scales or [])
+
+        changes = {k: {"from": raw.get(k), "to": merged.get(k)} for k in merged if k in raw and raw.get(k) != merged.get(k)}
+        if "conditions" in lists:
+            before_c = sorted(str(r["condition_id"] or r["other_text"]) for r in await self.details.list_conditions(protocol_id))
+            after_c = sorted(str(c.condition_id or c.other_text) for c in body.conditions or [])
+            if before_c != after_c:
+                changes["conditions"] = {"from": before_c, "to": after_c}
+        if "diagnosis_ids" in lists:
+            before_dx = sorted(str(r["diagnosis_id"]) for r in await self.details.list_diagnoses(protocol_id))
+            after_dx = sorted(str(d) for d in body.diagnosis_ids or [])
+            if before_dx != after_dx:
+                changes["diagnoses"] = {"from": before_dx, "to": after_dx}
+        if "scales" in lists:
+            before_sc = sorted((str(r["prs_scale_id"] or r["scale_id"]), r["cadence"]) for r in await self.details.list_scales(protocol_id))
+            after_sc = sorted((sc.scale_id, sc.cadence) for sc in body.scales or [])
+            if before_sc != after_sc:
+                changes["scales"] = {"from": before_sc, "to": after_sc}
+        replan = (
+            device_changed or bool(schedule_only) or any(k in changes for k in ("session_count", "sessions_per_week", "follow_up_every_n"))
+        )
+        for k, v in schedule_only.items():
+            changes[k] = {"from": None, "to": v}
+        if not changes:
+            raise ValidationError("Nothing was changed", code="AMENDMENT_NO_CHANGES")
+
+        # -- the new version ------------------------------------------------
+        # Everything that identifies the old row or its lifecycle is not copied.
+        payload = {
+            k: v
+            for k, v in merged.items()
+            if k not in ("protocol_id", "status", "activated_at", "completed_at", "created_at", "updated_at")
+        }
+        payload.update(
+            {
+                "set_by": ctx.user_id,
+                "status": "draft",
+                "supersedes_protocol_id": str(protocol_id),
+                "version_major": target["version_major"],
+                "version_minor": target["version_minor"] + 1,
+                "notes": f"Reason: {body.reason} — {body.clinical_note}",
+            }
+        )
+        try:
+            created = await self.repo.create(payload)
+        except IntegrityError as exc:  # pragma: no cover - surfaced as 409
+            raise ConflictError("Protocol violates a database constraint", code="PROTOCOL_CONSTRAINT") from exc
+        new_id = created["protocol_id"]
+
+        await self.details.copy_from(
+            source_id=protocol_id,
+            target_id=new_id,
+            conditions="conditions" not in lists,
+            scales="scales" not in lists,
+            diagnoses="diagnosis_ids" not in lists,
+        )
+        if "conditions" in lists:
+            await self.details.add_conditions(new_id, [c.model_dump() for c in body.conditions or []])
+        if "diagnosis_ids" in lists:
+            await self.details.add_diagnoses(new_id, body.diagnosis_ids or [])
+        if "scales" in lists:
+            await self.details.add_scales(new_id, [sc.model_dump() for sc in body.scales or []])
+
+        # -- the remaining sessions -----------------------------------------
+        if replan:
+            moved = await self._replan_remaining(
+                old_id=protocol_id,
+                new_id=new_id,
+                target=target,
+                plan=merged,
+                device_id=device_id,
+                device_changed=device_changed,
+                start_date=schedule_only.get("start_date"),
+                skip_dates=schedule_only.get("skip_dates", []),
+                extra_dates=schedule_only.get("extra_dates", []),
+            )
+        else:
+            relinked = await self.sessions.relink_unstarted(protocol_id, new_id)
+            await self.device_sessions.relink_protocol(
+                [r["appointment_id"] for r in relinked if r["appointment_type"] == _TYPE_DEVICE_SESSION], new_id
+            )
+            await self.followups.relink_protocol(
+                [r["appointment_id"] for r in relinked if r["appointment_type"] == _TYPE_FOLLOW_UP], new_id
+            )
+            moved = len(relinked)
+        if not moved:
+            raise BusinessRuleError(
+                "This course has no sessions left to run, so there is nothing to modify. Complete it or start a new protocol.",
+                code="PROTOCOL_NOTHING_REMAINING",
+            )
+        await self.sessions.cancel_planned(protocol_id, reason="Superseded by protocol amendment")
+        await self.repo.set_status(protocol_id, "superseded")
+
+        from app.modules.device_sessions.repository import DeviceSessionScaleRepository
+
+        await DeviceSessionScaleRepository(self.session).freeze_pending_for_protocol(protocol_id)
+
+        activated = await self.activate(new_id, ctx)
+        await emit_event(
+            self.session,
+            aggregate_type="treatment_protocol",
+            aggregate_id=new_id,
+            event_type="treatment_protocol.amended",
+            payload=jsonable_encoder(
+                {
+                    "protocol_id": str(new_id),
+                    "supersedes_protocol_id": str(protocol_id),
+                    "instance_id": str(target["instance_id"]),
+                    "reason": body.reason,
+                    "changes": changes,
+                    "replanned": replan,
+                    "sessions_on_new_version": moved,
+                }
+            ),
+        )
+        return activated
+
+    async def _replan_remaining(
+        self,
+        *,
+        old_id: UUID,
+        new_id: UUID,
+        target: dict,
+        plan: dict,
+        device_id: UUID,
+        device_changed: bool,
+        start_date: dt.date | None,
+        skip_dates: builtins.list[dt.date],
+        extra_dates: builtins.list[dt.date],
+    ) -> int:
+        """Re-plans what is left of the course on the new version.
+
+        session_count is the whole course: the sessions delivered so far
+        count toward it. Sessions the patient has booked keep their date and
+        slot; the rest are re-dated from start_date on the new cadence. All
+        remaining sessions are then numbered in date order after the last
+        session that took place. The old version's unbooked rows are
+        cancelled by the caller. Returns how many appointments the new
+        version now holds."""
+        progress = await self.sessions.lineage_progress(target["instance_id"], target["version_major"])
+        booked = await self.sessions.list_booked(old_id)
+        booked_sessions = [b for b in booked if b["appointment_type"] == _TYPE_DEVICE_SESSION]
+        booked_follow_ups = [b for b in booked if b["appointment_type"] == _TYPE_FOLLOW_UP]
+        if device_changed and booked_sessions:
+            raise BusinessRuleError(
+                f"{len(booked_sessions)} upcoming session(s) are already booked on the current device. "
+                "Reschedule or cancel them before changing the device.",
+                code="BOOKED_SESSIONS_ON_DEVICE",
+            )
+
+        to_generate = plan["session_count"] - progress["delivered"] - len(booked_sessions)
+        if to_generate < 0:
+            raise ValidationError(
+                f"The course already has {progress['delivered']} delivered and {len(booked_sessions)} booked sessions — "
+                f"session_count can't be less than {progress['delivered'] + len(booked_sessions)}.",
+                code="SESSION_COUNT_TOO_LOW",
+            )
+        today = dt.date.today()
+        start = start_date or today
+        if start < today:
+            raise ValidationError("The remaining sessions can't start in the past", code="START_DATE_IN_PAST")
+
+        weekdays = _WEEKDAYS_FOR[plan["sessions_per_week"]]
+        new_dates: builtins.list[dt.date] = []
+        if to_generate:
+            # Bypasses SchedulePreviewRequest's 10-session minimum on purpose:
+            # this is the rest of a course, not a course.
+            preview = ScheduleService.build(
+                s.SchedulePreviewRequest.model_construct(
+                    start_date=start,
+                    session_count=to_generate,
+                    sessions_per_week=plan["sessions_per_week"],
+                    follow_up_every_n=None,
+                    skip_dates=[*skip_dates, *(b["appointment_date"] for b in booked_sessions)],
+                    extra_dates=extra_dates,
+                )
+            )
+            new_dates = [item["planned_date"] for item in preview["sessions"]]
+
+        timeline = sorted(
+            [(b["appointment_date"], 0, b["appointment_id"]) for b in booked_sessions] + [(d, 1, None) for d in new_dates],
+            key=lambda x: (x[0], x[1]),
+        )
+        numbered = [
+            (number, date, appointment_id) for number, (date, _, appointment_id) in enumerate(timeline, start=progress["last_number"] + 1)
+        ]
+
+        moves = [(appointment_id, number) for number, _, appointment_id in numbered if appointment_id is not None]
+        await self.sessions.move_to_protocol(new_id, moves)
+        await self.device_sessions.move_to_protocol(new_id, moves)
+        # A booked follow-up keeps its slot and number.
+        await self.sessions.move_to_protocol(new_id, [(b["appointment_id"], b["session_number"]) for b in booked_follow_ups])
+        await self.followups.relink_protocol([b["appointment_id"] for b in booked_follow_ups], new_id)
+
+        every_n = plan.get("follow_up_every_n")
+        kept_follow_ups = {b["session_number"] for b in booked_follow_ups}
+        follow_ups = [
+            {"after_session_number": number, "planned_date": ScheduleService.follow_up_date(date, weekdays)}
+            for number, date, _ in numbered
+            if every_n and number % every_n == 0 and number not in kept_follow_ups
+        ]
+        sessions = [{"session_number": number, "planned_date": date} for number, date, appointment_id in numbered if appointment_id is None]
+        parent = await self._resolve_parent(s.ProtocolCreate.model_construct(instance_id=target["instance_id"]))
+        counts = await self._generate_appointments(new_id, parent, {"sessions": sessions, "follow_ups": follow_ups}, device_id=device_id)
+        return len(moves) + len(booked_follow_ups) + counts["sessions_created"] + counts["follow_ups_created"]
 
     async def activate(self, protocol_id: UUID, ctx: RequestContext) -> dict:
         """The 'Push' action from step 8."""
