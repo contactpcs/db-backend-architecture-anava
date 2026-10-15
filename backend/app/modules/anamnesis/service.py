@@ -49,9 +49,8 @@ class AnamnesisService:
 
         registration: the patient's one intake anamnesis.
         main: one per consultation (initial / follow_up / protocol_followup
-        appointment); a new one starts pre-filled with the patient's previous
-        consultation's answers, since most history doesn't change visit to
-        visit.
+        appointment); a new one starts empty — each visit's anamnesis is
+        taken fresh, never copied from the previous consultation.
         """
         profile_id = await _resolve_profile_id(self.session, patient_id)
 
@@ -101,11 +100,6 @@ class AnamnesisService:
             if winner:
                 return winner
             raise
-
-        if assessment_stage == "main":
-            previous = await self.assessments.get_previous_consultation(profile_id, exclude_id=assessment["anamnesis_id"])
-            if previous:
-                await self.responses.copy_from(source_id=previous["anamnesis_id"], target_id=assessment["anamnesis_id"])
 
         await emit_event(
             self.session,

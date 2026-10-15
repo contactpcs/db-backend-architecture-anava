@@ -13,3 +13,4 @@ htmlcov/
 .coverage
 .claude
 .env.bak-184359
+graphify-out
