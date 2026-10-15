@@ -30,13 +30,39 @@ def create_order(*, amount: float, currency: str, receipt: str) -> dict:
     if not is_configured():
         return {"id": f"order_stub_{uuid.uuid4().hex[:14]}", "status": "created", "amount": paise, "currency": currency}
 
-    import razorpay  # imported lazily — only required once real keys exist
-
-    client = razorpay.Client(auth=(settings.razorpay_key_id, settings.razorpay_key_secret))
+    client = _client()  # razorpay imported lazily — only required once real keys exist
     # payment_capture=1 — auto-capture on successful authorization. Without
     # it Razorpay leaves the payment merely 'authorized', payment.captured
     # never fires, and the webhook (the only route to 'paid') never sees it.
     return client.order.create({"amount": paise, "currency": currency, "receipt": receipt, "payment_capture": 1})
+
+
+def _client():
+    import razorpay
+
+    return razorpay.Client(auth=(settings.razorpay_key_id, settings.razorpay_key_secret))
+
+
+def refund_payment(*, razorpay_payment_id: str, amount: float, notes: dict) -> dict:
+    """Refund `amount` of a captured payment; returns Razorpay's refund entity
+    ({id, status: pending|processed|failed, ...}).
+
+    Idempotent against our own retries: if the gateway already holds a refund
+    for this payment (a previous pass created it but our DB write was lost),
+    that refund is returned instead of creating a second one."""
+    if not is_configured():
+        return {"id": f"rfnd_stub_{uuid.uuid4().hex[:14]}", "status": "processed", "amount": _to_paise(amount)}
+    client = _client()
+    existing = client.payment.fetch_multiple_refund(razorpay_payment_id).get("items") or []
+    if existing:
+        return existing[0]
+    return client.payment.refund(razorpay_payment_id, {"amount": _to_paise(amount), "speed": "normal", "notes": notes})
+
+
+def fetch_refund(razorpay_refund_id: str) -> dict:
+    if not is_configured():
+        return {"id": razorpay_refund_id, "status": "processed"}
+    return _client().refund.fetch(razorpay_refund_id)
 
 
 def verify_webhook_signature(*, payload: bytes, signature: str) -> bool:

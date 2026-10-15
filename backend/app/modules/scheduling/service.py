@@ -86,8 +86,46 @@ RESCHEDULE_FROM_STATUSES = ACTIVE_STATUSES | {"no_show", STATUS_MISSED}
 # one already checked_in/in_progress (they're already there).
 PATIENT_RESCHEDULE_FROM_STATUSES = {STATUS_SELECTED, STATUS_PAID, "no_show", STATUS_MISSED}
 
-RESCHEDULE_MIN_HOURS = 24
 DEFAULT_SLOT_MINUTES = 30
+
+# A device session that was not attended (no_show) or never booked (missed)
+# is made up only on the days right after the course's last session (design
+# D6 — Documents/design_appointment_policy_and_refunds.md). Fixed, not a
+# clinic setting.
+DEVICE_MAKEUP_STATUSES = {"no_show", STATUS_MISSED}
+DEVICE_MAKEUP_WINDOW_DAYS = 2
+SAME_DAY_DEVICE_SESSION_REASON = (
+    "Two device sessions on the same day can cause overstimulation or injury, "
+    "so only one device session per day is allowed within a treatment course."
+)
+
+
+def device_makeup_window(last_session_date: dt.date, today: dt.date) -> tuple[dt.date, dt.date]:
+    """The only dates a no_show/missed device session may move to: the
+    DEVICE_MAKEUP_WINDOW_DAYS days after the course's last session. If that
+    window is already behind us the course has ended anyway, so it starts
+    today instead of leaving the session with no legal date."""
+    start = max(last_session_date + dt.timedelta(days=1), today)
+    return start, start + dt.timedelta(days=DEVICE_MAKEUP_WINDOW_DAYS - 1)
+
+
+def device_makeup_reason(last_session_date: dt.date, start: dt.date, end: dt.date) -> str:
+    return (
+        f"Device sessions in this treatment course are scheduled until {last_session_date:%d %b %Y}. "
+        f"{SAME_DAY_DEVICE_SESSION_REASON} A missed session can therefore only be rescheduled to "
+        f"{start:%d %b %Y} or {end:%d %b %Y}, after the course is complete."
+    )
+
+
+async def reschedule_min_hours(session: AsyncSession, clinic_id) -> float:
+    """Patient reschedule notice: the clinic's own setting, else the platform
+    default (118 — clinics.reschedule_min_hours)."""
+    from app.modules.admin.repository import ClinicRepository
+
+    clinic = await ClinicRepository(session).get(clinic_id)
+    own = clinic.get("reschedule_min_hours") if clinic else None
+    return float(own) if own is not None else float(get_settings().appointment_reschedule_min_hours)
+
 
 # Which statuses a transition is legal FROM.
 #
@@ -1048,7 +1086,12 @@ class AppointmentService:
         # create() below fails for a genuine reason, this flip rolls back
         # too — never left as an orphaned 'rescheduled' row with nothing to
         # replace it.
-        await self.repo.update_fields(appointment_id, {"status": "rescheduled"})
+        #
+        # hold_expires_at is cleared in the same statement: chk_appointments_hold
+        # allows an expiry only on 'selected', so flipping an unpaid 'selected'
+        # row to 'rescheduled' with its hold still set was rejected outright
+        # (baseline finding F-1) — unpaid bookings could never be rescheduled.
+        await self.repo.update_fields(appointment_id, {"status": "rescheduled", "hold_expires_at": None})
 
         new_appointment = await self.create(
             {
@@ -1090,6 +1133,18 @@ class AppointmentService:
                     old_payment["payment_id"], new_appointment_id=new_appointment["appointment_id"]
                 )
             await self.repo.update_fields(new_appointment["appointment_id"], {"status": STATUS_PAID, "hold_expires_at": None})
+        elif old["status"] == STATUS_SELECTED:
+            # Unpaid: the new row is 'selected' with a fresh hold. A checkout
+            # already started for the old slot moves with it, so Pay Now on the
+            # new row resumes the same Razorpay order (same type, same clinic,
+            # same price) instead of leaving a live order on a dead row.
+            from app.modules.payments.repository import PaymentRepository
+
+            old_payment = await PaymentRepository(self.session).get_for_appointment(appointment_id)
+            if old_payment and old_payment["status"] == "pending":
+                await PaymentRepository(self.session).relink_appointment(
+                    old_payment["payment_id"], new_appointment_id=new_appointment["appointment_id"]
+                )
 
         await self._write_audit(
             appointment_id,
@@ -1129,8 +1184,17 @@ class AppointmentService:
         _reject_if_past(on_date, start_time)
         await _assert_clinic_operational(self.session, old["clinic_id"])
 
+        if old["appointment_type"] == TYPE_DEVICE_SESSION and old["status"] in DEVICE_MAKEUP_STATUSES:
+            start, end, reason = await self.device_makeup_window_for(old)
+            if not start <= on_date <= end:
+                raise BusinessRuleError(reason, code="DEVICE_RESCHEDULE_OUTSIDE_WINDOW")
+
         if old["appointment_type"] == TYPE_DEVICE_SESSION:
             duration = await DeviceCapacityService(self.session).reserve(old, on_date, start_time)
+            # After reserve(): its device-day advisory lock is held, and every
+            # session of one protocol books the same device, so two claims on
+            # one day for one course are serialized here.
+            await self.assert_one_device_session_per_day(old, on_date)
         else:
             is_available, duration = await AvailabilityService(self.session).check_slot(UUID(str(old["doctor_id"])), on_date, start_time)
             if not is_available:
@@ -1194,6 +1258,77 @@ class AppointmentService:
 
     async def audit_log(self, appointment_id: UUID) -> builtins.list[dict]:
         return await self.audit.list_for_appointment(appointment_id)
+
+    # ── device-session course rules (design D6-D7) ─────────────────────────
+
+    async def device_makeup_window_for(self, appt: dict) -> tuple[dt.date, dt.date, str]:
+        """(first, last, reason) dates a no_show/missed device session may move
+        to. "Last session" is the latest other session of the same protocol
+        still in the course; a protocol with no other session falls back to
+        this row's own date."""
+        last = await self.repo.last_device_session_date(appt["protocol_id"], exclude_appointment_id=appt["appointment_id"])
+        last = max(last, appt["appointment_date"]) if last else appt["appointment_date"]
+        start, end = device_makeup_window(last, _now_ist_naive().date())
+        return start, end, device_makeup_reason(last, start, end)
+
+    async def assert_one_device_session_per_day(self, appt: dict, on_date: dt.date) -> None:
+        if not appt.get("protocol_id"):
+            return
+        clash = await self.repo.count_device_sessions_on_date(appt["protocol_id"], on_date, exclude_appointment_id=appt["appointment_id"])
+        if clash:
+            raise BusinessRuleError(
+                f"Another device session of this treatment course is already on {on_date:%d %b %Y}. {SAME_DAY_DEVICE_SESSION_REASON}",
+                code="SAME_DAY_DEVICE_SESSION",
+            )
+
+    async def reschedule_options(self, appointment_id: UUID, *, ctx: RequestContext) -> dict:
+        """Whether this row can be moved right now, and to which dates — the
+        same rules reschedule()/reschedule_own() enforce, stated up front so
+        the screen can show them (with the reason) before the user picks."""
+        appt = await self.get(appointment_id)
+        for_patient = ctx.role == "patient"
+        if for_patient:
+            assert_owns_profile(ctx, appt["patient_id"])
+        else:
+            await assert_clinic_scope(ctx, self.session, appt["clinic_id"])
+
+        status, appt_type = appt["status"], appt["appointment_type"]
+        today = _now_ist_naive().date()
+        out: dict = {
+            "appointment_id": appointment_id,
+            "status": status,
+            "can_reschedule": True,
+            "blocked_reason": None,
+            "min_notice_hours": None,
+            "earliest_date": today,
+            "latest_date": None,
+            "date_rule_reason": None,
+        }
+
+        def block(reason: str) -> dict:
+            return {**out, "can_reschedule": False, "blocked_reason": reason, "earliest_date": None}
+
+        if for_patient:
+            if appt_type in PROTOCOL_BORN_TYPES and status == STATUS_PLANNED:
+                return block("This session has no time yet — book a slot for it instead.")
+            if status not in PATIENT_RESCHEDULE_FROM_STATUSES:
+                return block(f"An appointment that is '{status}' cannot be rescheduled.")
+            notice = await reschedule_min_hours(self.session, appt["clinic_id"])
+            out["min_notice_hours"] = notice
+            if status != "no_show" and appt["start_time"] and _hours_until(appt["appointment_date"], appt["start_time"]) < notice:
+                return block(f"Rescheduling closes {notice:g} hours before the appointment starts.")
+        elif status not in RESCHEDULE_FROM_STATUSES:
+            return block(f"An appointment that is '{status}' cannot be rescheduled.")
+        elif ctx.role == "receptionist" and appt_type in PROTOCOL_BORN_TYPES and status == STATUS_PLANNED:
+            out["earliest_date"] = out["latest_date"] = appt["appointment_date"]
+            out["date_rule_reason"] = (
+                "A prescribed session can only be booked on its scheduled day; moving it to another day is the doctor's decision."
+            )
+
+        if appt_type == TYPE_DEVICE_SESSION and status in DEVICE_MAKEUP_STATUSES:
+            start, end, reason = await self.device_makeup_window_for(appt)
+            out["earliest_date"], out["latest_date"], out["date_rule_reason"] = start, end, reason
+        return out
 
 
 class DeviceCapacityService:
@@ -1592,6 +1727,7 @@ class PatientBookingService:
             # Counted check under a row lock. Held until this transaction
             # commits, which is what stops two patients taking the last slot.
             duration = await self.capacity.reserve(appt, on_date, start_time)
+            await self.appointments.assert_one_device_session_per_day(appt, on_date)
         else:
             doctor_profile_id = UUID(str(appt["doctor_id"]))
             is_available, duration = await self.availability.check_slot(doctor_profile_id, on_date, start_time)
@@ -1694,15 +1830,13 @@ class PatientBookingService:
         # The notice-window only makes sense for a still-upcoming slot — a
         # no_show one is by definition already in the past, so
         # _hours_until would always be negative and always fail this check.
-        if (
-            appt["status"] != "no_show"
-            and appt["start_time"]
-            and _hours_until(appt["appointment_date"], appt["start_time"]) < RESCHEDULE_MIN_HOURS
-        ):
-            raise BusinessRuleError(
-                f"Rescheduling requires at least {RESCHEDULE_MIN_HOURS} hours' notice",
-                code="RESCHEDULE_WINDOW_PASSED",
-            )
+        if appt["status"] != "no_show" and appt["start_time"]:
+            notice = await reschedule_min_hours(self.session, appt["clinic_id"])
+            if _hours_until(appt["appointment_date"], appt["start_time"]) < notice:
+                raise BusinessRuleError(
+                    f"Rescheduling requires at least {notice:g} hours' notice",
+                    code="RESCHEDULE_WINDOW_PASSED",
+                )
         return await self.appointments.reschedule(appointment_id, data, changed_by=UUID(ctx.user_id), changed_by_role="patient", ctx=ctx)
 
     async def cancel_own(self, appointment_id: UUID, ctx: RequestContext, *, reason: str) -> dict:

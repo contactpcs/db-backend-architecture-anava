@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
-from app.core.db import RequestContext, get_db
+from app.core.db import RequestContext, as_system, get_db
 from app.core.exceptions import BusinessRuleError, PermissionError_
 from app.core.permissions import require_role
 from app.core.scoping import assert_owns_profile
@@ -180,17 +180,29 @@ async def update_payment_status(
 ):
     if body.status == "waived" and ctx.role not in ("clinic_admin", "super_admin"):
         raise PermissionError_("Only a Clinic Admin can waive a payment", code="WAIVER_NOT_PERMITTED")
+    if body.status == "refunded" and ctx.role not in _CASH_COLLECTING_ROLES:
+        raise PermissionError_("Only the front desk or an admin can confirm a refund", code="REFUND_NOT_PERMITTED")
     clinic_id = await PaymentService(db).repo.get_clinic_id(payment_id)
     await assert_payment_clinic_scope(ctx, db, clinic_id)
-    return await PaymentService(db).update_status(
-        payment_id,
-        status=body.status,
-        payment_method=body.payment_method,
-        waived_by=UUID(ctx.user_id) if body.status == "waived" else None,
-        waived_reason=body.waived_reason,
-        _changed_by=UUID(ctx.user_id),
-        _changed_by_role=ctx.role,
-    )
+
+    async def apply() -> dict:
+        return await PaymentService(db).update_status(
+            payment_id,
+            status=body.status,
+            payment_method=body.payment_method,
+            waived_by=UUID(ctx.user_id) if body.status == "waived" else None,
+            waived_reason=body.waived_reason,
+            _changed_by=UUID(ctx.user_id),
+            _changed_by_role=ctx.role,
+        )
+
+    # A receptionist confirming a cash refund: rls_payments_update admits only
+    # super_admin/clinic_admin/system, so the UPDATE would match 0 rows. The
+    # role check and clinic scope above already authorized it.
+    if body.status == "refunded":
+        async with as_system(db):
+            return await apply()
+    return await apply()
 
 
 @router.get("/me/payments", response_model=list[s.PaymentHistoryRead])

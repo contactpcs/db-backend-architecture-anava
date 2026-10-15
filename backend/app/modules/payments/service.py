@@ -62,6 +62,12 @@ def resolve_cancellation_refund_percent(tiers: list[dict], hours_until: float) -
     return 0.0
 
 
+def refunded_status_for(amount: float, refund_amount: float) -> str:
+    """payments.status once a refund has actually been returned: refunded
+    when the whole amount went back, partially_refunded otherwise (118)."""
+    return "refunded" if float(refund_amount) >= float(amount) else "partially_refunded"
+
+
 _REVENUE_GROUP_BY = {"day", "week", "month", "year"}
 
 # Which breakdown a role may ask for. Region only makes sense cross-region
@@ -176,6 +182,10 @@ class PaymentService:
 
         await self.session.execute(text_set_local("app.current_user_role", "system"))
 
+        event = body.get("event", "")
+        if event.startswith("refund."):
+            return await self._handle_refund_webhook(event, body)
+
         rzp_order_id = body.get("payload", {}).get("payment", {}).get("entity", {}).get("order_id")
         rzp_payment_id = body.get("payload", {}).get("payment", {}).get("entity", {}).get("id")
         if not rzp_order_id:
@@ -192,8 +202,6 @@ class PaymentService:
                 body=body,
             )
             raise NotFoundError("No payment found for this Razorpay order", code="PAYMENT_NOT_FOUND")
-
-        event = body.get("event", "")
 
         # Idempotent — Razorpay retries webhook delivery; a payment already
         # marked paid is a no-op, not an error (Architecture Section 14).
@@ -245,6 +253,89 @@ class PaymentService:
             gateway_response=body,
         )
         return payment
+
+    async def _handle_refund_webhook(self, event: str, body: dict) -> dict:
+        """refund.processed / refund.failed (and refund.created, logged only).
+        The refund worker reaches the same end state by polling; whichever
+        arrives first wins, the other finds refund_status no longer pending."""
+        refund = body.get("payload", {}).get("refund", {}).get("entity", {})
+        payment = await self.repo.get_by_razorpay_payment_id(refund.get("payment_id") or "")
+        if not payment:
+            raise NotFoundError("No payment found for this Razorpay refund", code="PAYMENT_NOT_FOUND")
+        outcome = {"refund.processed": "processed", "refund.failed": "failed"}.get(event)
+        if outcome and payment.get("refund_status") == "pending":
+            return await self.apply_refund_result(
+                payment,
+                razorpay_refund_id=refund.get("id"),
+                refund_status=outcome,
+                source="razorpay_webhook",
+                gateway_event=event,
+                gateway_response=body,
+            )
+        await self.repo.log_event(
+            payment["payment_id"],
+            status=payment["status"],
+            amount=float(payment["amount"]),
+            currency=payment["currency"],
+            source="razorpay_webhook",
+            razorpay_payment_id=payment.get("razorpay_payment_id"),
+            gateway_event=event,
+            gateway_response=body,
+        )
+        return payment
+
+    async def apply_refund_result(
+        self,
+        payment: dict,
+        *,
+        razorpay_refund_id: str | None,
+        refund_status: str,
+        source: str,
+        gateway_event: str | None = None,
+        gateway_response: dict | None = None,
+        failure_reason: str | None = None,
+        changed_by: UUID | None = None,
+        changed_by_role: str = "system",
+    ) -> dict:
+        """Shared by the refund worker, the refund webhooks and the front-desk
+        cash confirmation. processed -> status refunded / partially_refunded;
+        pending -> refund id stored, still waiting; failed -> left for staff."""
+        new_status = None
+        if refund_status == "processed":
+            new_status = refunded_status_for(payment["amount"], payment["cancellation_refund_amount"] or payment["amount"])
+        updated = await self.repo.set_refund_state(
+            payment["payment_id"], refund_status=refund_status, status=new_status, razorpay_refund_id=razorpay_refund_id
+        )
+        assert updated is not None
+        await self.repo.log_event(
+            payment["payment_id"],
+            status=updated["status"],
+            amount=float(updated["amount"]),
+            currency=updated["currency"],
+            source=source,
+            payment_method=updated.get("payment_method"),
+            razorpay_order_id=updated.get("razorpay_order_id"),
+            razorpay_payment_id=updated.get("razorpay_payment_id"),
+            failure_reason=failure_reason,
+            gateway_event=gateway_event,
+            gateway_response=gateway_response or ({"razorpay_refund_id": razorpay_refund_id} if razorpay_refund_id else None),
+            changed_by=changed_by,
+            changed_by_role=changed_by_role,
+        )
+        if refund_status in ("processed", "failed"):
+            await emit_event(
+                self.session,
+                aggregate_type="payment",
+                aggregate_id=payment["payment_id"],
+                event_type="payment_refund_processed" if refund_status == "processed" else "payment_refund_failed",
+                payload={
+                    "payment_id": str(payment["payment_id"]),
+                    "appointment_id": str(updated["appointment_id"]) if updated.get("appointment_id") else None,
+                    "refund_amount": float(updated["cancellation_refund_amount"] or 0),
+                    "currency": updated["currency"],
+                },
+            )
+        return updated
 
     async def get(self, payment_id: UUID) -> dict:
         payment = await self.repo.get(payment_id)
@@ -355,6 +446,18 @@ class PaymentService:
         _gateway_response: dict | None = None,
     ) -> dict:
         payment = await self.get(payment_id)
+
+        # Front desk confirming a refund that the cancellation opened (cash, or
+        # an online refund settled by hand): same end state as the worker.
+        if status == "refunded" and payment.get("refund_status") in ("pending", "failed"):
+            return await self.apply_refund_result(
+                payment,
+                razorpay_refund_id=None,
+                refund_status="processed",
+                source=_source,
+                changed_by=_changed_by,
+                changed_by_role=_changed_by_role,
+            )
 
         # core.appointments is the source of truth for "is this booking
         # paid" — every caller (webhook, mock-confirm, staff PATCH) routes
@@ -690,7 +793,7 @@ class PaymentService:
         appt = await self._get_appointment_for_pay(appointment_id, ctx)
 
         payment = await self.repo.get_for_appointment(appointment_id)
-        if not payment or payment["status"] not in ("paid", "waived", "refunded"):
+        if not payment or payment["status"] not in ("paid", "waived", "refunded", "partially_refunded"):
             raise BusinessRuleError("Receipt not available until payment is completed", code="RECEIPT_NOT_AVAILABLE")
 
         priced = await BillableItemRepository(self.session).resolve_price(

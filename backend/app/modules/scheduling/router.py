@@ -8,6 +8,7 @@ from app.core.db import RequestContext, get_db
 from app.core.exceptions import BusinessRuleError, NotFoundError, PermissionError_
 from app.core.permissions import require_role
 from app.modules.scheduling import schemas as s
+from app.modules.scheduling.policy import AppointmentPolicyService
 from app.modules.scheduling.service import (
     AppointmentService,
     AvailabilityService,
@@ -313,6 +314,32 @@ async def update_appointment_status(
     )
 
 
+@router.get("/appointment-policy", response_model=s.AppointmentPolicyRead)
+async def get_appointment_policy(
+    clinic_id: UUID | None = None,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient")),
+):
+    """Booking / cancellation / reschedule / refund policy note, shown before
+    booking. A patient always gets their own clinic's; clinic-bound staff get
+    their own clinic unless they pass one."""
+    if ctx.role == "patient":
+        from sqlalchemy import text
+
+        row = (await db.execute(text("SELECT primary_clinic_id FROM patients WHERE profile_id = :pid"), {"pid": ctx.user_id})).first()
+        clinic_id = row[0] if row else None
+    elif clinic_id is None and ctx.clinic_id:
+        clinic_id = UUID(ctx.clinic_id)
+    if clinic_id is None:
+        raise BusinessRuleError("clinic_id is required", code="CLINIC_ID_REQUIRED")
+    return await AppointmentPolicyService(db).for_clinic(clinic_id)
+
+
+@router.get("/appointments/{appointment_id}/reschedule-options", response_model=s.RescheduleOptionsRead)
+async def get_reschedule_options(appointment_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF))):
+    return await AppointmentService(db).reschedule_options(appointment_id, ctx=ctx)
+
+
 @router.get("/appointments/{appointment_id}/audit-log")
 async def get_appointment_audit_log(
     appointment_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_ALL_STAFF, "patient"))
@@ -433,6 +460,13 @@ async def claim_slot(
     Everything downstream is identical.
     """
     return await PatientBookingService(db).claim_slot(appointment_id, ctx, body.model_dump())
+
+
+@router.get("/me/appointments/{appointment_id}/reschedule-options", response_model=s.RescheduleOptionsRead)
+async def my_reschedule_options(appointment_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role("patient"))):
+    """Can this appointment be moved now, and to which dates? Carries the
+    reason (e.g. the device-session make-up window) to show while picking."""
+    return await AppointmentService(db).reschedule_options(appointment_id, ctx=ctx)
 
 
 @router.patch("/me/appointments/{appointment_id}/reschedule", response_model=s.AppointmentRead)

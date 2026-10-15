@@ -37,6 +37,10 @@ class PaymentRead(BaseModel):
     platform_fee_amount: float | None = None
     cancellation_refund_percent: float | None = None
     cancellation_refund_amount: float | None = None
+    # 118: NULL = nothing owed; pending -> processed (status becomes
+    # refunded / partially_refunded) or failed.
+    refund_status: str | None = None
+    refunded_at: datetime | None = None
 
 
 class PaymentStatusTotal(BaseModel):

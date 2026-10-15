@@ -87,6 +87,13 @@ class Settings(BaseSettings):
     # is racing a 15-minute window; this one is racing multi-hour windows.
     appointment_no_show_sweep_interval_seconds: int = 900
     appointment_no_show_sweeper_enabled: bool = True
+    # Patient reschedule notice when the clinic has not set its own
+    # (clinics.reschedule_min_hours, 118_appointment_policy_and_refunds.sql).
+    appointment_reschedule_min_hours: float = 24.0
+    # Refund worker (app/workers/refund_worker.py): creates/polls Razorpay
+    # refunds for cancelled paid appointments (refund_status = 'pending').
+    refund_worker_enabled: bool = True
+    refund_worker_interval_seconds: int = 60
     # Outbox relay (app/workers/event_relay.py): turns outbox events into
     # notifications rows + live SSE pushes. Off = nobody is ever notified.
     event_relay_enabled: bool = True

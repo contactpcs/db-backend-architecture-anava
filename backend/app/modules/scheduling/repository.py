@@ -681,6 +681,38 @@ class AppointmentRepository:
             {**fields, "id": str(appointment_id)},
         )
 
+    # ── device-session course rules (118 / design D6-D7) ────────────────────
+
+    async def last_device_session_date(self, protocol_id: UUID, *, exclude_appointment_id: UUID):
+        """Latest date of any other device session of this protocol that is
+        still part of the course (not cancelled/rescheduled away)."""
+        return (
+            await self.session.execute(
+                text(
+                    "SELECT max(appointment_date) FROM appointments "
+                    "WHERE protocol_id = :pid AND appointment_type = 'device_session' "
+                    "AND appointment_id <> :aid AND status NOT IN ('cancelled', 'rescheduled')"
+                ),
+                {"pid": str(protocol_id), "aid": str(exclude_appointment_id)},
+            )
+        ).scalar_one_or_none()
+
+    async def count_device_sessions_on_date(self, protocol_id: UUID, on_date, *, exclude_appointment_id: UUID) -> int:
+        """Other device sessions of this protocol that will (or did) happen on
+        on_date. no_show/missed/cancelled/rescheduled rows did not happen on
+        their date, so they never block it."""
+        return (
+            await self.session.execute(
+                text(
+                    "SELECT count(*) FROM appointments "
+                    "WHERE protocol_id = :pid AND appointment_type = 'device_session' "
+                    "AND appointment_id <> :aid AND appointment_date = :d "
+                    "AND status NOT IN ('cancelled', 'rescheduled', 'no_show', 'missed')"
+                ),
+                {"pid": str(protocol_id), "aid": str(exclude_appointment_id), "d": on_date},
+            )
+        ).scalar_one()
+
 
 class AppointmentAuditLogRepository:
     def __init__(self, session: AsyncSession):

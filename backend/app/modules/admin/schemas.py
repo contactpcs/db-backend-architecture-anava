@@ -254,6 +254,9 @@ class ClinicUpdate(BaseModel):
     # the onboarding lifecycle; this is "open for business today"). See
     # 65_clinic_hours_and_operational_status.sql.
     is_operational: bool | None = None
+    # Patient reschedule notice for this clinic (118). Omitted = unchanged;
+    # a clinic that never sets it uses the platform default (24 h).
+    reschedule_min_hours: float | None = Field(default=None, ge=0, le=720)
 
 
 class ClinicStatusUpdate(BaseModel):
@@ -267,6 +270,7 @@ class ClinicRead(BaseModel):
     clinic_type: str
     status: str
     is_operational: bool
+    reschedule_min_hours: float | None = None
     region_id: UUID
     clinic_admin_id: UUID | None
     is_main_branch: bool

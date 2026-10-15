@@ -254,6 +254,44 @@ async def _handle_appointment_cancelled(session, payload: dict[str, Any]) -> lis
     ]
 
 
+async def _handle_payment_refund(session, payload: dict[str, Any], *, processed: bool) -> list[dict]:
+    """Tells the patient their refund went through, or that it needs the
+    clinic (118). Recipient resolved through the appointment."""
+    if not payload.get("appointment_id"):
+        return []
+    row = (
+        (await session.execute(text("SELECT patient_id FROM appointments WHERE appointment_id = :id"), {"id": payload["appointment_id"]}))
+        .mappings()
+        .first()
+    )
+    if not row:
+        return []
+    amount = f"{payload.get('currency') or 'INR'} {float(payload.get('refund_amount') or 0):.2f}"
+    return [
+        {
+            "recipient_id": str(row["patient_id"]),
+            "type": "appointment",
+            "title": "Refund processed" if processed else "Refund could not be processed",
+            "body": (
+                f"{amount} has been refunded. Online refunds go back to the original payment method "
+                "and can take a few working days to appear."
+                if processed
+                else f"We could not refund {amount} automatically. The clinic will contact you to complete it."
+            ),
+            "entity_type": "appointment",
+            "entity_id": payload["appointment_id"],
+        }
+    ]
+
+
+async def _handle_payment_refund_processed(session, payload: dict[str, Any]) -> list[dict]:
+    return await _handle_payment_refund(session, payload, processed=True)
+
+
+async def _handle_payment_refund_failed(session, payload: dict[str, Any]) -> list[dict]:
+    return await _handle_payment_refund(session, payload, processed=False)
+
+
 _STATUS_TITLES = {
     "confirmed": "Your appointment is confirmed",
     "completed": "Your appointment is complete",
@@ -508,6 +546,8 @@ EVENT_HANDLERS = {
     "appointment_cancelled": _handle_appointment_cancelled,
     "appointment_status_changed": _handle_appointment_status_changed,
     "appointment_rescheduled": _handle_appointment_rescheduled,
+    "payment_refund_processed": _handle_payment_refund_processed,
+    "payment_refund_failed": _handle_payment_refund_failed,
     "staff_request_submitted": _handle_staff_request_submitted,
     "staff_request_decided": _handle_staff_request_decided,
     "registration_completed": _handle_registration_completed,
