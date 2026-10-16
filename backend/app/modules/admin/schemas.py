@@ -1,4 +1,5 @@
 from datetime import date, datetime, time
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
@@ -123,6 +124,36 @@ class CancellationPolicyTierRead(BaseModel):
     updated_by: UUID | None
     created_at: datetime
     updated_at: datetime
+
+
+class RefundTier(BaseModel):
+    min_hours_before: float = Field(ge=0, le=720)
+    refund_percent: float = Field(ge=0, le=100)
+
+
+class RefundRuleRead(BaseModel):
+    uses_default: bool
+    # What applies to this clinic now: its own set, or the default when uses_default.
+    tiers: list[RefundTier]
+    default_tiers: list[RefundTier]
+
+
+class BookingPolicyRead(BaseModel):
+    """GET /clinics/{id}/booking-policy (design D11)."""
+
+    clinic_id: UUID
+    reschedule_min_hours: float | None
+    effective_reschedule_min_hours: float
+    default_reschedule_min_hours: float
+    refund_rules: dict[str, RefundRuleRead]
+
+
+class BookingPolicyUpdate(BaseModel):
+    """PUT replaces the whole policy. reschedule_min_hours null = platform
+    default; an empty tier list for a session type = platform default."""
+
+    reschedule_min_hours: float | None = Field(default=None, ge=0, le=720)
+    refund_rules: dict[Literal["appointment", "device_session"], list[RefundTier]]
 
 
 class ClinicCreate(BaseModel):

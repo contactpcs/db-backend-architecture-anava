@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.core.db import RequestContext, as_system, get_db
@@ -68,6 +68,9 @@ async def list_payments_history(
     date_to: datetime | None = None,
     limit: int = 100,
     offset: int = 0,
+    refund_status: str | None = Query(
+        None, description="comma list of pending,processed,failed — e.g. pending,failed = refunds needing action"
+    ),
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_PAYMENTS_HISTORY_ROLES)),
 ):
@@ -75,8 +78,18 @@ async def list_payments_history(
     admin sees every clinic, regional admin their region, clinic admin/
     receptionist their own clinic. No clinic_id query param: the scope is
     derived from who's asking, not something the caller can widen."""
+    refund_statuses = [x.strip() for x in refund_status.split(",") if x.strip()] if refund_status else None
+    if refund_statuses and not set(refund_statuses) <= {"pending", "processed", "failed"}:
+        raise BusinessRuleError("refund_status must be pending, processed and/or failed", code="INVALID_REFUND_STATUS")
     return await PaymentService(db).list_history(
-        ctx, status=status, search=search, date_from=date_from, date_to=date_to, limit=min(limit, 500), offset=offset
+        ctx,
+        status=status,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        limit=min(limit, 500),
+        offset=offset,
+        refund_status=refund_statuses,
     )
 
 

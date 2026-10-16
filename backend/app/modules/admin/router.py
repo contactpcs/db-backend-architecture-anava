@@ -11,6 +11,7 @@ from app.modules.admin.repository import ClinicRepository
 from app.modules.admin.service import (
     AdminAccountsService,
     BillableItemService,
+    BookingPolicyService,
     CancellationPolicyService,
     ClinicHoursService,
     ClinicRequestService,
@@ -299,6 +300,32 @@ async def change_clinic_status(
     _ctx: RequestContext = Depends(require_role("super_admin", "regional_admin")),
 ):
     return await ClinicService(db).change_status(clinic_id, body.status)
+
+
+@router.get("/clinics/{clinic_id}/booking-policy", response_model=s.BookingPolicyRead)
+async def get_booking_policy(
+    clinic_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin")),
+):
+    """The clinic's refund-on-cancellation rows and reschedule notice, each
+    either the clinic's own or the platform default."""
+    await assert_clinic_scope(ctx, db, clinic_id)
+    return await BookingPolicyService(db).get(clinic_id)
+
+
+@router.put("/clinics/{clinic_id}/booking-policy", response_model=s.BookingPolicyRead)
+async def replace_booking_policy(
+    clinic_id: UUID,
+    body: s.BookingPolicyUpdate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin", "clinic_admin")),
+):
+    """Saves the whole policy at once — a half-saved tier set would change
+    what patients are refunded mid-edit."""
+    await assert_clinic_scope(ctx, db, clinic_id)
+    data = body.model_dump()
+    return await BookingPolicyService(db).replace(clinic_id, data, updated_by=UUID(ctx.user_id))
 
 
 @router.get("/clinics/{clinic_id}/hours", response_model=list[s.ClinicWeeklyHoursRead])

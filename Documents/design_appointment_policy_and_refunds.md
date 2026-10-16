@@ -55,3 +55,12 @@ Revenue = `paid` + `partially_refunded`, net of processed refund amounts.
 
 - Staff-initiated cancellations still use the same tiers as patient cancellations (unchanged). If the clinic cancels, should the patient always get 100 %? Not decided.
 - Cancelling an unpaid `selected` booking still leaves its `pending` payment (Payments finding P-2/P-8).
+
+## Addendum 2026-10-16 — clinic-managed refund policy
+
+| # | Decision |
+|---|---|
+| D10 | Platform default refund rule becomes **24 h or more -> 100 %, 12 h to 24 h -> 50 %, under 12 h -> 0 %**, for consultations and device sessions (`SQL/v1/119_default_refund_tiers_24_12.sql`, alembic `0065`). Replaces the 118 seed only where the default set is still exactly that seed. |
+| D11 | Each clinic manages its own policy on one screen (Clinic admin -> Settings -> Booking policy). Saved as a whole: `GET/PUT /clinics/{clinic_id}/booking-policy` replaces the clinic's tier set per session type atomically (empty = use platform default) and sets/clears `reschedule_min_hours`. Writers: super_admin, clinic_admin (own clinic). Rules: 1-10 rows, unique hour thresholds, 0-100 %, more notice never refunds less. |
+| D12 | Refund visibility: `/payments/history` takes `refund_status` (comma list); the shared Payments screen shows refund state per payment and a "refunds needing action" list where front desk confirms cash or failed refunds. |
+| D13 | Refund progress is shown as stages (approved -> sent to bank / collect at counter -> refunded) on the patient Payments page and the staff Payments screen. Two timestamps make that possible: `payments.refund_requested_at` (refund approved at cancellation, or a late capture queued for refund) and `payments.refund_initiated_at` (refund created at Razorpay). `refunded_at` already closes it. `SQL/v1/120_payment_refund_timeline.sql`, alembic `0066`. API also exposes `razorpay_refund_id` as the patient's refund reference. |

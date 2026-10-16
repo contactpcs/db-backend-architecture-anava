@@ -156,7 +156,7 @@ def test_full_refund_marks_refunded_partial_marks_partially_refunded():
 def test_policy_text_for_the_default_twelve_hour_rule():
     lines = describe_refund_tiers([{"min_hours_before": 12, "refund_percent": 100}])
     assert lines == [
-        "Cancelled at least 12 hours before the start time: 100% refund of the amount paid.",
+        "Cancelled 12 hours or more before the start time: 100% refund of the amount paid.",
         "Cancelled less than 12 hours before the start time: no refund.",
     ]
 
@@ -181,3 +181,51 @@ def test_policy_note_reads_live_values():
     text = " ".join(p for s in sections for p in s["points"])
     assert [s["key"] for s in sections] == ["booking", "cancellation", "reschedule", "attendance", "device_sessions"]
     assert "15 minutes" in text and "6 hours before it starts" in text and "12 hours" in text
+
+
+# ── late / duplicate captures (P-2, P-16) ───────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("appt_status", "other_paid", "orphaned"),
+    [
+        ("selected", False, False),  # normal checkout
+        ("paid", False, False),  # redelivery for the booking's own payment
+        ("paid", True, True),  # a second order also captured
+        ("cancelled", False, True),  # paid after the booking was cancelled / expired
+        ("rescheduled", False, True),
+    ],
+)
+@pytest.mark.asyncio
+async def test_capture_is_orphaned(appt_status, other_paid, orphaned):
+    from app.modules.payments.service import PaymentService
+
+    svc = PaymentService(AsyncMock())
+    svc.repo = AsyncMock()
+    svc.repo.other_paid_for_appointment.return_value = other_paid
+    with patch("app.modules.scheduling.repository.AppointmentRepository") as repo:
+        repo.return_value.get = AsyncMock(return_value={"status": appt_status})
+        assert await svc._capture_is_orphaned({"appointment_id": uuid4(), "payment_id": uuid4()}) is orphaned
+
+
+def test_policy_text_for_the_24_12_default():
+    lines = describe_refund_tiers([{"min_hours_before": 24, "refund_percent": 100}, {"min_hours_before": 12, "refund_percent": 50}])
+    assert lines == [
+        "Cancelled 24 hours or more before the start time: 100% refund of the amount paid.",
+        "Cancelled between 12 and 24 hours before the start time: 50% refund of the amount paid.",
+        "Cancelled less than 12 hours before the start time: no refund.",
+    ]
+
+
+def test_tier_set_validation():
+    from app.core.exceptions import ValidationError
+    from app.modules.admin.service import validate_tier_set
+
+    ordered = validate_tier_set([{"min_hours_before": 12, "refund_percent": 50}, {"min_hours_before": 24, "refund_percent": 100}])
+    assert [t["min_hours_before"] for t in ordered] == [24, 12]
+    with pytest.raises(ValidationError) as dup:
+        validate_tier_set([{"min_hours_before": 12, "refund_percent": 50}, {"min_hours_before": 12, "refund_percent": 20}])
+    assert dup.value.code == "DUPLICATE_REFUND_TIER"
+    with pytest.raises(ValidationError) as inverted:
+        validate_tier_set([{"min_hours_before": 24, "refund_percent": 50}, {"min_hours_before": 12, "refund_percent": 100}])
+    assert inverted.value.code == "REFUND_TIERS_NOT_DESCENDING"

@@ -41,52 +41,57 @@ _session_factory = async_sessionmaker(_engine, expire_on_commit=False, autoflush
 
 
 async def process_once() -> dict:
-    done = {"processed": 0, "waiting": 0, "failed": 0, "skipped": False}
     async with _session_factory() as session:
         async with session.begin():
             got_lock = (await session.execute(text("SELECT pg_try_advisory_xact_lock(:k)"), {"k": REFUND_LOCK_KEY})).scalar()
             if not got_lock:
-                return {**done, "skipped": True}
+                return {"processed": 0, "waiting": 0, "failed": 0, "skipped": True}
             await session.execute(text("SELECT set_config('app.current_user_role', 'system', true)"))
-
-            service = PaymentService(session)
-            for payment in await PaymentRepository(session).list_pending_online_refunds():
-                # One savepoint per payment: a failure on one row never rolls
-                # back the refunds already recorded for the others.
-                async with session.begin_nested():
-                    try:
-                        if payment["razorpay_refund_id"]:
-                            refund = razorpay_client.fetch_refund(payment["razorpay_refund_id"])
-                        else:
-                            refund = razorpay_client.refund_payment(
-                                razorpay_payment_id=payment["razorpay_payment_id"],
-                                amount=float(payment["cancellation_refund_amount"]),
-                                notes={"payment_id": str(payment["payment_id"]), "appointment_id": str(payment["appointment_id"])},
-                            )
-                    except Exception as exc:  # gateway refused or unreachable
-                        await service.apply_refund_result(
-                            payment, razorpay_refund_id=None, refund_status="failed", source="system", failure_reason=str(exc)[:500]
-                        )
-                        done["failed"] += 1
-                        continue
-
-                    gateway_status = refund.get("status")
-                    outcome = "processed" if gateway_status == "processed" else "failed" if gateway_status == "failed" else "pending"
-                    if outcome == "pending" and payment["razorpay_refund_id"]:
-                        done["waiting"] += 1  # already recorded, nothing new to log
-                        continue
-                    await service.apply_refund_result(
-                        payment,
-                        razorpay_refund_id=refund.get("id"),
-                        refund_status=outcome,
-                        source="system",
-                        gateway_response=refund,
-                        failure_reason="Razorpay reported the refund as failed" if outcome == "failed" else None,
-                    )
-                    done[outcome if outcome != "pending" else "waiting"] += 1
+            done = await process_batch(session)
 
     if done["processed"] or done["failed"] or done["waiting"]:
         logger.info("refund_worker_pass", **done)
+    return done
+
+
+async def process_batch(session) -> dict:
+    """One batch inside the caller's transaction (role already 'system')."""
+    done = {"processed": 0, "waiting": 0, "failed": 0, "skipped": False}
+    service = PaymentService(session)
+    for payment in await PaymentRepository(session).list_pending_online_refunds():
+        # One savepoint per payment: a failure on one row never rolls
+        # back the refunds already recorded for the others.
+        async with session.begin_nested():
+            try:
+                if payment["razorpay_refund_id"]:
+                    refund = razorpay_client.fetch_refund(payment["razorpay_refund_id"])
+                else:
+                    refund = razorpay_client.refund_payment(
+                        razorpay_payment_id=payment["razorpay_payment_id"],
+                        amount=float(payment["cancellation_refund_amount"]),
+                        notes={"payment_id": str(payment["payment_id"]), "appointment_id": str(payment["appointment_id"])},
+                    )
+            except Exception as exc:  # gateway refused or unreachable
+                await service.apply_refund_result(
+                    payment, razorpay_refund_id=None, refund_status="failed", source="system", failure_reason=str(exc)[:500]
+                )
+                done["failed"] += 1
+                continue
+
+            gateway_status = refund.get("status")
+            outcome = "processed" if gateway_status == "processed" else "failed" if gateway_status == "failed" else "pending"
+            if outcome == "pending" and payment["razorpay_refund_id"]:
+                done["waiting"] += 1  # already recorded, nothing new to log
+                continue
+            await service.apply_refund_result(
+                payment,
+                razorpay_refund_id=refund.get("id"),
+                refund_status=outcome,
+                source="system",
+                gateway_response=refund,
+                failure_reason="Razorpay reported the refund as failed" if outcome == "failed" else None,
+            )
+            done[outcome if outcome != "pending" else "waiting"] += 1
     return done
 
 

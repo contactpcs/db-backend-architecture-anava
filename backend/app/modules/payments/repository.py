@@ -166,7 +166,8 @@ class PaymentRepository:
                 self.session,
                 text(
                     "UPDATE payments SET cancellation_refund_percent = :pct, cancellation_refund_amount = :amt, "
-                    "refund_status = CASE WHEN :amt > 0 THEN 'pending' ELSE refund_status END "
+                    "refund_status = CASE WHEN CAST(:amt AS NUMERIC) > 0 THEN 'pending' ELSE refund_status END, "
+                    "refund_requested_at = CASE WHEN CAST(:amt AS NUMERIC) > 0 THEN NOW() ELSE refund_requested_at END "
                     "WHERE payment_id = :id RETURNING *"
                 ),
                 {"pct": refund_percent, "amt": refund_amount, "id": str(payment_id)},
@@ -182,7 +183,9 @@ class PaymentRepository:
                 self.session,
                 text(
                     "UPDATE payments SET refund_status = :refund_status, "
-                    "razorpay_refund_id = COALESCE(:rfnd, razorpay_refund_id), "
+                    "razorpay_refund_id = COALESCE(CAST(:rfnd AS TEXT), razorpay_refund_id), "
+                    "refund_initiated_at = CASE WHEN CAST(:rfnd AS TEXT) IS NOT NULL THEN COALESCE(refund_initiated_at, NOW()) "
+                    "ELSE refund_initiated_at END, "
                     "status = COALESCE(:status, status), "
                     "refunded_at = CASE WHEN :refund_status = 'processed' THEN COALESCE(refunded_at, NOW()) ELSE refunded_at END, "
                     "updated_at = NOW() WHERE payment_id = :id RETURNING *"
@@ -207,6 +210,33 @@ class PaymentRepository:
             .all()
         )
         return [dict(r) for r in rows]
+
+    async def other_paid_for_appointment(self, appointment_id, payment_id) -> bool:
+        row = await fetch_optional(
+            self.session,
+            text("SELECT 1 AS x FROM payments WHERE appointment_id = :a AND payment_id <> :p AND status = 'paid' LIMIT 1"),
+            {"a": str(appointment_id), "p": str(payment_id)},
+        )
+        return row is not None
+
+    async def mark_orphaned_capture(self, payment_id: UUID, *, razorpay_payment_id, payment_method) -> dict | None:
+        """Money captured for a booking that cannot take it: recorded and
+        queued for a full refund (refund_status pending -> refund worker).
+        Status goes straight to 'refunded' rather than 'paid' - it is not
+        revenue, and 'paid' could collide with the booking's real payment on
+        uq_payments_one_paid_per_appointment."""
+        async with as_system(self.session):
+            return await fetch_optional(
+                self.session,
+                text(
+                    "UPDATE payments SET status = 'refunded', payment_method = COALESCE(:method, payment_method), "
+                    "razorpay_payment_id = COALESCE(:rzp, razorpay_payment_id), paid_at = COALESCE(paid_at, NOW()), "
+                    "cancellation_refund_percent = 100, cancellation_refund_amount = amount, refund_status = 'pending', "
+                    "refund_requested_at = NOW(), "
+                    "updated_at = NOW() WHERE payment_id = :id RETURNING *"
+                ),
+                {"method": payment_method, "rzp": razorpay_payment_id, "id": str(payment_id)},
+            )
 
     async def get_by_razorpay_payment_id(self, razorpay_payment_id: str) -> dict | None:
         return await fetch_optional(
@@ -454,6 +484,7 @@ class PaymentRepository:
         date_to=None,
         limit: int = 100,
         offset: int = 0,
+        refund_status: list[str] | None = None,
     ) -> list[dict]:
         scope_sql, scope_params = self._scope_clause(clinic_id=clinic_id, region_id=region_id)
         where = ["1=1"]
@@ -461,6 +492,9 @@ class PaymentRepository:
         if status:
             where.append("p.status = :status")
             params["status"] = status
+        if refund_status:
+            where.append("p.refund_status = ANY(:refund_status)")
+            params["refund_status"] = refund_status
         if search:
             where.append("pp.first_name || ' ' || pp.last_name ILIKE :search")
             params["search"] = f"%{search}%"

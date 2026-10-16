@@ -40,7 +40,12 @@ class PaymentRead(BaseModel):
     # 118: NULL = nothing owed; pending -> processed (status becomes
     # refunded / partially_refunded) or failed.
     refund_status: str | None = None
+    # Refund progress stages (120): approved -> sent to Razorpay -> refunded.
+    refund_requested_at: datetime | None = None
+    refund_initiated_at: datetime | None = None
     refunded_at: datetime | None = None
+    # Razorpay's refund reference — what a patient quotes to their bank.
+    razorpay_refund_id: str | None = None
 
 
 class PaymentStatusTotal(BaseModel):

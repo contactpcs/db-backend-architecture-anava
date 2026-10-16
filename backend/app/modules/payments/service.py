@@ -207,7 +207,7 @@ class PaymentService:
         # marked paid is a no-op, not an error (Architecture Section 14).
         # Still logged: a retried delivery is a real event that happened,
         # even though it changes nothing.
-        if payment["status"] == "paid":
+        if payment["status"] in ("paid", "refunded", "partially_refunded"):
             await self.repo.log_event(
                 payment["payment_id"],
                 status=payment["status"],
@@ -362,6 +362,7 @@ class PaymentService:
         date_to=None,
         limit: int = 100,
         offset: int = 0,
+        refund_status: builtins.list[str] | None = None,
     ) -> builtins.list[dict]:
         clinic_id, region_id = _history_scope(ctx)
         return await self.repo.list_history(
@@ -373,6 +374,7 @@ class PaymentService:
             date_to=date_to,
             limit=limit,
             offset=offset,
+            refund_status=refund_status,
         )
 
     async def revenue_summary(self, ctx: RequestContext, *, group_by: str, date_from=None, date_to=None) -> builtins.list[dict]:
@@ -450,11 +452,41 @@ class PaymentService:
         # Front desk confirming a refund that the cancellation opened (cash, or
         # an online refund settled by hand): same end state as the worker.
         if status == "refunded" and payment.get("refund_status") in ("pending", "failed"):
+            if payment["refund_status"] == "pending" and payment.get("razorpay_payment_id"):
+                # The refund worker is already returning this through Razorpay;
+                # settling it by hand as well would pay the patient twice.
+                raise BusinessRuleError(
+                    "This refund is being returned through Razorpay automatically - nothing to hand back",
+                    code="REFUND_IN_PROGRESS",
+                )
             return await self.apply_refund_result(
                 payment,
                 razorpay_refund_id=None,
                 refund_status="processed",
                 source=_source,
+                changed_by=_changed_by,
+                changed_by_role=_changed_by_role,
+            )
+
+        # Money the gateway captured for a booking that can no longer take it
+        # (cancelled, hold expired, rescheduled, or already paid by another
+        # order). Rejecting it used to roll everything back and leave the
+        # customer charged with no record at all; it is now recorded and
+        # refunded in full by the refund worker. Gateway-confirmed only — a
+        # staff PATCH to 'paid' on such a booking still fails loudly.
+        if (
+            status == "paid"
+            and payment.get("appointment_id")
+            and _source in ("razorpay_webhook", "client_verify")
+            and await self._capture_is_orphaned(payment)
+        ):
+            return await self._refund_orphaned_capture(
+                payment,
+                payment_method=payment_method,
+                razorpay_payment_id=_razorpay_payment_id,
+                source=_source,
+                gateway_event=_gateway_event,
+                gateway_response=_gateway_response,
                 changed_by=_changed_by,
                 changed_by_role=_changed_by_role,
             )
@@ -507,6 +539,54 @@ class PaymentService:
 
         return updated  # type: ignore[return-value]
 
+    async def _capture_is_orphaned(self, payment: dict) -> bool:
+        from app.modules.scheduling.repository import AppointmentRepository
+
+        appt = await AppointmentRepository(self.session).get(payment["appointment_id"])
+        if appt is None:
+            return True
+        if appt["status"] == "selected":
+            return False
+        if appt["status"] != "paid":
+            return True
+        return await self.repo.other_paid_for_appointment(payment["appointment_id"], payment["payment_id"])
+
+    async def _refund_orphaned_capture(
+        self,
+        payment: dict,
+        *,
+        payment_method,
+        razorpay_payment_id,
+        source: str,
+        gateway_event,
+        gateway_response,
+        changed_by,
+        changed_by_role: str,
+    ) -> dict:
+        updated = await self.repo.mark_orphaned_capture(
+            payment["payment_id"], razorpay_payment_id=razorpay_payment_id, payment_method=payment_method
+        )
+        assert updated is not None
+        await self.repo.log_event(
+            payment["payment_id"],
+            status=updated["status"],
+            amount=float(updated["amount"]),
+            currency=updated["currency"],
+            source=source,
+            payment_method=updated.get("payment_method"),
+            razorpay_order_id=updated.get("razorpay_order_id"),
+            razorpay_payment_id=updated.get("razorpay_payment_id"),
+            failure_reason="Captured after the booking was cancelled, expired or already paid - full refund queued",
+            gateway_event=gateway_event,
+            gateway_response=gateway_response,
+            changed_by=changed_by,
+            changed_by_role=changed_by_role,
+        )
+        logger.warning(
+            "orphaned_capture_refund_queued", payment_id=str(payment["payment_id"]), appointment_id=str(payment["appointment_id"])
+        )
+        return updated
+
     async def record_cancellation_refund(self, appt: dict) -> None:
         """Called from scheduling's update_status right after an appointment
         is transitioned to 'cancelled'. No-op unless there's actually a paid
@@ -516,6 +596,23 @@ class PaymentService:
         moving real money is still a manual step (see 64_fee_breakdown_and_
         cancellation_policy.sql's header note)."""
         payment = await self.repo.get_for_appointment(appt["appointment_id"])
+        if payment and payment["status"] == "pending":
+            # Cancelled before paying: close the open checkout the same way
+            # the hold sweeper does. If the patient still completes it, the
+            # capture is refunded automatically (_refund_orphaned_capture).
+            async with as_system(self.session):
+                await self.repo.set_status(payment["payment_id"], status="failed", payment_method=None, waived_by=None, waived_reason=None)
+            await self.repo.log_event(
+                payment["payment_id"],
+                status="failed",
+                amount=float(payment["amount"]),
+                currency=payment["currency"],
+                source="system",
+                razorpay_order_id=payment.get("razorpay_order_id"),
+                failure_reason="Booking cancelled before payment completed",
+                changed_by_role="system",
+            )
+            return
         if not payment or payment["status"] != "paid":
             return
 
@@ -728,7 +825,7 @@ class PaymentService:
 
         await self._get_appointment_for_pay(payment["appointment_id"], ctx)
 
-        if payment["status"] == "paid":
+        if payment["status"] in ("paid", "refunded", "partially_refunded"):
             return payment
 
         # A verify-failure here (mismatch or bad signature) is logged but

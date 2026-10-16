@@ -32,10 +32,17 @@ def describe_refund_tiers(tiers: list[dict]) -> list[str]:
     if not tiers:
         return ["Cancellations are not refunded."]
     lines = []
-    for tier in tiers:
+    upper = None  # the next-higher threshold, so each band reads "between X and Y"
+    for tier in sorted(tiers, key=lambda t: float(t["min_hours_before"]), reverse=True):
         hours, pct = float(tier["min_hours_before"]), float(tier["refund_percent"])
-        when = "Cancelled any time before the start time" if hours == 0 else f"Cancelled at least {_hours(hours)} before the start time"
+        if upper is None:
+            when = "Cancelled any time before the start time" if hours == 0 else f"Cancelled {_hours(hours)} or more before the start time"
+        elif hours == 0:
+            when = f"Cancelled less than {_hours(upper)} before the start time"
+        else:
+            when = f"Cancelled between {hours:g} and {_hours(upper)} before the start time"
         lines.append(f"{when}: {_pct(pct)} refund of the amount paid." if pct else f"{when}: no refund.")
+        upper = hours
     lowest = float(tiers[-1]["min_hours_before"])
     if lowest > 0:
         lines.append(f"Cancelled less than {_hours(lowest)} before the start time: no refund.")
