@@ -446,6 +446,19 @@ async def update_protocol(
     return await ProtocolService(db).update(protocol_id, body, ctx)
 
 
+@router.post("/treatment-protocols/{protocol_id}/amend", response_model=s.ProtocolRead, status_code=201)
+async def amend_protocol(
+    protocol_id: UUID,
+    body: s.ProtocolAmend,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_AMENDERS)),
+):
+    """'Modify protocol': issues the next minor version of an active protocol
+    with only the sent fields changed, moves its not-yet-started sessions onto
+    it and makes it live — one transaction."""
+    return await ProtocolService(db).amend(protocol_id, body, ctx)
+
+
 @router.get("/treatment-protocols/{protocol_id}/sessions", response_model=list[s.ProtocolSessionRead])
 async def list_protocol_sessions(
     protocol_id: UUID,

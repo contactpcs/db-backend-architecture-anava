@@ -111,19 +111,6 @@ class AnamnesisAssessmentRepository:
             {"pid": str(patient_id)},
         )
 
-    async def get_previous_consultation(self, patient_id: UUID, *, exclude_id: str) -> dict | None:
-        """The patient's most recent other consultation anamnesis — the
-        starting point a new follow-up's answers are copied from."""
-        return await fetch_optional(
-            self.session,
-            text(
-                "SELECT * FROM anamnesis_assessments "
-                "WHERE patient_id = :pid AND assessment_stage = 'main' AND status <> 'superseded' "
-                "AND anamnesis_id <> :ex ORDER BY created_at DESC LIMIT 1"
-            ),
-            {"pid": str(patient_id), "ex": exclude_id},
-        )
-
     async def appointment_status(self, appointment_id: UUID) -> str | None:
         row = await fetch_optional(
             self.session,
@@ -161,20 +148,6 @@ class AnamnesisResponseRepository:
                 "value": response_value,
                 "values": response_values,
             },
-        )
-
-    async def copy_from(self, *, source_id: str, target_id: str) -> None:
-        """Pre-fill a new consultation's anamnesis with another one's answers.
-        response_id is "{anamnesis_id}|{question_id}" (see upsert), so the
-        copies get the target's own ids."""
-        await self.session.execute(
-            text(
-                "INSERT INTO anamnesis_responses (response_id, anamnesis_id, question_id, response_value, response_values) "
-                "SELECT :tgt || '|' || question_id, :tgt, question_id, response_value, response_values "
-                "FROM anamnesis_responses WHERE anamnesis_id = :src "
-                "ON CONFLICT (response_id) DO NOTHING"
-            ),
-            {"src": source_id, "tgt": target_id},
         )
 
     async def list_for_assessment(self, anamnesis_id: str) -> list[dict]:

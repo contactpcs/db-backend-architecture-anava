@@ -558,6 +558,11 @@ class ProtocolRepository:
     async def get(self, protocol_id: UUID) -> dict | None:
         return await fetch_optional(self.session, text(_PROTOCOL_SELECT + "WHERE tp.protocol_id = :id"), {"id": str(protocol_id)})
 
+    async def get_plan_row(self, protocol_id: UUID) -> dict | None:
+        """The bare protocol_plan row, no display joins — what an amendment
+        copies column-for-column into its new version."""
+        return await fetch_optional(self.session, text("SELECT * FROM protocol_plan WHERE protocol_id = :id"), {"id": str(protocol_id)})
+
     async def get_latest_as_of(self, instance_id: UUID, cutoff_date) -> dict | None:
         """The protocol version that was current as of a given visit date —
         inherited by a later follow-up that hasn't amended or replaced it.
@@ -994,6 +999,40 @@ class ProtocolDetailRepository:
             written += result.rowcount or 0  # type: ignore[attr-defined]
         return written
 
+    async def copy_from(
+        self, *, source_id: UUID, target_id: UUID, conditions: bool = True, scales: bool = True, diagnoses: bool = True
+    ) -> None:
+        """Amendment: the new version carries the old one's conditions,
+        diagnoses and scales, except the lists the amendment replaces. Copied
+        in SQL so pre-51 scale rows (neuromod scale_id, not prs_scale_id)
+        survive too."""
+        params = {"src": str(source_id), "tgt": str(target_id)}
+        if conditions:
+            await self.session.execute(
+                text(
+                    "INSERT INTO protocol_conditions (protocol_id, condition_id, other_text) "
+                    "SELECT :tgt, condition_id, other_text FROM protocol_conditions WHERE protocol_id = :src"
+                ),
+                params,
+            )
+        if diagnoses:
+            await self.session.execute(
+                text(
+                    "INSERT INTO protocol_diagnoses (protocol_id, diagnosis_id) "
+                    "SELECT :tgt, diagnosis_id FROM protocol_diagnoses WHERE protocol_id = :src"
+                ),
+                params,
+            )
+        if scales:
+            await self.session.execute(
+                text(
+                    "INSERT INTO protocol_scales (protocol_id, scale_id, prs_scale_id, cadence, window_days, answered_by, display_order) "
+                    "SELECT :tgt, scale_id, prs_scale_id, cadence, window_days, answered_by, display_order "
+                    "FROM protocol_scales WHERE protocol_id = :src"
+                ),
+                params,
+            )
+
     async def list_scales(self, protocol_id: UUID) -> builtins.list[dict]:
         rows = (
             (
@@ -1209,6 +1248,91 @@ class ProtocolSessionRepository:
         )
         return result.rowcount or 0  # type: ignore[attr-defined]
 
+    async def relink_unstarted(self, old_protocol_id: UUID, new_protocol_id: UUID) -> builtins.list[dict]:
+        """Amendment that keeps the schedule: every appointment of the old
+        version that has not started yet — still 'planned', or claimed by the
+        patient ('selected'/'paid') — moves to the new version as-is, so the
+        course's dates, slots and payments carry over and the next session
+        runs on the amended prescription. Started, finished, cancelled and
+        no-show rows stay on the version they were delivered under."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "UPDATE appointments SET protocol_id = :new_id, updated_at = NOW() "
+                        "WHERE protocol_id = :old_id AND status IN ('planned', 'selected', 'paid') "
+                        "RETURNING appointment_id, appointment_type"
+                    ),
+                    {"old_id": str(old_protocol_id), "new_id": str(new_protocol_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def lineage_progress(self, instance_id: UUID, version_major: int) -> dict:
+        """How far this course (one instance, one major version — every minor
+        amendment of it) has got: device sessions delivered, and the highest
+        session number used by a session that took place or was missed."""
+        row = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT count(*) FILTER (WHERE a.status IN ('checked_in', 'in_progress', 'completed')) AS delivered, "
+                        "  COALESCE(max(a.session_number), 0) AS last_number "
+                        "FROM appointments a JOIN protocol_plan tp ON tp.protocol_id = a.protocol_id "
+                        "WHERE tp.instance_id = :iid AND tp.version_major = :major "
+                        "AND a.appointment_type = 'device_session' "
+                        "AND a.status IN ('checked_in', 'in_progress', 'completed', 'no_show')"
+                    ),
+                    {"iid": str(instance_id), "major": version_major},
+                )
+            )
+            .mappings()
+            .one()
+        )
+        return {"delivered": int(row["delivered"]), "last_number": int(row["last_number"])}
+
+    async def list_booked(self, protocol_id: UUID) -> builtins.list[dict]:
+        """Not yet run, but claimed by the patient — a slot and maybe a
+        payment hang off these, so a re-planned course keeps them."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT appointment_id, appointment_type, appointment_date, session_number "
+                        "FROM appointments WHERE protocol_id = :id AND status IN ('selected', 'paid') "
+                        "ORDER BY appointment_date, session_number"
+                    ),
+                    {"id": str(protocol_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def move_to_protocol(self, new_protocol_id: UUID, numbered: builtins.list[tuple[UUID, int]]) -> None:
+        """Re-plan relink: moves these appointments onto the new version and
+        gives each its new session number, in one statement — the new
+        version has no rows yet and the numbers are distinct, so
+        uq_appointments_protocol_session never sees a transient clash."""
+        if not numbered:
+            return
+        values = ", ".join(f"(CAST(:a{i} AS uuid), CAST(:n{i} AS int))" for i in range(len(numbered)))
+        params: dict[str, Any] = {"new_id": str(new_protocol_id)}
+        for i, (appointment_id, number) in enumerate(numbered):
+            params[f"a{i}"] = str(appointment_id)
+            params[f"n{i}"] = number
+        await self.session.execute(
+            text(
+                "UPDATE appointments a SET protocol_id = :new_id, session_number = v.n, updated_at = NOW() "
+                f"FROM (VALUES {values}) AS v(id, n) WHERE a.appointment_id = v.id"
+            ),
+            params,
+        )
+
     async def relink_planned_matching(
         self, old_protocol_id: UUID, new_protocol_id: UUID, dated: builtins.list[tuple[Any, int, str]]
     ) -> builtins.list[dict]:
@@ -1310,6 +1434,24 @@ class ProtocolDeviceSessionRepository:
                 bindparam("ids", expanding=True)
             ),
             {"new_id": str(new_protocol_id), "ids": [str(i) for i in appointment_ids]},
+        )
+
+    async def move_to_protocol(self, new_protocol_id: UUID, numbered: builtins.list[tuple[UUID, int]]) -> None:
+        """Counterpart of ProtocolSessionRepository.move_to_protocol for this
+        table's own protocol_id/session_number."""
+        if not numbered:
+            return
+        values = ", ".join(f"(CAST(:a{i} AS uuid), CAST(:n{i} AS int))" for i in range(len(numbered)))
+        params: dict[str, Any] = {"new_id": str(new_protocol_id)}
+        for i, (appointment_id, number) in enumerate(numbered):
+            params[f"a{i}"] = str(appointment_id)
+            params[f"n{i}"] = number
+        await self.session.execute(
+            text(
+                "UPDATE protocol_device_sessions d SET protocol_id = :new_id, session_number = v.n "
+                f"FROM (VALUES {values}) AS v(id, n) WHERE d.appointment_id = v.id"
+            ),
+            params,
         )
 
 
