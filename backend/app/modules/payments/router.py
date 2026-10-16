@@ -1,5 +1,4 @@
 import io
-import json
 from datetime import datetime
 from uuid import UUID
 
@@ -195,6 +194,10 @@ async def update_payment_status(
         raise PermissionError_("Only a Clinic Admin can waive a payment", code="WAIVER_NOT_PERMITTED")
     if body.status == "refunded" and ctx.role not in _CASH_COLLECTING_ROLES:
         raise PermissionError_("Only the front desk or an admin can confirm a refund", code="REFUND_NOT_PERMITTED")
+    # Marking money received or failed by hand is an admin decision; for other
+    # roles it used to reach the database and fail with a 500 (audit M5).
+    if body.status in ("paid", "failed") and ctx.role not in ("clinic_admin", "super_admin"):
+        raise PermissionError_("Only a Clinic Admin can set a payment to paid or failed by hand", code="PAYMENT_STATUS_NOT_PERMITTED")
     clinic_id = await PaymentService(db).repo.get_clinic_id(payment_id)
     await assert_payment_clinic_scope(ctx, db, clinic_id)
 
@@ -303,4 +306,4 @@ async def razorpay_webhook(request: Request, db=Depends(get_db)):
     authentication (Architecture Section 14)."""
     raw_body = await request.body()
     signature = request.headers.get("X-Razorpay-Signature", "")
-    return await PaymentService(db).handle_webhook(payload=raw_body, signature=signature, body=json.loads(raw_body or b"{}"))
+    return await PaymentService(db).handle_webhook(payload=raw_body, signature=signature)

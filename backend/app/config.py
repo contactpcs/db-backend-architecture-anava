@@ -94,6 +94,15 @@ class Settings(BaseSettings):
     # refunds for cancelled paid appointments (refund_status = 'pending').
     refund_worker_enabled: bool = True
     refund_worker_interval_seconds: int = 60
+    # Payment reconciler (app/workers/payment_reconciler.py): asks Razorpay
+    # about recent pending/failed online payments whose confirmation never
+    # arrived, so captured money is always recorded (audit H1).
+    payment_reconciler_enabled: bool = True
+    payment_reconciler_interval_seconds: int = 120
+    # Give the browser verify / webhook this long before asking Razorpay.
+    payment_reconciler_grace_seconds: int = 120
+    # Stop re-checking an attempt after this long.
+    payment_reconciler_lookback_hours: int = 72
     # Outbox relay (app/workers/event_relay.py): turns outbox events into
     # notifications rows + live SSE pushes. Off = nobody is ever notified.
     event_relay_enabled: bool = True
@@ -257,6 +266,19 @@ class Settings(BaseSettings):
     def _require_bucket_in_s3_mode(self) -> "Settings":
         if self.file_storage_mode == "s3" and not self.s3_bucket_name:
             raise ValueError("s3_bucket_name must be set when file_storage_mode='s3'")
+        return self
+
+    @model_validator(mode="after")
+    def _require_razorpay_outside_local(self) -> "Settings":
+        """Without keys the Razorpay client runs a stub whose signature checks
+        cannot verify anything. That is fine on a developer machine; anywhere
+        else taking bookings that need payment, refuse to start (audit M1)."""
+        if (
+            self.environment not in ("local", "test")
+            and self.appointment_payment_required
+            and not (self.razorpay_key_id and self.razorpay_key_secret and self.razorpay_webhook_secret)
+        ):
+            raise ValueError("razorpay_key_id, razorpay_key_secret and razorpay_webhook_secret must be set outside local/test")
         return self
 
     @model_validator(mode="after")

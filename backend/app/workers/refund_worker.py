@@ -45,18 +45,18 @@ async def process_once() -> dict:
         async with session.begin():
             got_lock = (await session.execute(text("SELECT pg_try_advisory_xact_lock(:k)"), {"k": REFUND_LOCK_KEY})).scalar()
             if not got_lock:
-                return {"processed": 0, "waiting": 0, "failed": 0, "skipped": True}
+                return {"processed": 0, "waiting": 0, "failed": 0, "retrying": 0, "skipped": True}
             await session.execute(text("SELECT set_config('app.current_user_role', 'system', true)"))
             done = await process_batch(session)
 
-    if done["processed"] or done["failed"] or done["waiting"]:
+    if done["processed"] or done["failed"] or done["waiting"] or done["retrying"]:
         logger.info("refund_worker_pass", **done)
     return done
 
 
 async def process_batch(session) -> dict:
     """One batch inside the caller's transaction (role already 'system')."""
-    done = {"processed": 0, "waiting": 0, "failed": 0, "skipped": False}
+    done = {"processed": 0, "waiting": 0, "failed": 0, "retrying": 0, "skipped": False}
     service = PaymentService(session)
     for payment in await PaymentRepository(session).list_pending_online_refunds():
         # One savepoint per payment: a failure on one row never rolls
@@ -71,7 +71,15 @@ async def process_batch(session) -> dict:
                         amount=float(payment["cancellation_refund_amount"]),
                         notes={"payment_id": str(payment["payment_id"]), "appointment_id": str(payment["appointment_id"])},
                     )
-            except Exception as exc:  # gateway refused or unreachable
+            except Exception as exc:
+                if not razorpay_client.is_gateway_rejection(exc):
+                    # Timeout, network or Razorpay 5xx: the refund may well be
+                    # in progress at Razorpay. Marking it failed would invite
+                    # staff to refund by hand as well (audit H2) — leave it
+                    # pending and try again next pass.
+                    logger.warning("refund_worker_transient_error", payment_id=str(payment["payment_id"]), error=str(exc)[:200])
+                    done["retrying"] += 1
+                    continue
                 await service.apply_refund_result(
                     payment, razorpay_refund_id=None, refund_status="failed", source="system", failure_reason=str(exc)[:500]
                 )

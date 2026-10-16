@@ -72,6 +72,9 @@ class PaymentOrderRead(PaymentRead):
     doesn't leak into list/get/status-update responses."""
 
     razorpay_key_id: str | None = None
+    # When the booking's hold ends — Checkout is limited to the time left so
+    # nobody pays for a slot that has already been released (audit M7).
+    hold_expires_at: datetime | None = None
 
 
 class PaymentHistoryRead(PaymentRead):

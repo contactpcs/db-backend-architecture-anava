@@ -18,14 +18,40 @@ def is_configured() -> bool:
     return bool(settings.razorpay_key_id and settings.razorpay_key_secret)
 
 
-def _to_paise(amount: float) -> int:
+def _stub_allowed() -> bool:
+    """Signature checks without keys pass only on a developer machine or in
+    tests. Anywhere else a missing key must fail closed, never trust the
+    caller (audit M1)."""
+    return settings.environment in ("local", "test")
+
+
+def is_gateway_rejection(exc: Exception) -> bool:
+    """True when Razorpay itself refused the request (4xx). Network errors,
+    timeouts and Razorpay 5xx are temporary and worth retrying (audit H2)."""
+    try:
+        from razorpay.errors import BadRequestError
+    except ImportError:  # SDK absent = stub mode, nothing to reject
+        return False
+    return isinstance(exc, BadRequestError)
+
+
+def order_payments(razorpay_order_id: str) -> list[dict]:
+    """Every payment attempt Razorpay holds for one order (status captured /
+    failed / authorized / ...). The reconciler asks this for orders whose
+    confirmation never reached us (audit H1)."""
+    if not is_configured():
+        return []
+    return _client().order.payments(razorpay_order_id).get("items") or []
+
+
+def _to_paise(amount: "float | Decimal") -> int:
     # str(amount) first — Decimal(float) would inherit the float's binary
     # rounding error (e.g. 19.99 -> 19.9899999999999984...) before we ever
     # get a chance to round it.
     return int((Decimal(str(amount)) * 100).to_integral_value(rounding=ROUND_HALF_UP))
 
 
-def create_order(*, amount: float, currency: str, receipt: str) -> dict:
+def create_order(*, amount: "float | Decimal", currency: str, receipt: str) -> dict:
     paise = _to_paise(amount)
     if not is_configured():
         return {"id": f"order_stub_{uuid.uuid4().hex[:14]}", "status": "created", "amount": paise, "currency": currency}
@@ -67,13 +93,10 @@ def fetch_refund(razorpay_refund_id: str) -> dict:
 
 def verify_webhook_signature(*, payload: bytes, signature: str) -> bool:
     if not is_configured():
-        # Stub mode: no real webhook secret to verify against — callers
-        # should not be hitting the real webhook path at all in this mode.
-        return True
-    assert settings.razorpay_webhook_secret is not None, (
-        "RAZORPAY_WEBHOOK_SECRET must be set once razorpay_key_id/secret are configured "
-        "— it is a separate secret from the API key, set in the Razorpay dashboard's webhook config"
-    )
+        return _stub_allowed()
+    if not settings.razorpay_webhook_secret:
+        # Keys without a webhook secret: nothing to check against, so refuse.
+        return False
     expected = hmac.new(settings.razorpay_webhook_secret.encode(), payload, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature)
 
@@ -87,7 +110,7 @@ def verify_payment_signature(*, razorpay_order_id: str, razorpay_payment_id: str
     dev) unreachable; both paths are idempotent and converge on the same
     update_status call, so whichever arrives first wins."""
     if not is_configured():
-        return True
+        return _stub_allowed()
     assert settings.razorpay_key_secret is not None
     expected = hmac.new(
         settings.razorpay_key_secret.encode(),

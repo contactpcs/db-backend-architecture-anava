@@ -1783,6 +1783,9 @@ class PatientBookingService:
         appt = await self.appointments.get(appointment_id)
         updated = await self.repo.mark_paid(appointment_id, paid_by=changed_by, paid_by_role=changed_by_role)
         if updated is None:
+            # Re-read: a concurrent confirmation (browser verify racing the
+            # webhook) may have just paid it, which is success, not an error.
+            appt = await self.appointments.get(appointment_id)
             if appt["status"] == STATUS_PAID:
                 return appt
             raise BusinessRuleError(

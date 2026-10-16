@@ -119,8 +119,13 @@ def build_receipt_pdf(*, payment: dict, appointment: dict, clinic: dict, item_na
     if cancellation_refund_amount is not None:
         refund_percent = payment.get("cancellation_refund_percent")
         percent_suffix = f" ({Decimal(str(refund_percent)):.0f}%)" if refund_percent is not None else ""
+        refund_label = {
+            "processed": "Refunded",
+            "pending": "Refund in progress",
+            "failed": "Refund due (clinic will complete it)",
+        }.get(payment.get("refund_status") or "", "Cancellation refund")
         row(
-            "Cancellation Refund Due",
+            refund_label,
             f"{_fmt_amount(cancellation_refund_amount, currency)}" + percent_suffix,
         )
 

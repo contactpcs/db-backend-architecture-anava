@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -19,7 +20,7 @@ class PaymentRepository:
         *,
         session_id,
         order_id,
-        amount: float,
+        amount: float | Decimal,
         currency: str,
         idempotency_key: str,
         razorpay_order_id: str | None = None,
@@ -57,7 +58,7 @@ class PaymentRepository:
         payment_id: UUID,
         *,
         status: str,
-        amount: float,
+        amount: float | Decimal,
         currency: str,
         source: str,
         payment_method: str | None = None,
@@ -96,6 +97,55 @@ class PaymentRepository:
                 "changed_by_role": changed_by_role,
             },
         )
+
+    async def log_event_detached(self, payment_id: UUID, **fields) -> None:
+        """Same row as log_event, written in its own committed transaction —
+        for security events recorded right before the request fails, which
+        would otherwise roll back with it (audit L2)."""
+        from app.core.db import system_transaction
+
+        async with system_transaction() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO payment_logs (payment_id, status, amount, currency, razorpay_order_id, razorpay_payment_id, "
+                    "failure_reason, source, changed_by, changed_by_role) VALUES (:payment_id, :status, :amount, :currency, "
+                    ":razorpay_order_id, :razorpay_payment_id, :failure_reason, :source, :changed_by, :changed_by_role)"
+                ),
+                {
+                    "payment_id": str(payment_id),
+                    "status": fields["status"],
+                    "amount": fields["amount"],
+                    "currency": fields["currency"],
+                    "razorpay_order_id": fields.get("razorpay_order_id"),
+                    "razorpay_payment_id": fields.get("razorpay_payment_id"),
+                    "failure_reason": fields.get("failure_reason"),
+                    "source": fields["source"],
+                    "changed_by": str(fields["changed_by"]) if fields.get("changed_by") else None,
+                    "changed_by_role": fields.get("changed_by_role"),
+                },
+            )
+
+    async def list_reconcilable(self, *, grace_seconds: int, lookback_hours: int, limit: int = 50) -> list[dict]:
+        """Online attempts we never heard a final answer for: still pending
+        after the grace period, or closed as failed by us (hold expiry,
+        cancellation, cash) within the lookback window (audit H1)."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT * FROM payments WHERE razorpay_order_id IS NOT NULL AND razorpay_order_id NOT LIKE 'order_stub_%' "
+                        "AND status IN ('pending', 'failed') "
+                        "AND created_at > NOW() - make_interval(hours => :lookback) "
+                        "AND (status = 'failed' OR created_at < NOW() - make_interval(secs => :grace)) "
+                        "ORDER BY created_at LIMIT :limit FOR UPDATE SKIP LOCKED"
+                    ),
+                    {"lookback": lookback_hours, "grace": grace_seconds, "limit": limit},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
 
     async def list_for_payment(self, payment_id: UUID) -> list[dict]:
         rows = (
