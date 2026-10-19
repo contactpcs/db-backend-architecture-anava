@@ -387,6 +387,19 @@ async def set_protocol_instance_status(
     return await ProtocolInstanceService(db).set_status(instance_id, status, ctx)
 
 
+@router.get("/patients/{patient_id}/protocol-readiness", response_model=s.ProtocolReadiness)
+async def get_protocol_readiness(
+    patient_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_PRESCRIBERS)),
+):
+    """Whether "Start New Treatment Protocol" is unlocked: the patient's
+    first protocol needs the initial consultation's anamnesis (required
+    questions), a completed PRS and a doctor's note. POST /treatment-protocols
+    enforces the same rule (PROTOCOL_PREREQUISITES_MISSING)."""
+    return await ProtocolService(db).readiness_for_patient(patient_id, ctx)
+
+
 @router.post("/treatment-protocols", response_model=s.ProtocolRead, status_code=201)
 async def create_protocol(
     body: s.ProtocolCreate,
