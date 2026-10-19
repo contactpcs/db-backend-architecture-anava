@@ -144,6 +144,11 @@ class PatientService:
                 guardian_name=data.get("guardian_name"),
                 guardian_relationship=data.get("guardian_relationship"),
                 guardian_contact=data.get("guardian_contact"),
+                # Why a guardian signs: always "minor" under 18; for an adult the
+                # reason the receptionist recorded (consent/service.py resolve_signer).
+                guardian_reason=(
+                    ("minor" if _is_minor(data.get("dob")) else data.get("guardian_reason")) if data.get("guardian_name") else None
+                ),
             )
         except IntegrityError as exc:
             raise profile_conflict_error(exc, email=data["email"], phone=data.get("phone")) from exc

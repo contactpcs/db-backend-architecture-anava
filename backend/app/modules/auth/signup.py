@@ -158,3 +158,126 @@ async def confirm_and_register(
     await db.execute(text(f"UPDATE profiles SET {verified_column} = TRUE WHERE id = :id"), {"id": patient["profile_id"]})
     await db.commit()
     return patient, auth
+
+
+# ─── Front-desk registration (Documents/design_consent_v2.md D1-D3) ───────────
+
+
+def _last10(number: str | None) -> str:
+    return "".join(ch for ch in number or "" if ch.isdigit())[-10:]
+
+
+def normalize_login(channel: str, contact: str) -> tuple[str, str]:
+    """(contact as the Cognito username, method)."""
+    from app.core.exceptions import ValidationError
+    from app.modules.auth.signup_security import normalize_phone
+
+    if channel == "email":
+        contact = contact.strip().lower()
+        if "@" not in contact:
+            raise ValidationError("Enter a valid email address", code="EMAIL_INVALID")
+        return contact, "email"
+    return normalize_phone(contact), "mobile"
+
+
+def check_guardian_login(registration: dict, contact: str, method: str) -> None:
+    """A guardian holds the patient's login: they receive the temporary
+    password and sign the consent, so the login mobile must be theirs. An
+    adult needs a recorded reason for having a guardian at all."""
+    from app.core.exceptions import ValidationError
+    from app.modules.patients.service import _is_minor
+
+    if not registration.get("guardian_name"):
+        return
+    if not _is_minor(registration.get("dob")) and not registration.get("guardian_reason"):
+        raise ValidationError("Choose why a guardian gives consent for this adult patient", code="GUARDIAN_REASON_REQUIRED")
+    if method == "mobile" and _last10(registration.get("guardian_contact")) != _last10(contact):
+        raise ValidationError(
+            "The login mobile number must be the guardian's — they receive the login details and give consent",
+            code="GUARDIAN_LOGIN_MISMATCH",
+        )
+
+
+async def register_patient_at_clinic(db, *, channel: str, contact: str, registration: dict, registered_by: UUID) -> tuple[dict, str, str]:
+    """No password, no OTP, no consent at the desk. The patient row is
+    written first, then Cognito creates the login and sends a temporary
+    password to the patient's own phone/email (attach_patient_login deletes
+    that login again if this request rolls back). Returns (patient, contact,
+    method)."""
+    from app.config import get_settings
+    from app.core.cognito import attach_patient_login
+    from app.modules.patients.service import PatientService
+
+    contact, method = normalize_login(channel, contact)
+    check_guardian_login(registration, contact, method)
+    await reject_if_contact_taken(db, method, contact)
+    data = {
+        **registration,
+        # profiles.email is NOT NULL UNIQUE — a mobile login has no email yet.
+        "email": contact if method == "email" else f"pending-{uuid4()}@no-email.local",
+        "phone": contact if method == "mobile" else None,
+    }
+    patient = await PatientService(db).register(data, self_registered=False, registered_by=registered_by)
+    if get_settings().auth_mode == "cognito":
+        await attach_patient_login(
+            db,
+            profile_id=patient["profile_id"],
+            contact=contact,
+            method=method,
+            first_name=registration["first_name"],
+            last_name=registration["last_name"],
+        )
+    verified_column = "email_verified" if method == "email" else "phone_verified"
+    await db.execute(text(f"UPDATE profiles SET {verified_column} = TRUE WHERE id = :id"), {"id": str(patient["profile_id"])})
+    return patient, contact, method
+
+
+async def resend_clinic_login(db, *, patient_id: UUID, new_contact: str | None) -> tuple[str, str]:
+    """New temporary password for a patient who has not logged in yet,
+    optionally to a corrected phone/email (same channel). Returns (contact,
+    method)."""
+    from app.core.cognito import attach_patient_login, delete_user, resend_patient_login, user_status
+    from app.core.exceptions import ConflictError, NotFoundError
+    from app.modules.patients.repository import PatientRepository
+
+    patient = await PatientRepository(db).get(patient_id)
+    if patient is None:
+        raise NotFoundError("Patient not found", code="PATIENT_NOT_FOUND")
+    method = "mobile" if patient["phone"] else "email"
+    current = patient["phone"] or patient["email"]
+    status = await asyncio.to_thread(user_status, current)
+    if status not in (None, "FORCE_CHANGE_PASSWORD"):
+        raise ConflictError(
+            "The patient has already set their password — they can use 'Forgot password' on the login page",
+            code="LOGIN_ALREADY_ACTIVATED",
+        )
+    contact = current
+    if new_contact:
+        contact, new_method = normalize_login("email" if method == "email" else "phone", new_contact)
+        if new_method != method:
+            raise ConflictError("The corrected contact must be the same kind (phone or email)", code="LOGIN_CHANNEL_MISMATCH")
+    if contact == current and status is not None:
+        await asyncio.to_thread(lambda: resend_patient_login(contact=current, method=method))
+        return current, method
+
+    if contact != current:
+        await reject_if_contact_taken(db, method, contact)
+        column = "phone" if method == "mobile" else "email"
+        async with as_system(db):
+            await db.execute(text(f"UPDATE profiles SET {column} = :c WHERE id = :id"), {"c": contact, "id": str(patient["profile_id"])})
+            if method == "mobile" and _last10(patient.get("guardian_contact")) == _last10(current):
+                await db.execute(
+                    text("UPDATE patients SET guardian_contact = :g WHERE patient_id = :pid"),
+                    {"g": _last10(contact), "pid": str(patient_id)},
+                )
+        if status is not None:
+            await asyncio.to_thread(delete_user, current)
+    await attach_patient_login(
+        db,
+        profile_id=patient["profile_id"],
+        contact=contact,
+        method=method,
+        first_name=patient["first_name"],
+        last_name=patient["last_name"],
+    )
+    return contact, method

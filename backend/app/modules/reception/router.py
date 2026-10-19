@@ -41,78 +41,20 @@ def _initials(first_name: str, last_name: str) -> str:
     return f"{first_name[:1]}{last_name[:1]}".upper()
 
 
-@router.post("/registrations/send-code", response_model=s.SendCodeResponse, status_code=200)
-async def send_verification_code(
-    body: s.SendCodeRequest, db=Depends(get_db), _ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))
-) -> s.SendCodeResponse:
-    """Wraps the existing Cognito SignUp call (same function the receptionist-
-    signup wizard already uses). verification_id is the contact itself — our
-    system has no separate server-side verification-state table to hand back
-    an opaque ID for; Cognito tracks confirmation state by username."""
-    from app.modules.auth.signup import reject_if_contact_taken, start_patient_signup
+@router.post("/patients", response_model=s.RegisterPatientResponse, status_code=201)
+async def register_patient(
+    body: s.RegisterPatientRequest, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))
+) -> s.RegisterPatientResponse:
+    """Front-desk registration (Documents/design_consent_v2.md). The
+    receptionist never sets a password or records consent: Cognito sends the
+    patient a temporary password on their own phone/email, they set their own
+    password at first login, then sign consent in their own session."""
+    from app.modules.auth.signup import register_patient_at_clinic
 
-    method = "email" if body.channel == "email" else "mobile"
-    # Same guards as patient self-signup: refuse a contact already registered
-    # here, and reset an abandoned earlier attempt instead of blocking it.
-    await reject_if_contact_taken(db, method, body.contact)
-    await start_patient_signup(
+    patient, contact, method = await register_patient_at_clinic(
         db,
-        contact=body.contact,
-        method=method,
-        first_name=body.first_name,
-        last_name=body.last_name,
-        dob=body.dob.isoformat() if body.dob else None,
-        gender=body.gender,
-        password=body.password,
-    )
-    return s.SendCodeResponse(
-        verification_id=body.contact,
         channel=body.channel,
         contact=body.contact,
-        sent_at=datetime.now(UTC),
-    )
-
-
-@router.post("/registrations/verify-code", status_code=200, response_model=s.VerifyCodeResponse)
-async def verify_code(body: s.VerifyCodeRequest, _ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))) -> s.VerifyCodeResponse:
-    """registration_token is also just the contact — our real "proof of
-    verification" is Cognito's CONFIRMED status itself, re-checked implicitly
-    when /patients below calls set_patient_password."""
-    from app.core.cognito import confirm_sign_up
-
-    contact = body.verification_id
-    confirm_sign_up(username=contact, code=body.code)
-    return s.VerifyCodeResponse(
-        verification_id=contact,
-        channel="email" if "@" in contact else "phone",
-        contact=contact,
-        verified=True,
-        verified_at=datetime.now(UTC),
-        registration_token=contact,
-    )
-
-
-@router.post("/registrations/confirm", response_model=s.RegisterPatientResponse, status_code=201)
-async def confirm_registration(
-    body: s.ConfirmRegistrationRequest, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))
-) -> s.RegisterPatientResponse:
-    """Current flow's last step (password was sent to /registrations/send-code):
-    verifies the OTP and registers the patient in this one request, so an
-    abandoned registration never leaves a verified login with no patient
-    behind it. The patient's login tokens are discarded — a receptionist must
-    never hold them (see auth/signup.py)."""
-    if not body.consent.accepted:
-        raise ValidationError("Consent must be accepted", code="CONSENT_REQUIRED")
-    from app.modules.auth.signup import confirm_and_register
-
-    contact = body.registration_token
-    method = "email" if "@" in contact else "mobile"
-    patient, _auth = await confirm_and_register(
-        db,
-        contact=contact,
-        method=method,
-        code=body.code,
-        password=body.password,
         registration={
             "first_name": body.personal.first_name,
             "last_name": body.personal.last_name,
@@ -127,8 +69,8 @@ async def confirm_registration(
             "guardian_name": body.guardian.name if body.guardian else None,
             "guardian_relationship": body.guardian.relation if body.guardian else None,
             "guardian_contact": body.guardian.contact_number if body.guardian else None,
+            "guardian_reason": body.guardian.reason if body.guardian else None,
         },
-        self_registered=False,
         registered_by=UUID(ctx.user_id),
     )
     return s.RegisterPatientResponse(
@@ -136,70 +78,24 @@ async def confirm_registration(
         full_name=f"{body.personal.first_name} {body.personal.last_name}",
         login_id=contact,
         login_channel=method,
-        registration_status="verified",
-        consent_status="signed" if body.consent.signature_captured else "accepted",
+        registration_status=patient["registration_status"],
         created_at=patient.get("created_at") or datetime.now(UTC),
     )
 
 
-@router.get("/registrations/password-policy", response_model=s.PasswordPolicyResponse)
-async def password_policy(_ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))) -> s.PasswordPolicyResponse:
-    """Matches the real constraint enforced at /patients below (min 8 chars,
-    nothing else) — not the doc's own aspirational rule set."""
-    return s.PasswordPolicyResponse()
+@router.post("/patients/{patient_id}/resend-login", response_model=s.ResendLoginResponse)
+async def resend_patient_login(
+    patient_id: UUID,
+    body: s.ResendLoginRequest,
+    db=Depends(get_db),
+    _ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES)),
+) -> s.ResendLoginResponse:
+    """New temporary password for a patient who has not logged in yet —
+    optionally to a corrected phone/email when it was mistyped."""
+    from app.modules.auth.signup import resend_clinic_login
 
-
-@router.post("/patients", response_model=s.RegisterPatientResponse, status_code=201)
-async def register_patient(
-    body: s.RegisterPatientRequest, db=Depends(get_db), ctx: RequestContext = Depends(require_role(*_RECEPTION_ROLES))
-) -> s.RegisterPatientResponse:
-    """Completes the registration — same underlying mechanism as
-    /auth/patients/receptionist-signup/complete (set_patient_password +
-    PatientService.register), just accepting this spec's nested request
-    shape and returning its response shape."""
-    if not body.consent.accepted:
-        raise ValidationError("Consent must be accepted", code="CONSENT_REQUIRED")
-
-    from app.core.cognito import set_patient_password
-    from app.modules.patients.service import PatientService
-
-    contact = body.registration_token
-    method = "email" if "@" in contact else "mobile"
-    cognito_sub = set_patient_password(username=contact, password=body.password)
-
-    data = {
-        "first_name": body.personal.first_name,
-        "last_name": body.personal.last_name,
-        "dob": body.personal.date_of_birth,
-        "gender": body.personal.gender,
-        "address": body.address.street,
-        "city": body.address.city,
-        "state": body.address.state,
-        "country": body.address.country,
-        "pincode": body.address.pincode,
-        "primary_clinic_id": str(body.clinic_id),
-        "email": contact if method == "email" else f"pending-{cognito_sub}@no-email.local",
-        "phone": contact if method == "mobile" else None,
-        "guardian_name": body.guardian.name if body.guardian else None,
-        "guardian_relationship": body.guardian.relation if body.guardian else None,
-        "guardian_contact": body.guardian.contact_number if body.guardian else None,
-    }
-    patient = await PatientService(db).register(data, self_registered=False, cognito_sub=cognito_sub, registered_by=UUID(ctx.user_id))
-    if method == "email":
-        from sqlalchemy import text
-
-        await db.execute(text("UPDATE profiles SET email_verified = TRUE WHERE id = :id"), {"id": patient["profile_id"]})
-    await db.commit()
-
-    return s.RegisterPatientResponse(
-        patient_id=patient["patient_id"],
-        full_name=f"{body.personal.first_name} {body.personal.last_name}",
-        login_id=contact,
-        login_channel=method,
-        registration_status="verified",
-        consent_status="signed" if body.consent.signature_captured else "accepted",
-        created_at=patient.get("created_at") or datetime.now(UTC),
-    )
+    contact, method = await resend_clinic_login(db, patient_id=patient_id, new_contact=body.contact)
+    return s.ResendLoginResponse(login_id=contact, login_channel=method, sent_at=datetime.now(UTC))
 
 
 async def _next_appointments(db, profile_ids: list[str]) -> dict[str, str]:

@@ -10,7 +10,10 @@ Two different provisioning shapes:
   password — Cognito auto-generates a temp one and emails it. First login
   hits Cognito's native NEW_PASSWORD_REQUIRED challenge (no custom code
   needed for that part — it's InitiateAuth's own response shape).
-- Patients: multi-step signup wizard — sign_up_patient() creates the user
+- Patients registered at the clinic (the only route by default):
+  AdminCreateUser like staff, but the temporary password goes to the
+  patient's own phone (SMS) or email — provision_patient_login().
+- Patients self-signing up (PATIENT_SELF_SIGNUP_ENABLED): multi-step signup wizard — sign_up_patient() creates the user
   with a throwaway internal password just so Cognito has something to
   create the account with, and sends the OTP to whichever channel (email or
   phone) the patient chose to sign up with. confirm_sign_up() verifies that
@@ -103,6 +106,65 @@ def provision_staff_user(*, email: str, first_name: str, last_name: str, phone: 
         raise BusinessRuleError(f"Could not create Cognito user: {exc}", code="COGNITO_PROVISIONING_FAILED") from exc
 
 
+def _patient_login_attrs(*, contact: str, method: str, first_name: str, last_name: str) -> list[dict]:
+    channel = "email" if method == "email" else "phone_number"
+    return [
+        {"Name": "given_name", "Value": first_name},
+        {"Name": "family_name", "Value": last_name},
+        {"Name": channel, "Value": contact},
+        # Only the owner of this phone/email receives the temporary password,
+        # so logging in with it proves the channel.
+        {"Name": f"{channel}_verified", "Value": "true"},
+    ]
+
+
+def provision_patient_login(*, contact: str, method: str, first_name: str, last_name: str) -> str:
+    """AdminCreateUser for a receptionist-registered patient. Cognito
+    generates a temporary password and sends it by SMS (mobile) or email to
+    the patient; nobody at the clinic ever sees it. The first login then hits
+    NEW_PASSWORD_REQUIRED and the patient sets their own password."""
+    _require_cognito_mode()
+    try:
+        resp = _client().admin_create_user(
+            UserPoolId=settings.cognito_user_pool_id,
+            Username=contact,
+            UserAttributes=_patient_login_attrs(contact=contact, method=method, first_name=first_name, last_name=last_name),
+            DesiredDeliveryMediums=["EMAIL" if method == "email" else "SMS"],
+        )
+        return next(a["Value"] for a in resp["User"]["Attributes"] if a["Name"] == "sub")
+    except _client().exceptions.UsernameExistsException as exc:
+        raise BusinessRuleError("An account with this email/phone already exists", code="ACCOUNT_ALREADY_EXISTS") from exc
+    except ClientError as exc:
+        raise BusinessRuleError(f"Could not create the patient's login: {exc}", code="COGNITO_PROVISIONING_FAILED") from exc
+
+
+def resend_patient_login(*, contact: str, method: str) -> None:
+    """Sends a new temporary password (AdminCreateUser RESEND). Only works
+    while the patient has never logged in (FORCE_CHANGE_PASSWORD)."""
+    _require_cognito_mode()
+    try:
+        _client().admin_create_user(
+            UserPoolId=settings.cognito_user_pool_id,
+            Username=contact,
+            MessageAction="RESEND",
+            DesiredDeliveryMediums=["EMAIL" if method == "email" else "SMS"],
+        )
+    except ClientError as exc:
+        raise BusinessRuleError(f"Could not resend the login details: {exc}", code="COGNITO_RESEND_FAILED") from exc
+
+
+def user_status(username: str) -> str | None:
+    """Cognito UserStatus (FORCE_CHANGE_PASSWORD, CONFIRMED, RESET_REQUIRED,
+    ...), or None when no such user exists."""
+    _require_cognito_mode()
+    try:
+        return _client().admin_get_user(UserPoolId=settings.cognito_user_pool_id, Username=username)["UserStatus"]
+    except _client().exceptions.UserNotFoundException:
+        return None
+    except ClientError as exc:
+        raise BusinessRuleError(f"Could not look up account: {exc}", code="COGNITO_LOOKUP_FAILED") from exc
+
+
 async def attach_staff_login(session, *, profile_id, email: str, first_name: str, last_name: str, phone: str | None) -> str:
     """Creates the Cognito login for a profiles row that is ALREADY inserted
     in this transaction, stores its sub on that row and returns it.
@@ -121,24 +183,43 @@ async def attach_staff_login(session, *, profile_id, email: str, first_name: str
     def provision() -> str:
         return provision_staff_user(email=email, first_name=first_name, last_name=last_name, phone=phone)
 
+    taken = ConflictError(f"Email {email!r} already in use", code="EMAIL_ALREADY_EXISTS")
+    return await _attach_login(session, profile_id=profile_id, username=email, provision=provision, taken=taken)
+
+
+async def attach_patient_login(session, *, profile_id, contact: str, method: str, first_name: str, last_name: str) -> str:
+    """attach_staff_login for a receptionist-registered patient: the login is
+    the patient's own phone or email, and Cognito sends the temporary
+    password there (provision_patient_login)."""
+
+    def provision() -> str:
+        return provision_patient_login(contact=contact, method=method, first_name=first_name, last_name=last_name)
+
+    label = "Email" if method == "email" else "Phone number"
+    code = "EMAIL_ALREADY_EXISTS" if method == "email" else "PHONE_ALREADY_EXISTS"
+    taken = ConflictError(f"{label} {contact!r} already in use", code=code)
+    return await _attach_login(session, profile_id=profile_id, username=contact, provision=provision, taken=taken)
+
+
+async def _attach_login(session, *, profile_id, username: str, provision, taken: ConflictError) -> str:
     try:
         sub = await asyncio.to_thread(provision)
     except BusinessRuleError as exc:
         if exc.code != "ACCOUNT_ALREADY_EXISTS":
             raise
-        existing_sub = await asyncio.to_thread(get_user_sub, email)
+        existing_sub = await asyncio.to_thread(get_user_sub, username)
         if existing_sub is not None:
             # as_system: the caller may be a clinic-scoped admin, who cannot
             # see a profile at another clinic.
             async with as_system(session):
                 owner = (await session.execute(text("SELECT 1 FROM profiles WHERE cognito_sub = :sub"), {"sub": existing_sub})).first()
             if owner is not None:
-                raise ConflictError(f"Email {email!r} already in use", code="EMAIL_ALREADY_EXISTS") from exc
-            logger.info("orphan_staff_cognito_user_reset")
-            await asyncio.to_thread(delete_user, email)
+                raise taken from exc
+            logger.info("orphan_cognito_user_reset")
+            await asyncio.to_thread(delete_user, username)
         sub = await asyncio.to_thread(provision)
 
-    _delete_user_if_rolled_back(session, email)
+    _delete_user_if_rolled_back(session, username)
     async with as_system(session):
         updated = await session.execute(text("UPDATE profiles SET cognito_sub = :sub WHERE id = :id"), {"sub": sub, "id": str(profile_id)})
     if updated.rowcount != 1:
@@ -364,6 +445,10 @@ def initiate_auth(*, username: str, password: str) -> dict:
         raise PermissionError_("Incorrect email/phone or password", code="INVALID_CREDENTIALS") from exc
     except _client().exceptions.UserNotFoundException as exc:
         raise PermissionError_("Incorrect email/phone or password", code="INVALID_CREDENTIALS") from exc
+    except _client().exceptions.PasswordResetRequiredException as exc:
+        # scripts/force_patient_password_reset.py: the patient must choose a
+        # new password through forgot-password before logging in again.
+        raise PermissionError_("Please reset your password to continue", code="PASSWORD_RESET_REQUIRED") from exc
     except ClientError as exc:
         raise PermissionError_(f"Login failed: {exc}", code="COGNITO_LOGIN_FAILED") from exc
 
