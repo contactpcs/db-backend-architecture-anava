@@ -78,6 +78,14 @@ _STATUS_PLANNED = "planned"
 
 _STAFF_ROLES = ("super_admin", "regional_admin", "clinic_admin", "doctor", "clinical_assistant", "receptionist")
 
+# What a first protocol waits on (ProtocolService.readiness), as shown to the doctor.
+_PREREQUISITE_LABELS = {
+    "initial_consultation": "start the initial consultation",
+    "anamnesis": "answer all required anamnesis questions",
+    "prs": "complete a PRS",
+    "doctor_notes": "add a doctor's note",
+}
+
 
 def _slug_for_modality(modality: str) -> str:
     slug = s.MODALITY_SLUG.get(modality)
@@ -538,6 +546,36 @@ class ProtocolService:
 
     # -- create ------------------------------------------------------------
 
+    async def readiness(self, patient_profile_id: UUID) -> dict:
+        """Whether the patient's first treatment protocol may be started.
+        All three of anamnesis (required questions), PRS and a doctor's note
+        must be done in the initial consultation.
+        ponytail: owner allowed "anamnesis + any one of PRS / notes" too; to
+        relax, drop prs/doctor_notes from `missing` when the other is done."""
+        row = await self.repo.initial_consultation_readiness(patient_profile_id)
+        missing = [
+            m
+            for m, done in (
+                ("initial_consultation", row["appointment_id"] is not None),
+                ("anamnesis", not row["missing_questions"]),
+                ("prs", row["prs_completed"]),
+                ("doctor_notes", row["notes_count"] > 0),
+            )
+            if not done
+        ]
+        gate_applies = not row["has_started_treatment"]
+        return {**row, "missing": missing, "gate_applies": gate_applies, "ready": not gate_applies or not missing}
+
+    async def readiness_for_patient(self, patient_id: UUID, ctx: RequestContext) -> dict:
+        """readiness() by public patient id, clinic-scoped for the caller."""
+        from app.modules.patients.repository import PatientRepository
+
+        patient = await PatientRepository(self.session).get(patient_id)
+        if not patient:
+            raise NotFoundError("Patient not found", code="PATIENT_NOT_FOUND")
+        await assert_clinic_scope(ctx, self.session, patient["primary_clinic_id"])
+        return await self.readiness(patient["profile_id"])
+
     async def create(self, body: s.ProtocolCreate, ctx: RequestContext) -> dict:
         """Step 8. Creates the protocol and every appointment in one
         transaction, so a partially-booked course can never exist."""
@@ -554,6 +592,23 @@ class ProtocolService:
         # the only parent. Resolve it into patient/doctor/clinic once.
         parent = await self._resolve_parent(body)
         await assert_clinic_scope(ctx, self.session, parent["clinic_id"])
+
+        # The patient's first prescription waits on the initial consultation's
+        # anamnesis, PRS and doctor's note. Amendments and later protocols
+        # (follow-up territory) are not gated.
+        if body.supersedes_protocol_id is None:
+            readiness = await self.readiness(parent["patient_id"])
+            if not readiness["ready"]:
+                raise BusinessRuleError(
+                    "Before starting a treatment protocol, in the initial consultation: "
+                    + "; ".join(_PREREQUISITE_LABELS[m] for m in readiness["missing"]),
+                    code="PROTOCOL_PREREQUISITES_MISSING",
+                    details=[
+                        {"field": m, "message": _PREREQUISITE_LABELS[m]}
+                        | ({"missing_questions": readiness["missing_questions"]} if m == "anamnesis" else {})
+                        for m in readiness["missing"]
+                    ],
+                )
 
         device = await self._prescribable_device(body.device_id, parent["clinic_id"])
         slug = _slug_for_modality(device["modality"])
