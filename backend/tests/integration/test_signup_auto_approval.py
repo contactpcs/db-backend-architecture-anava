@@ -300,6 +300,8 @@ async def test_signup_endpoint_checks_the_real_caller_behind_the_load_balancer(a
     from app.modules.auth import router as auth_router
 
     monkeypatch.setattr(settings, "auth_mode", "cognito")
+    # The public signup wizard is off by default since consent v2 (D6).
+    monkeypatch.setattr(settings, "patient_self_signup_enabled", True)
     monkeypatch.setattr(settings, "trust_forwarded_for", True)
     monkeypatch.setattr(settings, "signup_start_limit_per_ip_per_hour", 1)
     handed_to_cognito = []
