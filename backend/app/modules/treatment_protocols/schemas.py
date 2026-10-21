@@ -751,6 +751,22 @@ class ProtocolAmend(BaseModel):
         return self
 
 
+class ProtocolReadiness(BaseModel):
+    """GET /patients/{id}/protocol-readiness — what the first treatment
+    protocol still waits on. missing: initial_consultation | anamnesis |
+    prs | doctor_notes. gate_applies is false once a protocol has gone live
+    (later protocols are not gated), and then ready is always true."""
+
+    ready: bool
+    gate_applies: bool
+    missing: list[str]
+    appointment_id: UUID | None = None
+    anamnesis_id: str | None = None
+    missing_questions: list[str]
+    prs_completed: bool
+    notes_count: int
+
+
 class ProtocolRead(BaseModel):
     protocol_id: UUID
     instance_id: UUID

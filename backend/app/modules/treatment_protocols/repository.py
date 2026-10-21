@@ -648,6 +648,48 @@ class ProtocolRepository:
         )
         return int(row["n"]) if row else 1
 
+    async def initial_consultation_readiness(self, patient_id: UUID) -> dict:
+        """What the patient's initial consultation has captured so far, for
+        the gate on their first treatment protocol: the consultation itself
+        (latest started/completed 'initial' appointment), the required main
+        anamnesis questions still unanswered there (a conditional question
+        only counts once its parent answer shows it), whether a PRS was
+        completed there, and how many doctor's notes were written there.
+        has_started_treatment: some protocol of this patient already went
+        live, so this is no longer the initial consultation's prescription."""
+        return await fetch_one(
+            self.session,
+            text(
+                "WITH appt AS ("
+                "  SELECT appointment_id FROM appointments"
+                "  WHERE patient_id = :pid AND appointment_type = 'initial' AND status IN ('in_progress', 'completed')"
+                "  ORDER BY appointment_date DESC, start_time DESC LIMIT 1"
+                "), ana AS ("
+                "  SELECT a.anamnesis_id FROM anamnesis_assessments a JOIN appt USING (appointment_id)"
+                "  WHERE a.status <> 'superseded' LIMIT 1"
+                ") "
+                "SELECT (SELECT appointment_id FROM appt) AS appointment_id,"
+                " (SELECT anamnesis_id FROM ana) AS anamnesis_id,"
+                " ARRAY(SELECT q.question_code FROM anamnesis_questions q"
+                "   WHERE q.status AND q.type = 'main' AND q.is_required"
+                "   AND (q.depends_on_question_id IS NULL OR EXISTS ("
+                "     SELECT 1 FROM anamnesis_responses p JOIN ana USING (anamnesis_id)"
+                "     WHERE p.question_id = q.depends_on_question_id"
+                "     AND (p.response_value = q.depends_on_value OR q.depends_on_value = ANY (p.response_values))))"
+                "   AND NOT EXISTS ("
+                "     SELECT 1 FROM anamnesis_responses r JOIN ana USING (anamnesis_id)"
+                "     WHERE r.question_id = q.question_id"
+                "     AND (NULLIF(btrim(r.response_value), '') IS NOT NULL OR cardinality(r.response_values) > 0))"
+                "   ORDER BY q.section_number, q.display_order) AS missing_questions,"
+                " EXISTS (SELECT 1 FROM prs_assessment_instances i JOIN appt USING (appointment_id)"
+                "   WHERE i.status = 'completed' AND i.is_voided = FALSE) AS prs_completed,"
+                " (SELECT count(*) FROM patient_clinical_notes n JOIN appt USING (appointment_id)) AS notes_count,"
+                " EXISTS (SELECT 1 FROM protocol_plan tp JOIN protocol_instances pi ON pi.instance_id = tp.instance_id"
+                "   WHERE pi.patient_id = :pid AND tp.status IN ('active', 'completed', 'superseded')) AS has_started_treatment"
+            ),
+            {"pid": str(patient_id)},
+        )
+
     async def has_generated_appointments(self, protocol_id: UUID) -> bool:
         row = (
             (
