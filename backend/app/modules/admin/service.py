@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import emit_event
-from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, profile_conflict_error
+from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError, ValidationError, profile_conflict_error
 from app.core.fsm import assert_transition
 from app.core.profile_completion import ADMIN_FIELDS, compute_completion_percentage, compute_missing_fields
 from app.modules.admin.repository import (
@@ -139,6 +139,83 @@ class CancellationPolicyService:
     async def delete(self, tier_id: UUID) -> None:
         await self.get(tier_id)  # 404 if missing
         await self.repo.delete(tier_id)
+
+
+_POLICY_SESSION_TYPES = ("appointment", "device_session")
+_MAX_TIERS = 10
+
+
+def validate_tier_set(tiers: builtins.list[dict]) -> builtins.list[dict]:
+    """A clinic's refund rule must read sensibly to a patient: distinct
+    thresholds, and more notice never refunds less. Returns the set sorted
+    highest threshold first (the order resolve_cancellation_refund_percent
+    reads it in)."""
+    if len(tiers) > _MAX_TIERS:
+        raise ValidationError(f"At most {_MAX_TIERS} refund rows per session type", code="TOO_MANY_REFUND_TIERS")
+    ordered = sorted(tiers, key=lambda t: float(t["min_hours_before"]), reverse=True)
+    hours = [float(t["min_hours_before"]) for t in ordered]
+    if len(hours) != len(set(hours)):
+        raise ValidationError("Each refund row needs a different number of hours", code="DUPLICATE_REFUND_TIER")
+    for more_notice, less_notice in zip(ordered, ordered[1:], strict=False):
+        if float(less_notice["refund_percent"]) > float(more_notice["refund_percent"]):
+            raise ValidationError(
+                f"Cancelling {float(less_notice['min_hours_before']):g} hours before cannot refund more than "
+                f"cancelling {float(more_notice['min_hours_before']):g} hours before",
+                code="REFUND_TIERS_NOT_DESCENDING",
+            )
+    return ordered
+
+
+class BookingPolicyService:
+    """One clinic's cancellation-refund and reschedule rules, read and saved
+    as a whole (design D11). A clinic either has its own complete refund tier
+    set per session type or uses the platform default — never a mix."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.tiers = CancellationPolicyRepository(session)
+        self.clinics = ClinicRepository(session)
+
+    @staticmethod
+    def _slim(rows: builtins.list[dict]) -> builtins.list[dict]:
+        return [{"min_hours_before": float(r["min_hours_before"]), "refund_percent": float(r["refund_percent"])} for r in rows]
+
+    async def get(self, clinic_id: UUID) -> dict:
+        from app.config import get_settings
+
+        clinic = await self.clinics.get(clinic_id)
+        if not clinic:
+            raise NotFoundError("Clinic not found", code="CLINIC_NOT_FOUND")
+        default_hours = float(get_settings().appointment_reschedule_min_hours)
+        own_hours = clinic.get("reschedule_min_hours")
+        rules = {}
+        for session_type in _POLICY_SESSION_TYPES:
+            own = self._slim(await self.tiers.scope_rows(session_type=session_type, clinic_id=clinic_id))
+            default = self._slim(await self.tiers.scope_rows(session_type=session_type, clinic_id=None))
+            rules[session_type] = {"uses_default": not own, "tiers": own or default, "default_tiers": default}
+        return {
+            "clinic_id": clinic_id,
+            "reschedule_min_hours": float(own_hours) if own_hours is not None else None,
+            "effective_reschedule_min_hours": float(own_hours) if own_hours is not None else default_hours,
+            "default_reschedule_min_hours": default_hours,
+            "refund_rules": rules,
+        }
+
+    async def replace(self, clinic_id: UUID, data: dict, *, updated_by: UUID) -> dict:
+        if not await self.clinics.get(clinic_id):
+            raise NotFoundError("Clinic not found", code="CLINIC_NOT_FOUND")
+        for session_type in _POLICY_SESSION_TYPES:
+            tiers = validate_tier_set(data["refund_rules"].get(session_type) or [])
+            await self.tiers.replace_clinic_set(clinic_id, session_type, tiers, by=updated_by)
+        await self.clinics.set_reschedule_min_hours(clinic_id, data.get("reschedule_min_hours"))
+        await emit_event(
+            self.session,
+            aggregate_type="clinic",
+            aggregate_id=clinic_id,
+            event_type="clinic_booking_policy_updated",
+            payload={"clinic_id": str(clinic_id), "updated_by": str(updated_by)},
+        )
+        return await self.get(clinic_id)
 
 
 class ClinicHoursService:

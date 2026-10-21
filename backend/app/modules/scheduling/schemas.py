@@ -211,6 +211,37 @@ class MyCancel(BaseModel):
     reason: str = Field(min_length=1)
 
 
+class RescheduleOptionsRead(BaseModel):
+    """Whether a row can be moved now and to which dates, with the reason —
+    the same rules the reschedule endpoints enforce. latest_date None = no
+    upper bound."""
+
+    appointment_id: UUID
+    status: str
+    can_reschedule: bool
+    blocked_reason: str | None = None
+    min_notice_hours: float | None = None
+    earliest_date: date | None = None
+    latest_date: date | None = None
+    date_rule_reason: str | None = None
+
+
+class PolicySection(BaseModel):
+    key: str
+    title: str
+    points: list[str]
+
+
+class AppointmentPolicyRead(BaseModel):
+    """GET /appointment-policy — the note shown before booking, built from the
+    clinic's live settings (values) and rendered as plain-language sections."""
+
+    clinic_id: UUID
+    values: dict
+    sections: list[PolicySection]
+    acknowledgement: str
+
+
 class AppointmentRead(BaseModel):
     appointment_id: UUID
     clinic_id: UUID

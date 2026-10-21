@@ -687,6 +687,86 @@ class ProtocolUpdate(BaseModel):
         return self
 
 
+class ProtocolAmend(BaseModel):
+    """POST /treatment-protocols/{id}/amend — modify an active protocol.
+
+    Only the fields sent change; everything else is carried over from the
+    current version. Any prescribed setting can be changed: device and unit,
+    montage, conditions, diagnoses, dose, scales and schedule.
+
+    Sessions already delivered stay on the version they were delivered
+    under. Without a schedule or device change, every session not yet run
+    moves to the new version as it is. With one, the remaining course is
+    re-planned: sessions the patient has booked keep their slot, the rest
+    are re-dated from start_date, and session_count stays the whole course
+    (delivered sessions count toward it).
+
+    conditions / diagnosis_ids / scales replace the whole list when sent;
+    omitted, the current list is kept.
+    """
+
+    reason: str = Field(min_length=1, max_length=200)
+    clinical_note: str = Field(min_length=1, max_length=4000)
+    # Device and montage. A new device needs its own montage (placement_id +
+    # dosing_id, or custom_montage_id) in the same request.
+    device_id: UUID | None = None
+    device_unit_id: UUID | None = None
+    placement_id: UUID | None = None
+    dosing_id: UUID | None = None
+    custom_montage_id: UUID | None = None
+    conditions: list[ProtocolConditionAssignment] | None = None
+    # Schedule — any of these re-plans the remaining sessions.
+    session_count: int | None = Field(default=None, ge=10, le=30)
+    sessions_per_week: int | None = None
+    follow_up_every_n: int | None = Field(default=None, ge=1, le=30)
+    start_date: date | None = None
+    skip_dates: list[date] | None = None
+    extra_dates: list[date] | None = None
+    prescribed_current_ma: Decimal | None = Field(default=None, ge=0, le=2)
+    prescribed_duration_min: int | None = Field(default=None, ge=10, le=45)
+    ramp_seconds: int | None = Field(default=None, ge=0, le=120)
+    prescribed_tvns_wavelength: Literal["alternant", "biphasic"] | None = None
+    prescribed_tvns_pattern: Literal["continuous", "modulation", "intermittent"] | None = None
+    prescribed_tvns_strength_pct: int | None = Field(default=None, ge=0, le=100)
+    prescribed_tvns_frequency_hz: Decimal | None = Field(default=None, ge=1, le=1000)
+    prescribed_tvns_pulse_width_us: int | None = Field(default=None, ge=50, le=500)
+    prescribed_tvns_duration_min: Decimal | None = Field(default=None, gt=0, le=240)
+    prescribed_tvns_ramp_up_sec: int | None = Field(default=None, ge=0, le=120)
+    prescribed_tvns_ramp_down_sec: int | None = Field(default=None, ge=0, le=120)
+    scales: list[ProtocolScaleAssignment] | None = None
+    diagnosis_ids: list[UUID] | None = None
+
+    @model_validator(mode="after")
+    def _montage_shape(self):
+        if self.custom_montage_id is not None and (self.placement_id is not None or self.dosing_id is not None):
+            raise ValueError("Provide either custom_montage_id or placement_id + dosing_id, not both")
+        if (self.placement_id is None) != (self.dosing_id is None):
+            raise ValueError("placement_id and dosing_id change together")
+        return self
+
+    @model_validator(mode="after")
+    def _cadence_is_storable(self):
+        if self.sessions_per_week is not None and self.sessions_per_week not in (1, 2, 3, 5, 7):
+            raise ValueError("sessions_per_week must be one of 1, 2, 3, 5, 7 (1x/2x/3x/5x/Daily)")
+        return self
+
+
+class ProtocolReadiness(BaseModel):
+    """GET /patients/{id}/protocol-readiness — what the first treatment
+    protocol still waits on. missing: initial_consultation | anamnesis |
+    prs | doctor_notes. gate_applies is false once a protocol has gone live
+    (later protocols are not gated), and then ready is always true."""
+
+    ready: bool
+    gate_applies: bool
+    missing: list[str]
+    appointment_id: UUID | None = None
+    anamnesis_id: str | None = None
+    missing_questions: list[str]
+    prs_completed: bool
+    notes_count: int
+
+
 class ProtocolRead(BaseModel):
     protocol_id: UUID
     instance_id: UUID

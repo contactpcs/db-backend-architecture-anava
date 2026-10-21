@@ -11,6 +11,7 @@ from app.modules.admin.repository import ClinicRepository
 from app.modules.admin.service import (
     AdminAccountsService,
     BillableItemService,
+    BookingPolicyService,
     CancellationPolicyService,
     ClinicHoursService,
     ClinicRequestService,
@@ -89,9 +90,16 @@ async def update_platform_fee_config(
 async def create_cancellation_policy_tier(
     body: s.CancellationPolicyTierCreate,
     db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role("super_admin")),
+    ctx: RequestContext = Depends(require_role("super_admin", "clinic_admin")),
 ):
-    return await CancellationPolicyService(db).create(body.model_dump(), created_by=UUID(ctx.user_id))
+    """super_admin: platform default (clinic_id omitted) or any clinic.
+    clinic_admin: only their own clinic's tier set (118)."""
+    fields = body.model_dump()
+    if ctx.role == "clinic_admin":
+        if fields["clinic_id"] and str(fields["clinic_id"]) != ctx.clinic_id:
+            raise PermissionError_("You can only manage your own clinic's cancellation policy", code="CLINIC_SCOPE_MISMATCH")
+        fields["clinic_id"] = ctx.clinic_id
+    return await CancellationPolicyService(db).create(fields, created_by=UUID(ctx.user_id))
 
 
 @router.get("/cancellation-policy-tiers", response_model=list[s.CancellationPolicyTierRead])
@@ -109,8 +117,9 @@ async def update_cancellation_policy_tier(
     tier_id: UUID,
     body: s.CancellationPolicyTierUpdate,
     db=Depends(get_db),
-    ctx: RequestContext = Depends(require_role("super_admin")),
+    ctx: RequestContext = Depends(require_role("super_admin", "clinic_admin")),
 ):
+    await _assert_own_clinic_tier(db, ctx, tier_id)
     return await CancellationPolicyService(db).update(tier_id, body.model_dump(), updated_by=UUID(ctx.user_id))
 
 
@@ -118,9 +127,20 @@ async def update_cancellation_policy_tier(
 async def delete_cancellation_policy_tier(
     tier_id: UUID,
     db=Depends(get_db),
-    _ctx: RequestContext = Depends(require_role("super_admin")),
+    ctx: RequestContext = Depends(require_role("super_admin", "clinic_admin")),
 ):
+    await _assert_own_clinic_tier(db, ctx, tier_id)
     await CancellationPolicyService(db).delete(tier_id)
+
+
+async def _assert_own_clinic_tier(db, ctx: RequestContext, tier_id: UUID) -> None:
+    """clinic_admin may change only their own clinic's tiers, never the
+    platform defaults (clinic_id NULL) or another clinic's."""
+    if ctx.role != "clinic_admin":
+        return
+    tier = await CancellationPolicyService(db).get(tier_id)
+    if str(tier["clinic_id"]) != ctx.clinic_id:
+        raise PermissionError_("You can only manage your own clinic's cancellation policy", code="CLINIC_SCOPE_MISMATCH")
 
 
 # ---------------------------------------------------------------- regions --
@@ -280,6 +300,32 @@ async def change_clinic_status(
     _ctx: RequestContext = Depends(require_role("super_admin", "regional_admin")),
 ):
     return await ClinicService(db).change_status(clinic_id, body.status)
+
+
+@router.get("/clinics/{clinic_id}/booking-policy", response_model=s.BookingPolicyRead)
+async def get_booking_policy(
+    clinic_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin", "regional_admin", "clinic_admin")),
+):
+    """The clinic's refund-on-cancellation rows and reschedule notice, each
+    either the clinic's own or the platform default."""
+    await assert_clinic_scope(ctx, db, clinic_id)
+    return await BookingPolicyService(db).get(clinic_id)
+
+
+@router.put("/clinics/{clinic_id}/booking-policy", response_model=s.BookingPolicyRead)
+async def replace_booking_policy(
+    clinic_id: UUID,
+    body: s.BookingPolicyUpdate,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role("super_admin", "clinic_admin")),
+):
+    """Saves the whole policy at once — a half-saved tier set would change
+    what patients are refunded mid-edit."""
+    await assert_clinic_scope(ctx, db, clinic_id)
+    data = body.model_dump()
+    return await BookingPolicyService(db).replace(clinic_id, data, updated_by=UUID(ctx.user_id))
 
 
 @router.get("/clinics/{clinic_id}/hours", response_model=list[s.ClinicWeeklyHoursRead])

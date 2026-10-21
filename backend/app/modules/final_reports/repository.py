@@ -116,13 +116,14 @@ class FinalReportRepository:
         return {(r["question_id"], r["option_value"]): r["option_label"] for r in rows}
 
     async def prs_instances(self, profile_id: UUID) -> list[dict]:
-        """Every completed, non-voided clinical PRS of the patient, newest
-        first, with where it was taken: the appointment it was started at,
+        """Every non-voided clinical PRS record of the patient — completed or
+        still in progress — newest first, with where it was taken: the appointment it was started at,
         and — for a device session — that protocol's device and instance. The general
         registration PRS (taken at intake, before any condition is chosen) is
         not part of the report and is never read."""
         return await self._all(
-            "SELECT i.instance_id, i.disease_id, d.disease_name, i.completed_at, i.assessment_stage, i.appointment_id, "
+            "SELECT i.instance_id, i.disease_id, d.disease_name, i.status, i.started_at, i.completed_at, "
+            "i.assessment_stage, i.appointment_id, "
             "a.appointment_type, a.session_number, a.protocol_id, nd.device_name, "
             "pp.instance_id AS protocol_instance_id, pi.instance_number "
             "FROM prs_assessment_instances i "
@@ -131,9 +132,9 @@ class FinalReportRepository:
             "LEFT JOIN protocol_plan pp ON pp.protocol_id = a.protocol_id "
             "LEFT JOIN protocol_instances pi ON pi.instance_id = pp.instance_id "
             "LEFT JOIN reference.neuromod_devices nd ON nd.device_id = pp.device_id "
-            "WHERE i.patient_id = :pid AND i.status = 'completed' AND NOT COALESCE(i.is_voided, FALSE) "
+            "WHERE i.patient_id = :pid AND i.status IN ('completed', 'in_progress') AND NOT COALESCE(i.is_voided, FALSE) "
             "AND i.assessment_stage <> 'general_registration' "
-            "ORDER BY i.completed_at DESC NULLS LAST",
+            "ORDER BY COALESCE(i.completed_at, i.started_at) DESC NULLS LAST",
             {"pid": str(profile_id)},
         )
 

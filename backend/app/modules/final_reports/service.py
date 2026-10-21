@@ -50,12 +50,21 @@ class FinalReportService:
 
     # -- assembly --------------------------------------------------------------
 
-    async def _assemble(self, patient: dict, scope: str, ctx: RequestContext) -> tuple[dict, list[dict], dict]:
-        """Returns (sections, every clinical note of the patient, window).
-        sections["doctor_notes"] is left empty — sign() fills it from the
-        doctor's selection."""
+    async def _assemble(self, patient: dict, scope: str, ctx: RequestContext, selection: dict | None = None) -> dict:
+        """Builds the report sections plus everything the doctor can pick from.
+
+        `selection` holds, per section, the ids the doctor ticked (see
+        schemas.FinalReportSelection). A missing or None key falls back to the
+        scope's default; a given list replaces it — also the scope's window and
+        the PRS row caps. Every list is matched against the patient's own
+        records, so an id from someone else's record finds nothing (and a
+        foreign clinical note is refused outright).
+
+        Returns {"sections", "selection" (the ids the sections actually hold),
+        "candidates", "window"}."""
         profile_id = patient["profile_id"]
         now = datetime.now(UTC)
+        picked = {k: (None if v is None else {str(x) for x in v}) for k, v in (selection or {}).items()}
 
         window = {"consultation": None, "start": None, "end": None}
         if scope == "last_consultation":
@@ -64,34 +73,87 @@ class FinalReportService:
                 raise ConflictError("This patient has no started consultation to report on", code="NO_CONSULTATION")
         consultation = window["consultation"]
 
+        # 01 Anamnesis
+        all_anamnesis = await self.repo.anamnesis_assessments(profile_id)
+        if picked.get("anamnesis_ids") is not None:
+            chosen_anamnesis = [a for a in all_anamnesis if a["anamnesis_id"] in picked["anamnesis_ids"]]
+        elif consultation:
+            chosen_anamnesis = [a for a in all_anamnesis if str(a.get("appointment_id")) == str(consultation["appointment_id"])]
+        else:
+            chosen_anamnesis = all_anamnesis
+        # Built for every record, not only the chosen ones: the pencil shows
+        # each earlier anamnesis in full.
         option_labels = await self.repo.anamnesis_option_labels()
-        anamnesis = []
-        for a in await self.repo.anamnesis_assessments(profile_id, appointment_id=consultation["appointment_id"] if consultation else None):
+        built_anamnesis = {}
+        for a in all_anamnesis:
             questions = await self.repo.anamnesis_questions_with_answers(a["anamnesis_id"], a["assessment_stage"])
-            anamnesis.append(assembler.build_anamnesis(a, questions, option_labels))
+            built_anamnesis[a["anamnesis_id"]] = assembler.build_anamnesis(a, questions, option_labels)
+        anamnesis = [built_anamnesis[a["anamnesis_id"]] for a in chosen_anamnesis]
 
+        # 07 Treatment protocol (the PRS blocks and the ICD-10 codes follow it)
         protocols = ProtocolService(self.session)
         listed = await protocols.list(ctx, patient_id=patient["patient_id"], limit=200)
         listed.sort(key=lambda p: p["created_at"], reverse=True)
-        details = [await protocols.get_detail(p["protocol_id"], ctx) for p in assembler.pick_protocols(listed, scope)]
+        protocol_candidates = assembler.protocol_candidates(listed)
+        if picked.get("protocol_ids") is not None:
+            chosen_protocols = [
+                p for p in listed if str(p["protocol_id"]) in picked["protocol_ids"] and p["status"] not in ("draft", "cancelled")
+            ]
+        else:
+            chosen_protocols = assembler.pick_protocols(listed, scope)
+        details = [await protocols.get_detail(p["protocol_id"], ctx) for p in chosen_protocols]
 
+        # 04 PRS
         instances = await self.repo.prs_instances(profile_id)
         weights: dict[str, dict[str, float]] = {}
         # disease_id is NULL on a general registration PRS: no formula to look up.
         for disease_id in {i["disease_id"] for i in instances if i["disease_id"]}:
             formula = await self.scale_results.active_disease_formula(disease_id)
             weights[disease_id] = formula["config"]["weights"] if formula else {}
-        prs = assembler.build_prs(
+        prs_inputs = (
             instances,
             await self.scale_results.list_for_instances([i["instance_id"] for i in instances]),
             weights,
             await self.repo.conditions_by_protocol(sorted({str(i["protocol_id"]) for i in instances if i.get("protocol_id")})),
             # Every device the patient is on gets a PRS block, PRS or not.
             assembler.protocol_instances(details),
+        )
+        prs = assembler.build_prs(
+            *prs_inputs,
             window_start=window["start"],
             window_end=window["end"],
             now=now,
+            selected_main=picked.get("prs_ids"),
+            selected_sessions=picked.get("session_prs_ids"),
         )
+        # The pencil offers every PRS record, each with what its row would print.
+        prs_candidates = assembler.prs_candidates(instances, prs_inputs[1], weights, prs_inputs[3])
+
+        # 05 Doctor's notes
+        notes = await self.notes.list_for_patient(profile_id)
+        if picked.get("note_ids") is not None:
+            note_ids = sorted(picked["note_ids"])
+        else:
+            note_ids = [
+                str(n["note_id"])
+                for n in notes
+                if scope == "overall"
+                or str(n.get("appointment_id")) == str(consultation["appointment_id"])
+                or assembler.in_window(n["created_at"], window["start"], window["end"])
+            ]
+        try:
+            doctor_notes = assembler.select_notes(notes, note_ids)
+        except KeyError as exc:
+            raise PermissionError_("A selected note does not belong to this patient", code="NOTE_NOT_OWNED") from exc
+
+        # 06 Medication
+        medicines = await self.medicines.list_for_patient(profile_id)
+        chosen_medicines = (
+            medicines if picked.get("medicine_ids") is None else [m for m in medicines if str(m["medicine_id"]) in picked["medicine_ids"]]
+        )
+
+        # 08 Device session details
+        session_rows = await self.repo.device_sessions(profile_id)
 
         sections = {
             "scope": scope,
@@ -106,33 +168,83 @@ class FinalReportService:
             # signed report's shape does not change when it lands.
             "brain_mapping": {"available": False},
             "prs": prs,
-            "doctor_notes": [],
-            "medications": assembler.build_medications(await self.medicines.list_for_patient(profile_id)),
+            "doctor_notes": doctor_notes,
+            "medications": assembler.build_medications(chosen_medicines),
             # Instance 1, 2, ... — the same order as the device-session PRS blocks.
             "treatment_plans": [
                 assembler.build_treatment_plan(d)
                 for d in sorted(details, key=lambda d: (d.get("instance_number") is None, d.get("instance_number") or 0))
             ],
             "sessions": assembler.build_sessions(
-                await self.repo.device_sessions(profile_id), window_start=window["start"], window_end=window["end"]
+                session_rows, window_start=window["start"], window_end=window["end"], selected=picked.get("session_ids")
             ),
         }
-        return sections, await self.notes.list_for_patient(profile_id), window
+        effective = {
+            "anamnesis_ids": [a["anamnesis_id"] for a in anamnesis],
+            "prs_ids": [e["instance_id"] for d in prs["diseases"] for e in d["entries"]],
+            "session_prs_ids": [e["instance_id"] for g in prs["device_sessions"] for e in g["entries"]],
+            "note_ids": [str(n["note_id"]) for n in doctor_notes],
+            "medicine_ids": [str(m["medicine_id"]) for m in sections["medications"]],
+            "protocol_ids": [str(t["protocol_id"]) for t in sections["treatment_plans"]],
+            "session_ids": [str(x["appointment_id"]) for x in sections["sessions"]],
+        }
+        candidates = {
+            "anamnesis": [
+                {
+                    "id": a["anamnesis_id"],
+                    "recorded_at": a.get("completed_at") or a.get("created_at"),
+                    "status": a["status"],
+                    "sections": built_anamnesis[a["anamnesis_id"]]["sections"],
+                }
+                for a in all_anamnesis
+            ],
+            "prs": prs_candidates["main"],
+            "session_prs": prs_candidates["sessions"],
+            "notes": [
+                {
+                    "id": n["note_id"],
+                    "category": n["category"],
+                    "note_text": n["note_text"],
+                    "created_at": n["created_at"],
+                    "doctor_name": n.get("doctor_name"),
+                }
+                for n in notes
+            ],
+            "medicines": [
+                {
+                    "id": m["medicine_id"],
+                    "medicine_name": m["medicine_name"],
+                    "dose": m.get("dose"),
+                    "status": m["status"],
+                    "started_at": m.get("started_at"),
+                }
+                for m in medicines
+            ],
+            "protocols": protocol_candidates,
+            "sessions": [
+                {
+                    "id": r["appointment_id"],
+                    "session_number": r.get("session_number"),
+                    "date": r["appointment_date"],
+                    "device_name": r.get("device_name"),
+                    "status": r["session_status"],
+                }
+                for r in session_rows
+            ],
+            # 02's pencil: what the doctor wrote on this patient's earlier reports.
+            "diagnoses": [
+                {"report_id": r["report_id"], "diagnosis": r["diagnosis"], "signed_at": r["signed_at"]}
+                for r in await self.repo.list_for_patient(profile_id)
+            ],
+        }
+        return {"sections": sections, "selection": effective, "candidates": candidates, "window": window}
 
-    async def preview(self, patient_id: UUID, scope: str, ctx: RequestContext) -> dict:
+    async def preview(self, patient_id: UUID, scope: str, ctx: RequestContext, selection: dict | None = None) -> dict:
         patient = await self._patient_for_doctor(patient_id, ctx)
-        sections, notes, window = await self._assemble(patient, scope, ctx)
-        consultation = window["consultation"]
-        candidates = [
-            {
-                **n,
-                "in_scope": scope == "overall"
-                or (consultation is not None and str(n.get("appointment_id")) == str(consultation["appointment_id"]))
-                or (scope == "last_consultation" and assembler.in_window(n["created_at"], window["start"], window["end"])),
-            }
-            for n in notes
-        ]
-        return {"scope": scope, "sections": jsonable_encoder(sections), "note_candidates": candidates}
+        built = await self._assemble(patient, scope, ctx, selection)
+        return jsonable_encoder(
+            {"scope": scope, "sections": built["sections"], "selection": built["selection"], "candidates": built["candidates"]}
+        )
 
     # -- sign ------------------------------------------------------------------
 
@@ -144,11 +256,12 @@ class FinalReportService:
             raise ValidationError("Diagnosis is required to sign the report", code="DIAGNOSIS_REQUIRED")
 
         patient = await self._patient_for_doctor(patient_id, ctx)
-        sections, notes, window = await self._assemble(patient, body.scope, ctx)
-        try:
-            sections["doctor_notes"] = assembler.select_notes(notes, [str(n) for n in body.note_ids])
-        except KeyError as exc:
-            raise PermissionError_("A selected note does not belong to this patient", code="NOTE_NOT_OWNED") from exc
+        selection = body.selection.model_dump() if body.selection else {}
+        # note_ids at the top level predates `selection`; still honoured.
+        if selection.get("note_ids") is None:
+            selection["note_ids"] = [str(n) for n in body.note_ids]
+        built = await self._assemble(patient, body.scope, ctx, selection)
+        sections, window = built["sections"], built["window"]
 
         doctor = sections["doctor"] or {}
         snapshot = jsonable_encoder(sections)

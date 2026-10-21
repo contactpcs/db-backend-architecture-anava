@@ -37,6 +37,15 @@ class PaymentRead(BaseModel):
     platform_fee_amount: float | None = None
     cancellation_refund_percent: float | None = None
     cancellation_refund_amount: float | None = None
+    # 118: NULL = nothing owed; pending -> processed (status becomes
+    # refunded / partially_refunded) or failed.
+    refund_status: str | None = None
+    # Refund progress stages (120): approved -> sent to Razorpay -> refunded.
+    refund_requested_at: datetime | None = None
+    refund_initiated_at: datetime | None = None
+    refunded_at: datetime | None = None
+    # Razorpay's refund reference — what a patient quotes to their bank.
+    razorpay_refund_id: str | None = None
 
 
 class PaymentStatusTotal(BaseModel):
@@ -63,6 +72,9 @@ class PaymentOrderRead(PaymentRead):
     doesn't leak into list/get/status-update responses."""
 
     razorpay_key_id: str | None = None
+    # When the booking's hold ends — Checkout is limited to the time left so
+    # nobody pays for a slot that has already been released (audit M7).
+    hold_expires_at: datetime | None = None
 
 
 class PaymentHistoryRead(PaymentRead):

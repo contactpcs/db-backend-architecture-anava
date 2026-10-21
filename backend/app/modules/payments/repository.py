@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -19,7 +20,7 @@ class PaymentRepository:
         *,
         session_id,
         order_id,
-        amount: float,
+        amount: float | Decimal,
         currency: str,
         idempotency_key: str,
         razorpay_order_id: str | None = None,
@@ -57,7 +58,7 @@ class PaymentRepository:
         payment_id: UUID,
         *,
         status: str,
-        amount: float,
+        amount: float | Decimal,
         currency: str,
         source: str,
         payment_method: str | None = None,
@@ -96,6 +97,55 @@ class PaymentRepository:
                 "changed_by_role": changed_by_role,
             },
         )
+
+    async def log_event_detached(self, payment_id: UUID, **fields) -> None:
+        """Same row as log_event, written in its own committed transaction —
+        for security events recorded right before the request fails, which
+        would otherwise roll back with it (audit L2)."""
+        from app.core.db import system_transaction
+
+        async with system_transaction() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO payment_logs (payment_id, status, amount, currency, razorpay_order_id, razorpay_payment_id, "
+                    "failure_reason, source, changed_by, changed_by_role) VALUES (:payment_id, :status, :amount, :currency, "
+                    ":razorpay_order_id, :razorpay_payment_id, :failure_reason, :source, :changed_by, :changed_by_role)"
+                ),
+                {
+                    "payment_id": str(payment_id),
+                    "status": fields["status"],
+                    "amount": fields["amount"],
+                    "currency": fields["currency"],
+                    "razorpay_order_id": fields.get("razorpay_order_id"),
+                    "razorpay_payment_id": fields.get("razorpay_payment_id"),
+                    "failure_reason": fields.get("failure_reason"),
+                    "source": fields["source"],
+                    "changed_by": str(fields["changed_by"]) if fields.get("changed_by") else None,
+                    "changed_by_role": fields.get("changed_by_role"),
+                },
+            )
+
+    async def list_reconcilable(self, *, grace_seconds: int, lookback_hours: int, limit: int = 50) -> list[dict]:
+        """Online attempts we never heard a final answer for: still pending
+        after the grace period, or closed as failed by us (hold expiry,
+        cancellation, cash) within the lookback window (audit H1)."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT * FROM payments WHERE razorpay_order_id IS NOT NULL AND razorpay_order_id NOT LIKE 'order_stub_%' "
+                        "AND status IN ('pending', 'failed') "
+                        "AND created_at > NOW() - make_interval(hours => :lookback) "
+                        "AND (status = 'failed' OR created_at < NOW() - make_interval(secs => :grace)) "
+                        "ORDER BY created_at LIMIT :limit FOR UPDATE SKIP LOCKED"
+                    ),
+                    {"lookback": lookback_hours, "grace": grace_seconds, "limit": limit},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
 
     async def list_for_payment(self, payment_id: UUID) -> list[dict]:
         rows = (
@@ -154,18 +204,94 @@ class PaymentRepository:
         return [dict(r) for r in rows]
 
     async def set_cancellation_refund(self, payment_id: UUID, *, refund_percent: float, refund_amount: float) -> dict | None:
-        # as_system: a patient cancelling their own visit runs as 'patient',
-        # which rls_payments_update does not admit — the UPDATE used to match
-        # 0 rows silently and no refund was ever recorded.
+        """Records what is owed. A non-zero amount opens the refund
+        (refund_status = 'pending'): the refund worker completes an online one
+        through Razorpay, the front desk confirms a cash one (118).
+
+        as_system: a patient cancelling their own visit runs as 'patient',
+        which rls_payments_update does not admit — the UPDATE used to match
+        0 rows silently and no refund was ever recorded."""
         async with as_system(self.session):
             return await fetch_optional(
                 self.session,
                 text(
-                    "UPDATE payments SET cancellation_refund_percent = :pct, cancellation_refund_amount = :amt "
+                    "UPDATE payments SET cancellation_refund_percent = :pct, cancellation_refund_amount = :amt, "
+                    "refund_status = CASE WHEN CAST(:amt AS NUMERIC) > 0 THEN 'pending' ELSE refund_status END, "
+                    "refund_requested_at = CASE WHEN CAST(:amt AS NUMERIC) > 0 THEN NOW() ELSE refund_requested_at END "
                     "WHERE payment_id = :id RETURNING *"
                 ),
                 {"pct": refund_percent, "amt": refund_amount, "id": str(payment_id)},
             )
+
+    async def set_refund_state(
+        self, payment_id: UUID, *, refund_status: str, status: str | None = None, razorpay_refund_id: str | None = None
+    ) -> dict | None:
+        """status (refunded / partially_refunded) only once the money is back;
+        refunded_at stamped at the same moment."""
+        async with as_system(self.session):
+            return await fetch_optional(
+                self.session,
+                text(
+                    "UPDATE payments SET refund_status = :refund_status, "
+                    "razorpay_refund_id = COALESCE(CAST(:rfnd AS TEXT), razorpay_refund_id), "
+                    "refund_initiated_at = CASE WHEN CAST(:rfnd AS TEXT) IS NOT NULL THEN COALESCE(refund_initiated_at, NOW()) "
+                    "ELSE refund_initiated_at END, "
+                    "status = COALESCE(:status, status), "
+                    "refunded_at = CASE WHEN :refund_status = 'processed' THEN COALESCE(refunded_at, NOW()) ELSE refunded_at END, "
+                    "updated_at = NOW() WHERE payment_id = :id RETURNING *"
+                ),
+                {"refund_status": refund_status, "rfnd": razorpay_refund_id, "status": status, "id": str(payment_id)},
+            )
+
+    async def list_pending_online_refunds(self, limit: int = 20) -> list[dict]:
+        """Refund worker's batch: owed, paid online, row-locked so two
+        workers never refund the same payment."""
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT * FROM payments WHERE refund_status = 'pending' AND razorpay_payment_id IS NOT NULL "
+                        "ORDER BY updated_at LIMIT :limit FOR UPDATE SKIP LOCKED"
+                    ),
+                    {"limit": limit},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def other_paid_for_appointment(self, appointment_id, payment_id) -> bool:
+        row = await fetch_optional(
+            self.session,
+            text("SELECT 1 AS x FROM payments WHERE appointment_id = :a AND payment_id <> :p AND status = 'paid' LIMIT 1"),
+            {"a": str(appointment_id), "p": str(payment_id)},
+        )
+        return row is not None
+
+    async def mark_orphaned_capture(self, payment_id: UUID, *, razorpay_payment_id, payment_method) -> dict | None:
+        """Money captured for a booking that cannot take it: recorded and
+        queued for a full refund (refund_status pending -> refund worker).
+        Status goes straight to 'refunded' rather than 'paid' - it is not
+        revenue, and 'paid' could collide with the booking's real payment on
+        uq_payments_one_paid_per_appointment."""
+        async with as_system(self.session):
+            return await fetch_optional(
+                self.session,
+                text(
+                    "UPDATE payments SET status = 'refunded', payment_method = COALESCE(:method, payment_method), "
+                    "razorpay_payment_id = COALESCE(:rzp, razorpay_payment_id), paid_at = COALESCE(paid_at, NOW()), "
+                    "cancellation_refund_percent = 100, cancellation_refund_amount = amount, refund_status = 'pending', "
+                    "refund_requested_at = NOW(), "
+                    "updated_at = NOW() WHERE payment_id = :id RETURNING *"
+                ),
+                {"method": payment_method, "rzp": razorpay_payment_id, "id": str(payment_id)},
+            )
+
+    async def get_by_razorpay_payment_id(self, razorpay_payment_id: str) -> dict | None:
+        return await fetch_optional(
+            self.session, text("SELECT * FROM payments WHERE razorpay_payment_id = :id"), {"id": razorpay_payment_id}
+        )
 
     async def get_by_razorpay_order_id(self, razorpay_order_id: str) -> dict | None:
         return await fetch_optional(self.session, text("SELECT * FROM payments WHERE razorpay_order_id = :id"), {"id": razorpay_order_id})
@@ -351,8 +477,9 @@ class PaymentRepository:
         return await fetch_optional(
             self.session,
             text(
-                f"UPDATE payments SET status = :status, payment_method = :method, waived_by = :waived_by, "
-                f"waived_reason = :reason {paid_at_clause} {rzp_clause} WHERE payment_id = :id RETURNING *"
+                f"UPDATE payments SET status = :status, payment_method = COALESCE(:method, payment_method), "
+                f"waived_by = COALESCE(:waived_by, waived_by), waived_reason = COALESCE(:reason, waived_reason) "
+                f"{paid_at_clause} {rzp_clause} WHERE payment_id = :id RETURNING *"
             ),
             {
                 "status": status,
@@ -382,6 +509,11 @@ class PaymentRepository:
     # needs this same two-hop join (appointment or store order) to hydrate
     # who/what/where, so it's factored out once rather than repeated three
     # times with a chance to drift.
+    # Revenue counts money kept: paid rows in full, partially refunded rows
+    # minus what went back (118). Fully refunded rows drop out.
+    _REVENUE_STATUS = "p.status IN ('paid', 'partially_refunded')"
+    _NET_AMOUNT = "(p.amount - CASE WHEN p.refund_status = 'processed' THEN COALESCE(p.cancellation_refund_amount, 0) ELSE 0 END)"
+
     _HISTORY_BASE = (
         "FROM payments p "
         "LEFT JOIN appointments a ON a.appointment_id = p.appointment_id "
@@ -402,6 +534,7 @@ class PaymentRepository:
         date_to=None,
         limit: int = 100,
         offset: int = 0,
+        refund_status: list[str] | None = None,
     ) -> list[dict]:
         scope_sql, scope_params = self._scope_clause(clinic_id=clinic_id, region_id=region_id)
         where = ["1=1"]
@@ -409,6 +542,9 @@ class PaymentRepository:
         if status:
             where.append("p.status = :status")
             params["status"] = status
+        if refund_status:
+            where.append("p.refund_status = ANY(:refund_status)")
+            params["refund_status"] = refund_status
         if search:
             where.append("pp.first_name || ' ' || pp.last_name ILIKE :search")
             params["search"] = f"%{search}%"
@@ -450,7 +586,7 @@ class PaymentRepository:
         whitelist before it ever reaches here — never build this string from
         unvalidated input, date_trunc's first argument can't be parameterized."""
         scope_sql, scope_params = self._scope_clause(clinic_id=clinic_id, region_id=region_id)
-        where = ["p.status = 'paid'", "p.paid_at IS NOT NULL"]
+        where = [self._REVENUE_STATUS, "p.paid_at IS NOT NULL"]
         params: dict = {**scope_params}
         if date_from:
             where.append("p.paid_at >= :date_from")
@@ -460,7 +596,7 @@ class PaymentRepository:
             params["date_to"] = date_to
 
         query = (
-            f"SELECT date_trunc('{group_by}', p.paid_at) AS period, SUM(p.amount) AS total, COUNT(*) AS payment_count "
+            f"SELECT date_trunc('{group_by}', p.paid_at) AS period, SUM{self._NET_AMOUNT} AS total, COUNT(*) AS payment_count "
             f"{self._HISTORY_BASE}"
             f"WHERE {' AND '.join(where)} {scope_sql} "
             "GROUP BY period ORDER BY period ASC"
@@ -482,7 +618,7 @@ class PaymentRepository:
         what lets the frontend draw one line per appointment_type/
         device_session instead of a single blended total."""
         scope_sql, scope_params = self._scope_clause(clinic_id=clinic_id, region_id=region_id)
-        where = ["p.status = 'paid'", "p.paid_at IS NOT NULL"]
+        where = [self._REVENUE_STATUS, "p.paid_at IS NOT NULL"]
         params: dict = {**scope_params}
         if date_from:
             where.append("p.paid_at >= :date_from")
@@ -494,7 +630,7 @@ class PaymentRepository:
         query = (
             f"SELECT date_trunc('{group_by}', p.paid_at) AS period, "
             "COALESCE(a.appointment_type, so.order_type, 'other') AS purpose, "
-            "SUM(p.amount) AS total, COUNT(*) AS payment_count "
+            f"SUM{self._NET_AMOUNT} AS total, COUNT(*) AS payment_count "
             f"{self._HISTORY_BASE}"
             f"WHERE {' AND '.join(where)} {scope_sql} "
             "GROUP BY period, purpose ORDER BY period ASC, purpose ASC"
@@ -531,7 +667,7 @@ class PaymentRepository:
         biggest first, within the caller's scope."""
         key_expr, label_expr, parent_expr = self._BREAKDOWN_DIMENSIONS[dimension]
         scope_sql, scope_params = self._scope_clause(clinic_id=clinic_id, region_id=region_id)
-        where = ["p.status = 'paid'", "p.paid_at IS NOT NULL"]
+        where = [self._REVENUE_STATUS, "p.paid_at IS NOT NULL"]
         params: dict = {**scope_params}
         if date_from:
             where.append("p.paid_at >= :date_from")
@@ -542,7 +678,7 @@ class PaymentRepository:
 
         query = (
             f"SELECT ({key_expr})::text AS key, MIN({label_expr}) AS label, {parent_expr} AS parent_label, "
-            "SUM(p.amount) AS total, COUNT(*) AS payment_count "
+            f"SUM{self._NET_AMOUNT} AS total, COUNT(*) AS payment_count "
             f"{self._HISTORY_BASE}"
             "LEFT JOIN regions r ON r.region_id = c.region_id "
             "LEFT JOIN protocol_instances pi ON pi.instance_id = a.instance_id "
@@ -563,7 +699,7 @@ class PaymentRepository:
         limit: int = 20,
     ) -> list[dict]:
         scope_sql, scope_params = self._scope_clause(clinic_id=clinic_id, region_id=region_id)
-        where = ["p.status = 'paid'"]
+        where = [self._REVENUE_STATUS]
         params: dict = {**scope_params, "limit": limit}
         if date_from:
             where.append("p.paid_at >= :date_from")
@@ -575,7 +711,7 @@ class PaymentRepository:
         query = (
             "SELECT COALESCE(a.patient_id, so.patient_id) AS patient_id, "
             "pp.first_name || ' ' || pp.last_name AS patient_name, "
-            "SUM(p.amount) AS total_paid, COUNT(*) AS payment_count "
+            f"SUM{self._NET_AMOUNT} AS total_paid, COUNT(*) AS payment_count "
             f"{self._HISTORY_BASE}"
             f"WHERE {' AND '.join(where)} {scope_sql} "
             "GROUP BY COALESCE(a.patient_id, so.patient_id), pp.first_name, pp.last_name "

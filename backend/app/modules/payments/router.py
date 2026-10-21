@@ -1,12 +1,11 @@
 import io
-import json
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
-from app.core.db import RequestContext, get_db
+from app.core.db import RequestContext, as_system, get_db
 from app.core.exceptions import BusinessRuleError, PermissionError_
 from app.core.permissions import require_role
 from app.core.scoping import assert_owns_profile
@@ -68,6 +67,9 @@ async def list_payments_history(
     date_to: datetime | None = None,
     limit: int = 100,
     offset: int = 0,
+    refund_status: str | None = Query(
+        None, description="comma list of pending,processed,failed — e.g. pending,failed = refunds needing action"
+    ),
     db=Depends(get_db),
     ctx: RequestContext = Depends(require_role(*_PAYMENTS_HISTORY_ROLES)),
 ):
@@ -75,8 +77,18 @@ async def list_payments_history(
     admin sees every clinic, regional admin their region, clinic admin/
     receptionist their own clinic. No clinic_id query param: the scope is
     derived from who's asking, not something the caller can widen."""
+    refund_statuses = [x.strip() for x in refund_status.split(",") if x.strip()] if refund_status else None
+    if refund_statuses and not set(refund_statuses) <= {"pending", "processed", "failed"}:
+        raise BusinessRuleError("refund_status must be pending, processed and/or failed", code="INVALID_REFUND_STATUS")
     return await PaymentService(db).list_history(
-        ctx, status=status, search=search, date_from=date_from, date_to=date_to, limit=min(limit, 500), offset=offset
+        ctx,
+        status=status,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        limit=min(limit, 500),
+        offset=offset,
+        refund_status=refund_statuses,
     )
 
 
@@ -180,17 +192,33 @@ async def update_payment_status(
 ):
     if body.status == "waived" and ctx.role not in ("clinic_admin", "super_admin"):
         raise PermissionError_("Only a Clinic Admin can waive a payment", code="WAIVER_NOT_PERMITTED")
+    if body.status == "refunded" and ctx.role not in _CASH_COLLECTING_ROLES:
+        raise PermissionError_("Only the front desk or an admin can confirm a refund", code="REFUND_NOT_PERMITTED")
+    # Marking money received or failed by hand is an admin decision; for other
+    # roles it used to reach the database and fail with a 500 (audit M5).
+    if body.status in ("paid", "failed") and ctx.role not in ("clinic_admin", "super_admin"):
+        raise PermissionError_("Only a Clinic Admin can set a payment to paid or failed by hand", code="PAYMENT_STATUS_NOT_PERMITTED")
     clinic_id = await PaymentService(db).repo.get_clinic_id(payment_id)
     await assert_payment_clinic_scope(ctx, db, clinic_id)
-    return await PaymentService(db).update_status(
-        payment_id,
-        status=body.status,
-        payment_method=body.payment_method,
-        waived_by=UUID(ctx.user_id) if body.status == "waived" else None,
-        waived_reason=body.waived_reason,
-        _changed_by=UUID(ctx.user_id),
-        _changed_by_role=ctx.role,
-    )
+
+    async def apply() -> dict:
+        return await PaymentService(db).update_status(
+            payment_id,
+            status=body.status,
+            payment_method=body.payment_method,
+            waived_by=UUID(ctx.user_id) if body.status == "waived" else None,
+            waived_reason=body.waived_reason,
+            _changed_by=UUID(ctx.user_id),
+            _changed_by_role=ctx.role,
+        )
+
+    # A receptionist confirming a cash refund: rls_payments_update admits only
+    # super_admin/clinic_admin/system, so the UPDATE would match 0 rows. The
+    # role check and clinic scope above already authorized it.
+    if body.status == "refunded":
+        async with as_system(db):
+            return await apply()
+    return await apply()
 
 
 @router.get("/me/payments", response_model=list[s.PaymentHistoryRead])
@@ -278,4 +306,4 @@ async def razorpay_webhook(request: Request, db=Depends(get_db)):
     authentication (Architecture Section 14)."""
     raw_body = await request.body()
     signature = request.headers.get("X-Razorpay-Signature", "")
-    return await PaymentService(db).handle_webhook(payload=raw_body, signature=signature, body=json.loads(raw_body or b"{}"))
+    return await PaymentService(db).handle_webhook(payload=raw_body, signature=signature)

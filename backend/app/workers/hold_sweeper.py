@@ -92,11 +92,10 @@ async def sweep_once() -> dict:
                     "AND protocol_id IS NOT NULL"
                 )
             )
-            # Only 'pending'/'failed' payments can ever be attached to a
-            # still-'selected' appointment — a 'paid' one would have already
-            # moved the appointment out of 'selected' via mark_paid() — so
-            # flipping them to 'failed' here is safe: nothing that ever
-            # completed is at risk.
+            # Only the still-open ('pending') checkouts are closed. Anything
+            # else on the row is history — an earlier failed attempt, or a
+            # capture already queued for refund (refund_status) — and must
+            # keep its status.
             #
             # Logged first, same as any other payment status change — an
             # abandoned checkout is exactly the case worth a durable "why did
@@ -107,7 +106,7 @@ async def sweep_once() -> dict:
                     "razorpay_order_id, razorpay_payment_id, source, failure_reason, changed_by_role) "
                     "SELECT payment_id, 'failed', amount, currency, payment_method, razorpay_order_id, razorpay_payment_id, "
                     "'system', 'Booking hold expired before payment completed', 'system' "
-                    "FROM payments WHERE appointment_id IN ("
+                    "FROM payments WHERE status = 'pending' AND appointment_id IN ("
                     "SELECT appointment_id FROM appointments "
                     "WHERE status = 'selected' AND hold_expires_at < NOW() AND protocol_id IS NULL"
                     ")"
@@ -115,7 +114,7 @@ async def sweep_once() -> dict:
             )
             await session.execute(
                 text(
-                    "UPDATE payments SET status = 'failed', updated_at = NOW() WHERE appointment_id IN ("
+                    "UPDATE payments SET status = 'failed', updated_at = NOW() WHERE status = 'pending' AND appointment_id IN ("
                     "SELECT appointment_id FROM appointments "
                     "WHERE status = 'selected' AND hold_expires_at < NOW() AND protocol_id IS NULL"
                     ")"

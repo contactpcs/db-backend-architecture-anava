@@ -387,6 +387,19 @@ async def set_protocol_instance_status(
     return await ProtocolInstanceService(db).set_status(instance_id, status, ctx)
 
 
+@router.get("/patients/{patient_id}/protocol-readiness", response_model=s.ProtocolReadiness)
+async def get_protocol_readiness(
+    patient_id: UUID,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_PRESCRIBERS)),
+):
+    """Whether "Start New Treatment Protocol" is unlocked: the patient's
+    first protocol needs the initial consultation's anamnesis (required
+    questions), a completed PRS and a doctor's note. POST /treatment-protocols
+    enforces the same rule (PROTOCOL_PREREQUISITES_MISSING)."""
+    return await ProtocolService(db).readiness_for_patient(patient_id, ctx)
+
+
 @router.post("/treatment-protocols", response_model=s.ProtocolRead, status_code=201)
 async def create_protocol(
     body: s.ProtocolCreate,
@@ -444,6 +457,19 @@ async def update_protocol(
     """Draft-only. An active protocol is amended by cancelling and
     re-issuing, not edited in place."""
     return await ProtocolService(db).update(protocol_id, body, ctx)
+
+
+@router.post("/treatment-protocols/{protocol_id}/amend", response_model=s.ProtocolRead, status_code=201)
+async def amend_protocol(
+    protocol_id: UUID,
+    body: s.ProtocolAmend,
+    db=Depends(get_db),
+    ctx: RequestContext = Depends(require_role(*_AMENDERS)),
+):
+    """'Modify protocol': issues the next minor version of an active protocol
+    with only the sent fields changed, moves its not-yet-started sessions onto
+    it and makes it live — one transaction."""
+    return await ProtocolService(db).amend(protocol_id, body, ctx)
 
 
 @router.get("/treatment-protocols/{protocol_id}/sessions", response_model=list[s.ProtocolSessionRead])

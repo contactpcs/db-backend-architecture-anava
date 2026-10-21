@@ -7,8 +7,30 @@ from pydantic import BaseModel, Field
 Scope = Literal["overall", "last_consultation"]
 
 
+class FinalReportSelection(BaseModel):
+    """Per report section, the ids the doctor ticked with that section's
+    pencil. A missing or null key keeps the scope's default."""
+
+    anamnesis_ids: list[str] | None = Field(None, max_length=500)
+    # Main PRS records (prs instance ids).
+    prs_ids: list[str] | None = Field(None, max_length=500)
+    # Device-session PRS records (prs instance ids).
+    session_prs_ids: list[str] | None = Field(None, max_length=500)
+    note_ids: list[UUID] | None = Field(None, max_length=500)
+    medicine_ids: list[UUID] | None = Field(None, max_length=500)
+    protocol_ids: list[UUID] | None = Field(None, max_length=200)
+    # Device sessions for section 08, by appointment id.
+    session_ids: list[UUID] | None = Field(None, max_length=1000)
+
+
+class FinalReportDraft(BaseModel):
+    scope: Scope
+    selection: FinalReportSelection | None = None
+
+
 class FinalReportSign(BaseModel):
     scope: Scope
+    selection: FinalReportSelection | None = None
     # The doctor's own wording, e.g. "MDD + mild psychotic episodes". Required.
     diagnosis: str = Field(max_length=2000)
     # patient_clinical_notes the doctor ticked for inclusion.
@@ -17,22 +39,14 @@ class FinalReportSign(BaseModel):
     confirm_sign: bool = False
 
 
-class NoteCandidate(BaseModel):
-    note_id: UUID
-    category: str
-    note_text: str
-    created_at: datetime
-    doctor_name: str | None = None
-    appointment_id: UUID | None = None
-    # Belongs to the chosen scope's window — what the picker pre-ticks.
-    in_scope: bool
-
-
 class FinalReportPreview(BaseModel):
     scope: Scope
-    # Same shape as FinalReportRead.snapshot, with doctor_notes still empty.
+    # Same shape as FinalReportRead.snapshot.
     sections: dict
-    note_candidates: list[NoteCandidate]
+    # The ids the sections hold, per FinalReportSelection key.
+    selection: dict
+    # Per section, everything its pencil can offer.
+    candidates: dict
 
 
 class FinalReportMeta(BaseModel):

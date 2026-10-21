@@ -307,6 +307,48 @@ class CancellationPolicyRepository:
     async def delete(self, tier_id: UUID) -> None:
         await self.session.execute(text("DELETE FROM reference.cancellation_policy_tiers WHERE tier_id = :id"), {"id": str(tier_id)})
 
+    async def scope_rows(self, *, session_type: str, clinic_id: UUID | None) -> builtins.list[dict]:
+        """Exactly one scope's tiers (clinic_id None = platform default),
+        highest threshold first — unlike resolve_tiers, no fallback."""
+        clause = "clinic_id = :clinic_id" if clinic_id else "clinic_id IS NULL"
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        f"SELECT * FROM reference.cancellation_policy_tiers WHERE session_type = :session_type AND {clause} "
+                        "ORDER BY min_hours_before DESC"
+                    ),
+                    {"session_type": session_type, "clinic_id": str(clinic_id) if clinic_id else None},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+    async def replace_clinic_set(self, clinic_id: UUID, session_type: str, tiers: builtins.list[dict], *, by: UUID) -> None:
+        """Atomic swap of one clinic's tier set for one session type. An empty
+        list leaves the clinic on the platform default (118 D11)."""
+        await self.session.execute(
+            text("DELETE FROM reference.cancellation_policy_tiers WHERE clinic_id = :clinic_id AND session_type = :session_type"),
+            {"clinic_id": str(clinic_id), "session_type": session_type},
+        )
+        for tier in tiers:
+            await self.session.execute(
+                text(
+                    "INSERT INTO reference.cancellation_policy_tiers "
+                    "(clinic_id, session_type, min_hours_before, refund_percent, created_by, updated_by) "
+                    "VALUES (:clinic_id, :session_type, :hours, :pct, :by, :by)"
+                ),
+                {
+                    "clinic_id": str(clinic_id),
+                    "session_type": session_type,
+                    "hours": tier["min_hours_before"],
+                    "pct": tier["refund_percent"],
+                    "by": str(by),
+                },
+            )
+
 
 class ClinicHoursRepository:
     """core.clinic_weekly_hours — one row per (clinic, day_of_week). A clinic
@@ -377,6 +419,14 @@ class ClinicRepository:
             .first()
         )
         return dict(row) if row else None
+
+    async def set_reschedule_min_hours(self, clinic_id: UUID, hours: float | None) -> None:
+        """NULL is a real value here (back to the platform default), which
+        update() cannot express — it drops None fields."""
+        await self.session.execute(
+            text("UPDATE clinics SET reschedule_min_hours = :h WHERE clinic_id = :id"),
+            {"h": hours, "id": str(clinic_id)},
+        )
 
     async def count_for_region(self, region_id: UUID) -> int:
         return (await self.session.execute(text("SELECT count(*) FROM clinics WHERE region_id = :id"), {"id": str(region_id)})).scalar_one()
