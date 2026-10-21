@@ -364,12 +364,15 @@ class ScheduleService:
     re-preview as often as they like without writing anything."""
 
     @staticmethod
-    def follow_up_date(after: dt.date, weekdays) -> dt.date:
+    def follow_up_date(after: dt.date, weekdays, skip: set[dt.date] | frozenset[dt.date] = frozenset()) -> dt.date:
         """The day after the triggering session, walked forward onto the next
-        day this cadence actually treats on."""
+        day this cadence actually treats on and that is not in `skip`. The skip
+        set carries the days the clinic is closed (the wizard sends them with the
+        doctor's own skipped days), so a follow-up is never placed on a closed day.
+        The walk is bounded: 60 days is far past any run of closed days."""
         day = after + dt.timedelta(days=1)
-        for _ in range(7):
-            if day.weekday() in weekdays:
+        for _ in range(60):
+            if day.weekday() in weekdays and day not in skip:
                 break
             day += dt.timedelta(days=1)
         return day
@@ -423,7 +426,7 @@ class ScheduleService:
                     follow_ups.append(
                         {
                             "after_session_number": number,
-                            "planned_date": ScheduleService.follow_up_date(planned, weekdays),
+                            "planned_date": ScheduleService.follow_up_date(planned, weekdays, skip),
                         }
                     )
 
@@ -1393,7 +1396,7 @@ class ProtocolService:
         every_n = plan.get("follow_up_every_n")
         kept_follow_ups = {b["session_number"] for b in booked_follow_ups}
         follow_ups = [
-            {"after_session_number": number, "planned_date": ScheduleService.follow_up_date(date, weekdays)}
+            {"after_session_number": number, "planned_date": ScheduleService.follow_up_date(date, weekdays, set(skip_dates))}
             for number, date, _ in numbered
             if every_n and number % every_n == 0 and number not in kept_follow_ups
         ]
