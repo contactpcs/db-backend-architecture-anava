@@ -8,6 +8,7 @@ immutable (SQL/v1/117): a correction is a new report, older ones stay."""
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from fastapi.encoders import jsonable_encoder
@@ -64,9 +65,9 @@ class FinalReportService:
         "candidates", "window"}."""
         profile_id = patient["profile_id"]
         now = datetime.now(UTC)
-        picked = {k: (None if v is None else {str(x) for x in v}) for k, v in (selection or {}).items()}
+        picked: dict[str, set[str] | None] = {k: (None if v is None else {str(x) for x in v}) for k, v in (selection or {}).items()}
 
-        window = {"consultation": None, "start": None, "end": None}
+        window: dict[str, Any] = {"consultation": None, "start": None, "end": None}
         if scope == "last_consultation":
             window = assembler.consultation_window(await self.repo.started_consultations(profile_id), now)
             if not window["consultation"]:
@@ -75,8 +76,9 @@ class FinalReportService:
 
         # 01 Anamnesis
         all_anamnesis = await self.repo.anamnesis_assessments(profile_id)
-        if picked.get("anamnesis_ids") is not None:
-            chosen_anamnesis = [a for a in all_anamnesis if a["anamnesis_id"] in picked["anamnesis_ids"]]
+        anamnesis_pick = picked.get("anamnesis_ids")
+        if anamnesis_pick is not None:
+            chosen_anamnesis = [a for a in all_anamnesis if a["anamnesis_id"] in anamnesis_pick]
         elif consultation:
             chosen_anamnesis = [a for a in all_anamnesis if str(a.get("appointment_id")) == str(consultation["appointment_id"])]
         else:
@@ -95,10 +97,9 @@ class FinalReportService:
         listed = await protocols.list(ctx, patient_id=patient["patient_id"], limit=200)
         listed.sort(key=lambda p: p["created_at"], reverse=True)
         protocol_candidates = assembler.protocol_candidates(listed)
-        if picked.get("protocol_ids") is not None:
-            chosen_protocols = [
-                p for p in listed if str(p["protocol_id"]) in picked["protocol_ids"] and p["status"] not in ("draft", "cancelled")
-            ]
+        protocol_pick = picked.get("protocol_ids")
+        if protocol_pick is not None:
+            chosen_protocols = [p for p in listed if str(p["protocol_id"]) in protocol_pick and p["status"] not in ("draft", "cancelled")]
         else:
             chosen_protocols = assembler.pick_protocols(listed, scope)
         details = [await protocols.get_detail(p["protocol_id"], ctx) for p in chosen_protocols]
@@ -118,7 +119,7 @@ class FinalReportService:
             # Every device the patient is on gets a PRS block, PRS or not.
             assembler.protocol_instances(details),
         )
-        prs = assembler.build_prs(
+        prs: dict[str, Any] = assembler.build_prs(
             *prs_inputs,
             window_start=window["start"],
             window_end=window["end"],
@@ -131,8 +132,9 @@ class FinalReportService:
 
         # 05 Doctor's notes
         notes = await self.notes.list_for_patient(profile_id)
-        if picked.get("note_ids") is not None:
-            note_ids = sorted(picked["note_ids"])
+        note_pick = picked.get("note_ids")
+        if note_pick is not None:
+            note_ids = sorted(note_pick)
         else:
             note_ids = [
                 str(n["note_id"])
@@ -148,14 +150,13 @@ class FinalReportService:
 
         # 06 Medication
         medicines = await self.medicines.list_for_patient(profile_id)
-        chosen_medicines = (
-            medicines if picked.get("medicine_ids") is None else [m for m in medicines if str(m["medicine_id"]) in picked["medicine_ids"]]
-        )
+        medicine_pick = picked.get("medicine_ids")
+        chosen_medicines = medicines if medicine_pick is None else [m for m in medicines if str(m["medicine_id"]) in medicine_pick]
 
         # 08 Device session details
         session_rows = await self.repo.device_sessions(profile_id)
 
-        sections = {
+        sections: dict[str, Any] = {
             "scope": scope,
             "generated_at": now,
             "window": {"from": window["start"], "to": window["end"], "consultation": consultation},
