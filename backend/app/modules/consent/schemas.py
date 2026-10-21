@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 ConsentType = Literal[
     "patient_onboarding",
@@ -45,6 +45,21 @@ class ConsentTemplateRead(BaseModel):
     is_active: bool
     published_at: datetime | None
     created_at: datetime
+    # The full form (H1). Only in the super admin's listing; everyone else
+    # gets has_full_html and reads the filled form per consent record.
+    full_html: str | None = None
+    has_full_html: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _has_full(cls, data):
+        if isinstance(data, dict) and "has_full_html" not in data:
+            data = {**data, "has_full_html": bool(data.get("full_html"))}
+        return data
+
+
+# Characters, not bytes; fill.check_full_html enforces the 1 MB byte cap.
+FullHtml = Annotated[str | None, Field(max_length=1_048_576)]
 
 
 class ConsentTemplateCreate(BaseModel):
@@ -54,6 +69,7 @@ class ConsentTemplateCreate(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     content: str = Field(min_length=1, max_length=50000)
     clauses: list[Clause] = Field(default_factory=list, max_length=20)
+    full_html: FullHtml = None
 
     _codes = field_validator("clauses")(_unique_codes)
 
@@ -62,6 +78,8 @@ class ConsentTemplateUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=300)
     content: str | None = Field(default=None, min_length=1, max_length=50000)
     clauses: list[Clause] | None = Field(default=None, max_length=20)
+    # "" removes the full form.
+    full_html: FullHtml = None
 
     @field_validator("clauses")
     @classmethod
@@ -121,6 +139,8 @@ class ConsentDocument(BaseModel):
     rendered_hash: str
     signer: Signer | None
     signed_at: datetime | None = None
+    # A "Read the full consent form" link exists (GET /consent-records/{id}/full).
+    has_full_form: bool = False
     pdf_available: bool = False
 
 
@@ -141,12 +161,57 @@ class ConsentRecordRead(BaseModel):
     rendered_hash: str | None = None
     responses: list[ClauseResponse] | None = None
     pdf_available: bool = False
+    full_viewed_at: datetime | None = None
     revoked_at: datetime | None
     created_at: datetime
 
     @classmethod
     def from_row(cls, row: dict) -> "ConsentRecordRead":
         return cls(**row, pdf_available=bool(row.get("pdf_s3_key")))
+
+
+class FullForm(BaseModel):
+    html: str
+
+
+class Placeholder(BaseModel):
+    name: str
+    description: str
+    # Personal details: only in the full form (as [NAME] or <input name="NAME">).
+    full_form_only: bool = False
+    # required: publishing a full form without it is refused.
+    level: Literal["required", "recommended", "optional"] = "optional"
+
+
+class FullFormAnalyzeRequest(BaseModel):
+    consent_type: ConsentType
+    role: StaffRole | None = None
+    full_html: str = Field(max_length=1_048_576)
+
+
+class DetectedField(BaseModel):
+    name: str
+    description: str
+    as_input: bool
+    as_text: bool
+    known: bool
+    required: bool
+
+
+class FullFormAnalysis(BaseModel):
+    """Every field the uploaded form will capture, and what blocks it."""
+
+    fields: list[DetectedField]
+    missing_required: list[str]
+    missing_recommended: list[str]
+    unknown: list[str]
+    problems: list[str]
+    has_guardian_section: bool
+
+
+class StarterForm(BaseModel):
+    filename: str
+    html: str
 
 
 class PdfLink(BaseModel):

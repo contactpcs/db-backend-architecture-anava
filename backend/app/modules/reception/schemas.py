@@ -46,7 +46,7 @@ class GuardianDetails(BaseModel):
     contact_number: str
     # Required for an adult patient (why a guardian consents for them);
     # ignored for a minor, who is always "minor".
-    reason: Literal["lacks_capacity", "lawful_guardian", "nominated_representative"] | None = None
+    reason: Literal["patient_requested", "lacks_capacity", "lawful_guardian", "nominated_representative"] | None = None
 
 
 class RegisterPatientRequest(BaseModel):

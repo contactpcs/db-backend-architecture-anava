@@ -28,24 +28,43 @@ class ConsentTemplateRepository:
         )
 
     async def list(self, *, include_drafts: bool) -> list[dict]:
-        where = "" if include_drafts else "WHERE published_at IS NOT NULL"
-        sql = f"SELECT * FROM consent_templates {where} ORDER BY consent_type, role NULLS FIRST, language, version DESC"
+        # Only the super admin (include_drafts) gets the full forms — up to 1 MB each.
+        where, cols = (
+            ("", "*")
+            if include_drafts
+            else (
+                "WHERE published_at IS NOT NULL",
+                "template_id, consent_type, role, language, version, title, content, clauses, content_hash, "
+                "is_active, published_at, created_at, full_html IS NOT NULL AS has_full_html",
+            )
+        )
+        sql = f"SELECT {cols} FROM consent_templates {where} ORDER BY consent_type, role NULLS FIRST, language, version DESC"
         rows = (await self.session.execute(text(sql))).mappings().all()
         return [dict(r) for r in rows]
 
     async def get(self, template_id: UUID) -> dict | None:
         return await fetch_optional(self.session, text("SELECT * FROM consent_templates WHERE template_id = :id"), {"id": str(template_id)})
 
-    async def create_draft(self, *, consent_type: str, role: str | None, language: str, title: str, content: str, clauses: list) -> dict:
+    async def create_draft(
+        self, *, consent_type: str, role: str | None, language: str, title: str, content: str, clauses: list, full_html: str | None = None
+    ) -> dict:
         return await fetch_one(
             self.session,
             text(
-                "INSERT INTO consent_templates (consent_type, role, language, version, title, content, clauses, is_active) "
-                "SELECT :t, :role, :lang, COALESCE(MAX(version), 0) + 1, :title, :content, CAST(:clauses AS JSONB), FALSE "
+                "INSERT INTO consent_templates (consent_type, role, language, version, title, content, clauses, full_html, is_active) "
+                "SELECT :t, :role, :lang, COALESCE(MAX(version), 0) + 1, :title, :content, CAST(:clauses AS JSONB), :full_html, FALSE "
                 "FROM consent_templates WHERE consent_type = :t AND role IS NOT DISTINCT FROM :role AND language = :lang "
                 "RETURNING *"
             ),
-            {"t": consent_type, "role": role, "lang": language, "title": title, "content": content, "clauses": json.dumps(clauses)},
+            {
+                "t": consent_type,
+                "role": role,
+                "lang": language,
+                "title": title,
+                "content": content,
+                "clauses": json.dumps(clauses),
+                "full_html": full_html,
+            },
         )
 
     async def update_draft(self, template_id: UUID, fields: dict) -> dict | None:
@@ -139,21 +158,28 @@ class ConsentRecordRepository:
         )
 
     async def sign(self, consent_id: UUID, evidence: dict) -> dict | None:
-        """evidence: signed_by, rendered_title/content/hash, responses,
-        content_hash_at_signing, ip_address, user_agent, auth_method,
-        signer_type/name/relation/contact, guardian_reason."""
+        """evidence: signed_by, signed_at, rendered_title/content/hash,
+        rendered_full_hash, responses, fill_values, content_hash_at_signing,
+        ip_address, user_agent, auth_method, signer_type/name/relation/contact,
+        guardian_reason."""
+        jsonb = ("responses", "fill_values")
         sets = ", ".join(
-            f"{k} = CAST(:{k} AS JSONB)" if k == "responses" else f"{k} = CAST(:{k} AS INET)" if k == "ip_address" else f"{k} = :{k}"
+            f"{k} = CAST(:{k} AS JSONB)" if k in jsonb else f"{k} = CAST(:{k} AS INET)" if k == "ip_address" else f"{k} = :{k}"
             for k in evidence
         )
-        params = {k: json.dumps(v) if k == "responses" else v for k, v in evidence.items()}
+        params = {k: json.dumps(v) if k in jsonb else v for k, v in evidence.items()}
         return await fetch_optional(
             self.session,
-            text(
-                f"UPDATE consent_records SET status = 'signed', signed_at = NOW(), {sets} "
-                "WHERE consent_id = :id AND status = 'pending' RETURNING *"
-            ),
+            text(f"UPDATE consent_records SET status = 'signed', {sets} WHERE consent_id = :id AND status = 'pending' RETURNING *"),
             {**params, "id": str(consent_id)},
+        )
+
+    async def mark_full_viewed(self, consent_id: UUID) -> None:
+        await self.session.execute(
+            text(
+                "UPDATE consent_records SET full_viewed_at = NOW() WHERE consent_id = :id AND status = 'pending' AND full_viewed_at IS NULL"
+            ),
+            {"id": str(consent_id)},
         )
 
     async def set_pdf(self, consent_id: UUID, *, key: str, sha256: str, version_id: str | None) -> dict | None:

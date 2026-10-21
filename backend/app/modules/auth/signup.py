@@ -183,14 +183,12 @@ def normalize_login(channel: str, contact: str) -> tuple[str, str]:
 def check_guardian_login(registration: dict, contact: str, method: str) -> None:
     """A guardian holds the patient's login: they receive the temporary
     password and sign the consent, so the login mobile must be theirs. An
-    adult needs a recorded reason for having a guardian at all."""
+    adult may have a guardian with no stated reason — PatientService.register
+    records it as patient_requested (design_consent_v2.md D3)."""
     from app.core.exceptions import ValidationError
-    from app.modules.patients.service import _is_minor
 
     if not registration.get("guardian_name"):
         return
-    if not _is_minor(registration.get("dob")) and not registration.get("guardian_reason"):
-        raise ValidationError("Choose why a guardian gives consent for this adult patient", code="GUARDIAN_REASON_REQUIRED")
     if method == "mobile" and _last10(registration.get("guardian_contact")) != _last10(contact):
         raise ValidationError(
             "The login mobile number must be the guardian's — they receive the login details and give consent",

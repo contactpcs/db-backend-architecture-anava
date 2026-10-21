@@ -13,9 +13,10 @@ from pydantic import ValidationError as PydanticValidationError
 from app.core.exceptions import BusinessRuleError, ValidationError
 from app.integrations import s3
 from app.modules.auth.signup import check_guardian_login
+from app.modules.consent.fill import hash_rendered, render
 from app.modules.consent.pdf import build_consent_pdf
 from app.modules.consent.schemas import ConsentTemplateCreate
-from app.modules.consent.service import build_responses, hash_rendered, render, resolve_signer
+from app.modules.consent.service import build_responses, build_values, resolve_signer
 
 TODAY = date(2026, 10, 16)
 
@@ -90,20 +91,29 @@ def test_staff_always_sign_for_themselves():
 # ── rendering + hash ──────────────────────────────────────────────────────
 
 
+def _values(subject, clinic_name):
+    signer = resolve_signer(subject, TODAY)
+    values = build_values(
+        subject=subject, clinic={"clinic_name": clinic_name}, signer=signer, record={"consent_id": uuid.UUID(int=1)}, version=3, today=TODAY
+    )
+    return values, signer["signer_type"]
+
+
 def test_render_fills_placeholders_in_text_and_checkbox_labels():
-    signer = resolve_signer(_patient(), TODAY)
-    out = render(TEMPLATE, _patient(), signer, "Anava Indiranagar")
+    values, signer_type = _values(_patient(), "Anava Indiranagar")
+    out = render(TEMPLATE, values, signer_type, times=None)
     assert out["title"] == "Consent for Asha Rao"
     assert out["content"] == "I, Asha Rao, agree to care at Anava Indiranagar."
     assert out["clauses"][0]["label"] == "Process data of Asha Rao"
+    assert "full_html" not in out  # v2 template: hash formula unchanged
 
 
 def test_hash_is_stable_and_covers_checkbox_labels():
-    signer = resolve_signer(_patient(), TODAY)
-    a = render(TEMPLATE, _patient(), signer, "C")
-    assert hash_rendered(a) == hash_rendered(render(TEMPLATE, _patient(), signer, "C"))
+    values, st = _values(_patient(), "C")
+    a = render(TEMPLATE, values, st, times=None)
+    assert hash_rendered(a) == hash_rendered(render(TEMPLATE, values, st, times=None))
     changed = {**TEMPLATE, "clauses": [{**TEMPLATE["clauses"][0], "label": "Other"}, TEMPLATE["clauses"][1]]}
-    assert hash_rendered(a) != hash_rendered(render(changed, _patient(), signer, "C"))
+    assert hash_rendered(a) != hash_rendered(render(changed, values, st, times=None))
     assert re.fullmatch(r"[0-9a-f]{64}", hash_rendered(a))
 
 
@@ -148,10 +158,13 @@ def _reg(**kw):
     return {"dob": date(1990, 1, 1), "guardian_name": "Ravi", "guardian_contact": "9876543210", **kw}
 
 
-def test_adult_with_guardian_needs_a_reason():
-    with pytest.raises(ValidationError) as exc:
-        check_guardian_login(_reg(), "+919876543210", "mobile")
-    assert exc.value.code == "GUARDIAN_REASON_REQUIRED"
+def test_adult_may_choose_a_guardian_without_a_reason():
+    check_guardian_login(_reg(), "+919876543210", "mobile")  # no GUARDIAN_REASON_REQUIRED any more
+
+
+def test_adult_with_guardian_and_no_reason_is_signed_by_the_guardian():
+    signer = resolve_signer(_patient(guardian_name="Ravi Rao", guardian_reason="patient_requested"), TODAY)
+    assert (signer["signer_type"], signer["guardian_reason"]) == ("guardian", "patient_requested")
 
 
 def test_login_mobile_must_be_the_guardians():

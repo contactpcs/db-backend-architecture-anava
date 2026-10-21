@@ -190,6 +190,6 @@ ALTER TABLE core."patients" ADD COLUMN IF NOT EXISTS "guardian_reason" TEXT;
 ALTER TABLE core."patients" DROP CONSTRAINT IF EXISTS "chk_patients_guardian_reason";
 ALTER TABLE core."patients"
     ADD CONSTRAINT "chk_patients_guardian_reason"
-    CHECK ("guardian_reason" IS NULL OR "guardian_reason" IN ('minor', 'lacks_capacity', 'lawful_guardian', 'nominated_representative'));
+    CHECK ("guardian_reason" IS NULL OR "guardian_reason" IN ('minor', 'lacks_capacity', 'lawful_guardian', 'nominated_representative', 'patient_requested'));
 
 COMMIT;
