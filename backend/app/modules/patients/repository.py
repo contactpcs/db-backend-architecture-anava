@@ -40,6 +40,7 @@ class PatientRepository:
         guardian_name: str | None = None,
         guardian_relationship: str | None = None,
         guardian_contact: str | None = None,
+        guardian_reason: str | None = None,
     ) -> dict:
         # is_active = FALSE — gated until the patient signs the
         # patient_onboarding consent (see consent/service.py ConsentRecordService.sign),
@@ -94,9 +95,10 @@ class PatientRepository:
             self.session,
             text(
                 "INSERT INTO patients (profile_id, primary_clinic_id, emergency_contact_name, emergency_contact_phone, "
-                "self_registered, approval_status, registered_by, signup_ip, guardian_name, guardian_relationship, guardian_contact) "
+                "self_registered, approval_status, registered_by, signup_ip, guardian_name, guardian_relationship, guardian_contact, "
+                "guardian_reason) "
                 "VALUES (:profile_id, :clinic_id, :ec_name, :ec_phone, :self_registered, :approval_status, :registered_by, "
-                "CAST(:signup_ip AS INET), :guardian_name, :guardian_relationship, :guardian_contact) RETURNING *"
+                "CAST(:signup_ip AS INET), :guardian_name, :guardian_relationship, :guardian_contact, :guardian_reason) RETURNING *"
             ),
             {
                 "profile_id": profile["id"],
@@ -110,6 +112,7 @@ class PatientRepository:
                 "guardian_name": guardian_name,
                 "guardian_relationship": guardian_relationship,
                 "guardian_contact": guardian_contact,
+                "guardian_reason": guardian_reason,
             },
         )
         # Merge in the profile fields we already have in hand — avoids a

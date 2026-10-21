@@ -37,6 +37,7 @@ _CATEGORY_BY_AGGREGATE = {
     "patient_clinic_transfer": "patient",
     "patient_file": "patient",
     "consent_record": "patient",
+    "consent_template": "admin",
     "doctor": "staff",
     "clinical_assistant": "staff",
     "receptionist": "staff",

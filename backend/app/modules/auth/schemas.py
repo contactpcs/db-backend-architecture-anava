@@ -200,17 +200,6 @@ class PublicPatientRegisterResponse(BaseModel):
     patient_id: UUID
 
 
-class ReceptionistPatientSignupResponse(BaseModel):
-    """No access_token — the caller here is the receptionist, not the
-    patient. Returning the patient's login token to the receptionist's own
-    browser session would let the receptionist silently act as the patient,
-    which nothing else in this codebase's permission model allows. The
-    patient logs in themselves later, on their own device, with the
-    password they set in this same request."""
-
-    patient_id: UUID
-
-
 class CurrentUserRead(BaseModel):
     """Backing for GET /auth/me — every authenticated role can call this,
     unlike the super_admin-only debug /whoami. This is the 'who am I' every

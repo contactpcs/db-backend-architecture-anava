@@ -190,6 +190,7 @@ def build_key(
     region_id: str | None = None,
     clinic_id: str | None = None,
     patient_id: str | None = None,
+    staff_id: str | None = None,
     category: str | None = None,
     filename: str | None = None,
     template: str | None = None,
@@ -201,6 +202,8 @@ def build_key(
 
     records     regions/{region}/clinics/{clinic}/patients/{patient}/{category}/{uuidv7}_{filename}
     consent     regions/{region}/clinics/{clinic}/consents/patients/{patient}/{template}_v{n}_{uuidv7}.pdf
+                (staff: .../consents/staff/{staff}/...; no clinic: regions/{region}/consents/...;
+                no clinic or region, e.g. the super admin: platform/consents/...)
     license     regions/{region}/clinics/{clinic}/licenses/{license_type}/v{n}_{uuidv7}_{filename}
     quarantine  incoming/{upload_id}   (no patient or clinic identifiers)
 
@@ -217,6 +220,18 @@ def build_key(
         need(upload_id=upload_id)
         return f"incoming/{upload_id}"
 
+    if kind == "consent":
+        need(template=_slug(template), version=version)
+        if not (patient_id or staff_id):
+            raise ValueError("build_key('consent') needs patient_id or staff_id")
+        if clinic_id:
+            need(region_id=region_id)
+            base = f"regions/{region_id}/clinics/{clinic_id}"
+        else:
+            base = f"regions/{region_id}" if region_id else "platform"
+        subject = f"patients/{patient_id}" if patient_id else f"staff/{staff_id}"
+        return f"{base}/consents/{subject}/{_slug(template)}_v{int(version or 0)}_{uuid7()}.pdf"
+
     need(region_id=region_id, clinic_id=clinic_id)
     base = f"regions/{region_id}/clinics/{clinic_id}"
     if kind == "records":
@@ -224,9 +239,6 @@ def build_key(
         if category not in RECORD_CATEGORIES:
             raise ValueError(f"category must be one of {RECORD_CATEGORIES}, got {category!r}")
         return f"{base}/patients/{patient_id}/{category}/{uuid7()}_{_sanitize_filename(filename)}"
-    if kind == "consent":
-        need(patient_id=patient_id, template=_slug(template), version=version)
-        return f"{base}/consents/patients/{patient_id}/{_slug(template)}_v{int(version or 0)}_{uuid7()}.pdf"
     if kind == "license":
         need(license_type=_slug(license_type), version=version, filename=filename)
         return f"{base}/licenses/{_slug(license_type)}/v{int(version or 0)}_{uuid7()}_{_sanitize_filename(filename)}"

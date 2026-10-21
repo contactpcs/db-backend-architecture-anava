@@ -103,6 +103,15 @@ PATIENT_SELF_REGISTRATION_PATH_PREFIXES = (
     "/api/v1/events/ticket",  # the one-time ticket the stream is opened with
 )
 
+# An ACTIVE patient whose consent_signed was reset (a new patient_onboarding
+# version published with re-consent) sees nothing but the consent screen
+# until they sign it again.
+PATIENT_RECONSENT_PATH_PREFIXES = (
+    *CONSENT_FLOW_PATH_PREFIXES,
+    "/api/v1/events/stream",
+    "/api/v1/events/ticket",
+)
+
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -248,8 +257,12 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
             logger.warning("db_pool_timeout", path=request.url.path, stage="auth_context")
             return server_busy_response()
 
+        allowed_prefixes = None
         if not ctx.is_active:
             allowed_prefixes = PATIENT_SELF_REGISTRATION_PATH_PREFIXES if ctx.role == "patient" else CONSENT_FLOW_PATH_PREFIXES
+        elif ctx.role == "patient" and not ctx.consent_signed:
+            allowed_prefixes = PATIENT_RECONSENT_PATH_PREFIXES
+        if allowed_prefixes is not None:
             if not request.url.path.startswith(allowed_prefixes):
                 return JSONResponse(
                     status_code=403,
