@@ -7,6 +7,14 @@ RUN pip install --no-cache-dir --target=/build/deps .
 
 FROM python:3.12-slim
 WORKDIR /app
+# WeasyPrint (signed consent PDFs from the full HTML form) needs Pango +
+# fontconfig. The bundled Noto Sans is registered as a system font so the
+# evidence page and any form without embedded fonts render with it.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fontconfig \
+    && rm -rf /var/lib/apt/lists/*
+COPY app/assets/NotoSans-*.ttf /usr/local/share/fonts/
+RUN fc-cache -f
 COPY --from=builder /build/deps /usr/local/lib/python3.12/site-packages
 COPY app ./app
 COPY alembic ./alembic

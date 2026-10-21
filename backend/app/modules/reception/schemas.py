@@ -19,56 +19,10 @@ the integration guide documents the deviation explicitly rather than
 fabricating data."""
 
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
-
-
-class SendCodeRequest(BaseModel):
-    channel: str = Field(pattern="^(phone|email)$")
-    contact: str
-    # Not in the original spec's 3.1 request body (which only has
-    # channel+contact) — our underlying Cognito SignUp call needs these
-    # attributes at account-creation time, not deferred to the final step.
-    # Documented as a deviation in the integration guide.
-    first_name: str
-    last_name: str
-    dob: date | None = None
-    gender: str | None = Field(default=None, pattern="^(male|female|other)$")
-    # Current flow: password chosen BEFORE the OTP, straight into Cognito
-    # SignUp; then /registrations/confirm verifies + registers in one call.
-    # Omitted = legacy flow (Android app): verify-code, then POST /patients.
-    password: str | None = Field(default=None, min_length=8)
-
-
-class SendCodeResponse(BaseModel):
-    verification_id: str
-    channel: str
-    contact: str
-    code_length: int = 6
-    expires_in_seconds: int = 600
-    sent_at: datetime
-
-
-class VerifyCodeRequest(BaseModel):
-    verification_id: str
-    code: str
-
-
-class VerifyCodeResponse(BaseModel):
-    verification_id: str
-    channel: str
-    contact: str
-    verified: bool
-    verified_at: datetime
-    registration_token: str
-
-
-class PasswordPolicyResponse(BaseModel):
-    min_length: int = 8
-    require_uppercase: bool = False
-    require_digit: bool = False
-    require_symbol: bool = False
 
 
 class PersonalDetails(BaseModel):
@@ -90,29 +44,24 @@ class GuardianDetails(BaseModel):
     name: str
     relation: str
     contact_number: str
-
-
-class ConsentDetails(BaseModel):
-    accepted: bool
-    signature_captured: bool = False
+    # Required for an adult patient (why a guardian consents for them);
+    # ignored for a minor, who is always "minor".
+    reason: Literal["patient_requested", "lacks_capacity", "lawful_guardian", "nominated_representative"] | None = None
 
 
 class RegisterPatientRequest(BaseModel):
-    registration_token: str
+    """No password and no consent: Cognito sends the patient a temporary
+    password on their own phone/email, and the patient signs consent in
+    their own session (Documents/design_consent_v2.md)."""
+
+    channel: Literal["phone", "email"]
+    # The login: E.164 phone (+919876543210) or email. A minor's (or any
+    # guardian-held account's) phone is the guardian's.
+    contact: str = Field(min_length=5, max_length=254)
     personal: PersonalDetails
     address: AddressDetails
     clinic_id: UUID
     guardian: GuardianDetails | None = None
-    password: str = Field(min_length=8)
-    consent: ConsentDetails
-
-
-class ConfirmRegistrationRequest(RegisterPatientRequest):
-    """Current flow's last step: the full registration form (registration_token
-    = the contact, as in the legacy flow) plus the OTP. Verifies the code and
-    registers the patient in one request."""
-
-    code: str
 
 
 class RegisterPatientResponse(BaseModel):
@@ -121,8 +70,18 @@ class RegisterPatientResponse(BaseModel):
     login_id: str
     login_channel: str
     registration_status: str
-    consent_status: str
     created_at: datetime
+
+
+class ResendLoginRequest(BaseModel):
+    # A corrected phone/email (same channel). Omitted = resend to the current one.
+    contact: str | None = Field(default=None, min_length=5, max_length=254)
+
+
+class ResendLoginResponse(BaseModel):
+    login_id: str
+    login_channel: str
+    sent_at: datetime
 
 
 class Pagination(BaseModel):

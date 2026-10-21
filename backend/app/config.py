@@ -107,6 +107,10 @@ class Settings(BaseSettings):
     # notifications rows + live SSE pushes. Off = nobody is ever notified.
     event_relay_enabled: bool = True
 
+    # Patients are registered by a receptionist only (Documents/design_consent_v2.md).
+    # On = the public self-signup wizard (/auth/patients/signup/*, /auth/register)
+    # works again, e.g. for the Android copy.
+    patient_self_signup_enabled: bool = False
     # Self-registered patients (Documents/design_signup_auto_approval.md).
     # Off = every self-registration waits for a receptionist, as before; the
     # risk checks still run and their flags are stored either way.
