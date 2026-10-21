@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import json
 from uuid import UUID
 
@@ -46,7 +47,15 @@ class ConsentTemplateRepository:
         return await fetch_optional(self.session, text("SELECT * FROM consent_templates WHERE template_id = :id"), {"id": str(template_id)})
 
     async def create_draft(
-        self, *, consent_type: str, role: str | None, language: str, title: str, content: str, clauses: list, full_html: str | None = None
+        self,
+        *,
+        consent_type: str,
+        role: str | None,
+        language: str,
+        title: str,
+        content: str,
+        clauses: builtins.list,
+        full_html: str | None = None,
     ) -> dict:
         return await fetch_one(
             self.session,
@@ -80,7 +89,7 @@ class ConsentTemplateRepository:
         result = await self.session.execute(
             text("DELETE FROM consent_templates WHERE template_id = :id AND published_at IS NULL"), {"id": str(template_id)}
         )
-        return result.rowcount == 1
+        return result.rowcount == 1  # type: ignore[attr-defined]  # CursorResult has rowcount; async Result stubs don't expose it
 
     async def publish(self, template: dict) -> dict:
         # Deactivate first: one active row per (type, role, language) is a

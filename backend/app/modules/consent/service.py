@@ -695,7 +695,7 @@ class ConsentRecordService:
         return template["template_id"]
 
     async def sign(
-        self, consent_id: UUID, *, ctx: RequestContext, accepted: list[str], rendered_hash: str | None, user_agent: str | None
+        self, consent_id: UUID, *, ctx: RequestContext, accepted: builtins.list[str], rendered_hash: str | None, user_agent: str | None
     ) -> dict:
         record = await self.get(consent_id)
         # Only the data principal (or the guardian holding the patient's

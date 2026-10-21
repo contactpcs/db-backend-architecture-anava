@@ -257,7 +257,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
             logger.warning("db_pool_timeout", path=request.url.path, stage="auth_context")
             return server_busy_response()
 
-        allowed_prefixes = None
+        allowed_prefixes: tuple[str, ...] | None = None
         if not ctx.is_active:
             allowed_prefixes = PATIENT_SELF_REGISTRATION_PATH_PREFIXES if ctx.role == "patient" else CONSENT_FLOW_PATH_PREFIXES
         elif ctx.role == "patient" and not ctx.consent_signed:

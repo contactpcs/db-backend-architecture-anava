@@ -411,6 +411,7 @@ def required_placeholders(consent_type: str, role: str | None = None) -> tuple[s
 
 
 def recommended_placeholders(consent_type: str, role: str | None = None) -> tuple[str, ...]:
+    fields: tuple[str, ...]
     if consent_type.startswith("patient_"):
         fields = (
             "PATIENT_AGE",
