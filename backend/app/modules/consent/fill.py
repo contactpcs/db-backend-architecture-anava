@@ -393,9 +393,13 @@ def required_placeholders(consent_type: str, role: str | None = None) -> tuple[s
     """Publishing a full form without these is refused: who the consent is
     for, when it was accepted, and the acceptance itself."""
     if consent_type.startswith("patient_"):
-        # GUARDIAN_NAME: any patient may be a minor, so every patient form
-        # needs a guardian part (wrapped in data-show-if="guardian").
-        fields = ("PATIENT_NAME", "PATIENT_DOB", "GUARDIAN_NAME") + (TRANSFER if consent_type in _TRANSFER_TYPES else ())
+        # Any patient may be a minor, so every patient form needs a guardian
+        # part (wrapped in data-show-if="guardian") naming the guardian and
+        # their relationship to the patient: the proof of their authority to
+        # consent (Compliance Policy §3.4, DPDP s.9).
+        fields = ("PATIENT_NAME", "PATIENT_DOB", "GUARDIAN_NAME", "GUARDIAN_RELATION") + (
+            TRANSFER if consent_type in _TRANSFER_TYPES else ()
+        )
     elif consent_type.startswith("staff_"):
         fields = ("STAFF_NAME", "STAFF_ROLE") + (("DOCTOR_LICENSE_NO",) if role == "doctor" else ())
     else:
@@ -411,7 +415,6 @@ def recommended_placeholders(consent_type: str, role: str | None = None) -> tupl
             "PATIENT_MRN",
             "PATIENT_PHONE",
             "PATIENT_ADDRESS",
-            "GUARDIAN_RELATION",
             "GUARDIAN_PHONE",
             "GUARDIAN_REASON",
         )

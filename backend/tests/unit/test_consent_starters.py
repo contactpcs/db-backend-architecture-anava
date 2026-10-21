@@ -31,6 +31,7 @@ def test_required_fields_per_type():
         "PATIENT_NAME",
         "PATIENT_DOB",
         "GUARDIAN_NAME",
+        "GUARDIAN_RELATION",
         "CONSENT_DATE",
         "SIGNATURE_BLOCK",
     )
@@ -51,7 +52,7 @@ def test_analysis_lists_fields_and_what_is_missing():
         ("PATIENT_DOB", False, True, True),
         ("PATIENT_NAME", True, False, True),
     ]
-    assert a["missing_required"] == ["GUARDIAN_NAME", "CONSENT_DATE", "SIGNATURE_BLOCK"]
+    assert a["missing_required"] == ["GUARDIAN_NAME", "GUARDIAN_RELATION", "CONSENT_DATE", "SIGNATURE_BLOCK"]
     assert "PATIENT_MRN" in a["missing_recommended"]  # the commented-out field does not count
     assert a["unknown"] == ["OCCUPATION"] and a["problems"] == ["<script> is not allowed"]
     assert not a["has_guardian_section"]
