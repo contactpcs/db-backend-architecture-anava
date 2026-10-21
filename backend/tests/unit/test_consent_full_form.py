@@ -457,3 +457,26 @@ def test_full_pdf_prints_the_filled_input_fields():
     )
     first = pypdf.PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
     assert "Asha Rao" in first and "01 Jan 1990" in first and "12 MG Road" in first
+
+
+# ── Names Anava cannot fill are allowed in the full form (H19) ──────────
+
+
+def test_unknown_fields_in_the_full_form_are_accepted_and_shown_blank():
+    form = (
+        '<p>Method <input name="ACCEPTANCE_METHOD"> at <input name="consent_time"> phone [VERIFIED_PHONE]</p>'
+        '<p><input name="PATIENT_NAME"> <input name="STAFF_NAME"></p>'
+    )
+    validate_template("patient_onboarding", title="t", content="c", clauses=[], full_html=form)  # no error
+    values, _ = _values()
+    html = render({**TEMPLATE, "full_html": form}, values, "self", times=None)["full_html"]
+    assert '<input name="ACCEPTANCE_METHOD" type="text" value="—" readonly>' in html  # locked, blank
+    assert 'value="—" readonly' in html.split('name="consent_time"')[1][:40]
+    assert "phone —" in html and "[VERIFIED_PHONE]" not in html
+    assert 'value="Asha Rao" readonly' in html and '<input name="STAFF_NAME" type="text" value="—" readonly>' in html
+
+
+def test_summary_still_rejects_unknown_fields():
+    with pytest.raises(ValidationError) as exc:
+        validate_template("patient_onboarding", title="t", content="Care at [CLINIC_NAM]", clauses=[], full_html=None)
+    assert exc.value.code == "CONSENT_TEMPLATE_PLACEHOLDER"

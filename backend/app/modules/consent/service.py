@@ -199,7 +199,10 @@ def evidence_of(record: dict) -> dict:
 def validate_template(consent_type: str, *, title: str, content: str, clauses: list[dict], full_html: str | None) -> None:
     """H4 + H6: placeholders this type can fill, and a safe full form."""
     labels = [c["label"] for c in clauses]
-    bad = fill.check_placeholders(consent_type, title, content, full_html, *labels)
+    # H19: only the summary, title and checkboxes must use known fields. The
+    # full form may contain names Anava cannot fill (shown blank); only its
+    # required fields and safety are enforced (publish / check_full_html).
+    bad = fill.check_placeholders(consent_type, title, content, *labels)
     if bad:
         raise ValidationError(
             f"Unknown placeholder(s) for {consent_type}: {', '.join(f'[{b}]' for b in bad)}",

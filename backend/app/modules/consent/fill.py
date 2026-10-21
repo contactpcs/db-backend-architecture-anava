@@ -300,7 +300,10 @@ def _fill(text: str, values: dict[str, str], *, escape: bool, raw: dict[str, str
             value = MISSING
         return html.escape(value) if escape else value
 
-    return PLACEHOLDER_RE.sub(lambda m: sub(m) if m.group(1) in known else m.group(0), text)
+    # Full form (escape=True): a name Anava cannot fill (e.g. <input
+    # name="VERIFIED_PHONE">) is allowed and shows as blank (H19). Summary
+    # text keeps unknown tokens literal (legacy published wording).
+    return PLACEHOLDER_RE.sub(lambda m: sub(m) if m.group(1) in known or escape else m.group(0), text)
 
 
 def _show_if_style(signer_type: str) -> str:
@@ -449,7 +452,7 @@ def analyze_full_html(consent_type: str, role: str | None, full_html: str) -> di
         "fields": [
             {
                 "name": n,
-                "description": DESCRIPTIONS.get(n, "Not a field Anava can fill — rename it or remove it"),
+                "description": DESCRIPTIONS.get(n, "Not an Anava field — it will show blank (—)"),
                 "as_input": n in inputs,
                 "as_text": n in text,
                 "known": n in allowed,
