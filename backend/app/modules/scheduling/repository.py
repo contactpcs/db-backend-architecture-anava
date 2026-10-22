@@ -624,7 +624,10 @@ class AppointmentRepository:
             text(
                 "UPDATE appointments SET status = 'paid', hold_expires_at = NULL, updated_at = NOW(), "
                 "  booked_by = COALESCE(booked_by, CAST(:paid_by AS uuid)), "
-                "  booked_by_role = COALESCE(booked_by_role, :paid_by_role) "
+                # The pair is all-or-nothing (chk_appointments_booked_by_pair): a
+                # system confirmation (webhook, reconciler) has no person, so it
+                # must not stamp a role onto a row with no booker.
+                "  booked_by_role = COALESCE(booked_by_role, CASE WHEN CAST(:paid_by AS uuid) IS NULL THEN NULL ELSE :paid_by_role END) "
                 "WHERE appointment_id = :id AND status = 'selected' RETURNING *"
             ),
             {"id": str(appointment_id), "paid_by": str(paid_by) if paid_by else None, "paid_by_role": paid_by_role},
