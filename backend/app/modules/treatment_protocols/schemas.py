@@ -25,6 +25,13 @@ from pydantic import BaseModel, Field, model_validator
 # in every query.
 MODALITIES = ("tDCS", "HD-tDCS", "tVNS", "TPS", "rTMS", "other")
 
+# Upper bound on device sessions one patient may have in a single day under
+# one protocol. The doctor prescribes 1..MAX_SESSIONS_PER_DAY per protocol
+# (protocol_plan.sessions_per_day); chk_protocol_plan_sessions_per_day (124)
+# holds the same ceiling.
+MAX_SESSIONS_PER_DAY = 4
+
+
 # reference.neuromod_devices.modality -> the table-name stem for that
 # device's placement/dosing tables and the FK column on protocol_plan.
 MODALITY_SLUG = {
@@ -394,6 +401,9 @@ class SchedulePreviewRequest(BaseModel):
     start_date: date
     session_count: int = Field(ge=10, le=30)
     sessions_per_week: int = Field(default=5, ge=1, le=7)
+    # How many device sessions each treatment day holds. session_count stays
+    # the whole course, so 2/day finishes the same course in half the days.
+    sessions_per_day: int = Field(default=1, ge=1, le=MAX_SESSIONS_PER_DAY)
     follow_up_every_n: int | None = Field(default=None, ge=1, le=30)
     # Days the generator should skip (clinic holidays, patient unavailability)
     # and extra one-off dates the doctor painted onto the calendar.
@@ -425,6 +435,7 @@ class SchedulePreview(BaseModel):
     first_date: date | None = None
     last_date: date | None = None
     week_count: int = 0
+    day_count: int = 0
 
 
 # --------------------------------------------------------------------------
@@ -556,6 +567,9 @@ class ProtocolCreate(BaseModel):
     follow_up_every_n: int | None = Field(default=None, ge=1, le=30)
     start_date: date
     sessions_per_week: int = Field(default=5, ge=1, le=7)
+    # 124. Doctor-set ceiling on device sessions per day for this course;
+    # the schedule plans this many per treatment day and booking refuses more.
+    sessions_per_day: int = Field(default=1, ge=1, le=MAX_SESSIONS_PER_DAY)
     skip_dates: list[date] = Field(default_factory=list)
     extra_dates: list[date] = Field(default_factory=list)
     conditions: list[ProtocolConditionAssignment] = Field(default_factory=list)
@@ -667,6 +681,7 @@ class ProtocolUpdate(BaseModel):
     prescribed_tvns_ramp_up_sec: int | None = Field(default=None, ge=0, le=120)
     prescribed_tvns_ramp_down_sec: int | None = Field(default=None, ge=0, le=120)
     sessions_per_week: int | None = None
+    sessions_per_day: int | None = Field(default=None, ge=1, le=MAX_SESSIONS_PER_DAY)
     device_settings: dict | None = None
     notes: str | None = None
 
@@ -718,6 +733,7 @@ class ProtocolAmend(BaseModel):
     # Schedule — any of these re-plans the remaining sessions.
     session_count: int | None = Field(default=None, ge=10, le=30)
     sessions_per_week: int | None = None
+    sessions_per_day: int | None = Field(default=None, ge=1, le=MAX_SESSIONS_PER_DAY)
     follow_up_every_n: int | None = Field(default=None, ge=1, le=30)
     start_date: date | None = None
     skip_dates: list[date] | None = None
@@ -795,6 +811,7 @@ class ProtocolRead(BaseModel):
     prescribed_tvns_ramp_up_sec: int | None = None
     prescribed_tvns_ramp_down_sec: int | None = None
     sessions_per_week: int | None = None
+    sessions_per_day: int = 1
     supersedes_protocol_id: UUID | None = None
     version_major: int = 1
     version_minor: int = 0

@@ -93,13 +93,50 @@ async def test_no_show_device_session_cannot_move_inside_the_course():
     assert err.value.code == "DEVICE_RESCHEDULE_OUTSIDE_WINDOW"
 
 
+def _booked(start: dt.time, end: dt.time) -> dict:
+    return {"appointment_id": uuid4(), "start_time": start, "end_time": end}
+
+
 @pytest.mark.asyncio
 async def test_second_device_session_of_a_course_on_one_day_is_refused():
     svc = _service()
-    svc.repo.count_device_sessions_on_date.return_value = 1
+    svc.repo.device_sessions_on_date.return_value = [_booked(dt.time(9, 0), dt.time(9, 30))]
+    svc.repo.protocol_sessions_per_day.return_value = 1
     with pytest.raises(BusinessRuleError) as err:
-        await svc.assert_one_device_session_per_day(_no_show_device_session(), OCT(21))
+        await svc.assert_device_sessions_per_day(_no_show_device_session(), OCT(21), dt.time(14, 0), dt.time(14, 30))
     assert err.value.code == "SAME_DAY_DEVICE_SESSION"
+
+
+@pytest.mark.asyncio
+async def test_second_device_session_is_allowed_when_the_doctor_prescribed_two_a_day():
+    svc = _service()
+    svc.repo.device_sessions_on_date.return_value = [_booked(dt.time(9, 0), dt.time(9, 30))]
+    svc.repo.protocol_sessions_per_day.return_value = 2
+    await svc.assert_device_sessions_per_day(_no_show_device_session(), OCT(21), dt.time(14, 0), dt.time(14, 30))
+
+
+@pytest.mark.asyncio
+async def test_one_more_than_the_prescribed_daily_limit_is_refused():
+    svc = _service()
+    svc.repo.device_sessions_on_date.return_value = [
+        _booked(dt.time(9, 0), dt.time(9, 30)),
+        _booked(dt.time(13, 0), dt.time(13, 30)),
+    ]
+    svc.repo.protocol_sessions_per_day.return_value = 2
+    with pytest.raises(BusinessRuleError) as err:
+        await svc.assert_device_sessions_per_day(_no_show_device_session(), OCT(21), dt.time(17, 0), dt.time(17, 30))
+    assert err.value.code == "SAME_DAY_DEVICE_SESSION"
+    assert "up to 2 device sessions per day" in err.value.message
+
+
+@pytest.mark.asyncio
+async def test_same_day_sessions_may_not_overlap():
+    svc = _service()
+    svc.repo.device_sessions_on_date.return_value = [_booked(dt.time(9, 0), dt.time(9, 30))]
+    svc.repo.protocol_sessions_per_day.return_value = 2
+    with pytest.raises(BusinessRuleError) as err:
+        await svc.assert_device_sessions_per_day(_no_show_device_session(), OCT(21), dt.time(9, 15), dt.time(9, 45))
+    assert err.value.code == "SAME_DAY_DEVICE_SESSION_OVERLAP"
 
 
 # ── F-1: rescheduling an unpaid booking ─────────────────────────────────────

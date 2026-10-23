@@ -218,6 +218,22 @@ async def test_schedule_change_replans_only_the_rest_of_the_course():
 
 
 @pytest.mark.asyncio
+async def test_raising_sessions_per_day_replans_two_sessions_onto_each_day():
+    target = _target()
+    monday = dt.date.today() + dt.timedelta(days=(7 - dt.date.today().weekday()))
+    svc = _replan_svc(target, _raw(target, follow_up_every_n=None, sessions_per_day=1), booked=[])
+
+    await _amend(svc, target, _body(sessions_per_day=2, start_date=monday))
+
+    # 20-session course, 8 delivered -> 12 new sessions on 6 days, 2 a day.
+    new = svc._generate_appointments.call_args.args[2]["sessions"]
+    assert len(new) == 12
+    days = [d["planned_date"] for d in new]
+    assert len(set(days)) == 6 and all(days.count(d) == 2 for d in set(days))
+    assert svc.repo.create.call_args.args[0]["sessions_per_day"] == 2
+
+
+@pytest.mark.asyncio
 async def test_session_count_cannot_drop_below_what_is_delivered_and_booked():
     target = _target()
     svc = _replan_svc(target, _raw(target), delivered=15)
