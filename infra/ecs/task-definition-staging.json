@@ -1,0 +1,156 @@
+{
+    "family": "anava-backend-staging",
+    "taskRoleArn": "arn:aws:iam::363518210533:role/anava-ecs-task-role",
+    "executionRoleArn": "arn:aws:iam::363518210533:role/ecsTaskExecutionRole",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": [
+        "FARGATE"
+    ],
+    "cpu": "1024",
+    "memory": "3072",
+    "containerDefinitions": [
+        {
+            "name": "anava-backend",
+            "image": "363518210533.dkr.ecr.ap-south-1.amazonaws.com/anava-backend-staging:latest",
+            "cpu": 0,
+            "portMappings": [
+                {
+                    "containerPort": 8000,
+                    "hostPort": 8000,
+                    "protocol": "tcp",
+                    "name": "anava-backend-8000-tcp",
+                    "appProtocol": "http"
+                }
+            ],
+            "essential": true,
+            "environment": [
+                {
+                    "name": "CORS_ALLOWED_ORIGINS",
+                    "value": "[\"https://app.anavaclinics.com\", \"https://staging-app.anavaclinics.com\"]"
+                },
+                {
+                    "name": "AWS_REGION",
+                    "value": "ap-south-1"
+                },
+                {
+                    "name": "S3_QUARANTINE_BUCKET_NAME",
+                    "value": "anava-clinic-uploads-quarantine-363518210533-ap-south-1"
+                },
+                {
+                    "name": "S3_KMS_KEY_ARN_COMPLIANCE",
+                    "value": "arn:aws:kms:ap-south-1:363518210533:key/8a23c7d6-b6b6-49d1-b3df-ba85c9331270"
+                },
+                {
+                    "name": "ENVIRONMENT",
+                    "value": "staging"
+                },
+                {
+                    "name": "S3_PROMOTER_ROLE_ARN",
+                    "value": "arn:aws:iam::363518210533:role/anava-upload-promoter"
+                },
+                {
+                    "name": "S3_KMS_KEY_ARN_PHI",
+                    "value": "arn:aws:kms:ap-south-1:363518210533:key/a677e7d1-3601-488b-8691-498ebe7d8d58"
+                },
+                {
+                    "name": "S3_ACCESS_LOGS_BUCKET_NAME",
+                    "value": "anava-clinic-access-logs-363518210533-ap-south-1"
+                },
+                {
+                    "name": "S3_BUCKET_NAME",
+                    "value": "anava-clinic-patient-files-prod-363518210533-ap-south-1"
+                },
+                {
+                    "name": "AUTH_MODE",
+                    "value": "cognito"
+                },
+                {
+                    "name": "LOCAL_FILE_STORAGE_PATH",
+                    "value": "/app/.local_storage"
+                },
+                {
+                    "name": "S3_COMPLIANCE_BUCKET_NAME",
+                    "value": "anava-clinic-compliance-records-363518210533-ap-south-1"
+                },
+                {
+                    "name": "DB_REQUIRE_SSL",
+                    "value": "true"
+                },
+                {
+                    "name": "FILE_STORAGE_MODE",
+                    "value": "local"
+                },
+                {
+                    "name": "PATIENT_SELF_SIGNUP_ENABLED",
+                    "value": "true"
+                }
+            ],
+            "mountPoints": [],
+            "volumesFrom": [],
+            "secrets": [
+                {
+                    "name": "COGNITO_REGION",
+                    "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/staging/backend-5CMxCT:COGNITO_REGION::"
+                },
+                {
+                    "name": "COGNITO_USER_POOL_ID",
+                    "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/staging/backend-5CMxCT:COGNITO_USER_POOL_ID::"
+                },
+                {
+                    "name": "COGNITO_APP_CLIENT_ID",
+                    "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/staging/backend-5CMxCT:COGNITO_APP_CLIENT_ID::"
+                },
+                {
+                    "name": "COGNITO_APP_CLIENT_SECRET",
+                    "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/staging/backend-5CMxCT:COGNITO_APP_CLIENT_SECRET::"
+                },
+                {
+                    "name": "DATABASE_URL",
+                    "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/staging/backend-5CMxCT:DATABASE_URL::"
+                },
+                {
+                    "name": "MIGRATION_DATABASE_URL",
+                    "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/staging/backend-5CMxCT:MIGRATION_DATABASE_URL::"
+                },
+                {
+                    "name": "RAZORPAY_KEY_ID",
+                    "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/staging/backend-5CMxCT:RAZORPAY_KEY_ID::"
+                },
+                {
+                    "name": "RAZORPAY_KEY_SECRET",
+                    "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/staging/backend-5CMxCT:RAZORPAY_KEY_SECRET::"
+                },
+                {
+                    "name": "RAZORPAY_WEBHOOK_SECRET",
+                    "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/staging/backend-5CMxCT:RAZORPAY_WEBHOOK_SECRET::"
+                },
+                {
+                    "name": "REDIS_URL",
+                    "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/staging/backend-5CMxCT:REDIS_URL::"
+                },
+                {
+                    "name": "AUTO_APPROVE_SELF_REGISTRATION",
+                    "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/staging/backend-5CMxCT:AUTO_APPROVE_SELF_REGISTRATION::"
+                },
+                {
+                    "name": "SIGNUP_HASH_SECRET",
+                    "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/staging/backend-5CMxCT:SIGNUP_HASH_SECRET::"
+                },
+                {
+                    "name": "TRUST_FORWARDED_FOR",
+                    "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/staging/backend-5CMxCT:TRUST_FORWARDED_FOR::"
+                }
+            ],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/anava-backend-staging",
+                    "awslogs-create-group": "true",
+                    "awslogs-region": "ap-south-1",
+                    "awslogs-stream-prefix": "ecs"
+                }
+            },
+            "systemControls": []
+        }
+    ]
+}
