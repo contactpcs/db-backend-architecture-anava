@@ -277,7 +277,7 @@ class AssistantService:
                 await log_ai_call(
                     conn,
                     {
-                        "provider": result.provider or "gemini", "model": result.model or s.gemini_model, "purpose": "assistant_reply",
+                        "provider": result.provider or "nvidia", "model": result.model or s.nvidia_model, "purpose": "assistant_reply",
                         "outcome": outcome, "input_tokens": result.input_tokens, "output_tokens": result.output_tokens,
                         "latency_ms": result.latency_ms, "error_code": result.error_code,
                     },

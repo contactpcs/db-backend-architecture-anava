@@ -3,7 +3,8 @@
 Provider is chosen by settings.ai_provider:
   rules   no external call at all (the assistant answers from safety rules,
           patient-data templates and the stored FAQ only)
-  gemini  Google AI Studio (free tier for the demo), REST over httpx
+  nvidia  NVIDIA API Catalog (build.nvidia.com, free credits for the demo),
+          OpenAI-compatible chat completions over httpx
   claude  reserved for the paid upgrade after leadership approval; until it is
           wired it behaves exactly like "rules"
 
@@ -15,6 +16,7 @@ text) is ever sent; patient records are never passed in here.
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 
@@ -22,7 +24,9 @@ import httpx
 
 from app.config import get_settings
 
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+# Reasoning models (Nemotron, DeepSeek R1, Qwen3) may put their thinking inline in the reply.
+_THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 @dataclass(frozen=True)
@@ -39,7 +43,7 @@ class AIResult:
 
 def provider_enabled() -> bool:
     s = get_settings()
-    return s.ai_provider == "gemini" and bool(s.gemini_api_key)
+    return s.ai_provider == "nvidia" and bool(s.nvidia_api_key)
 
 
 async def generate(system: str, turns: list[tuple[str, str]], *, max_output_tokens: int = 300) -> AIResult:
@@ -49,45 +53,50 @@ async def generate(system: str, turns: list[tuple[str, str]], *, max_output_toke
     if not provider_enabled():
         return AIResult(None, "error", s.ai_provider, "", error_code="provider_disabled")
 
-    generation: dict = {"maxOutputTokens": max_output_tokens, "temperature": 0.2}
-    if s.gemini_disable_thinking:
-        generation["thinkingConfig"] = {"thinkingBudget": 0}
-    body = {
-        "systemInstruction": {"parts": [{"text": system}]},
-        "contents": [{"role": "user" if role == "patient" else "model", "parts": [{"text": text}]} for role, text in turns],
-        "generationConfig": generation,
+    body: dict = {
+        "model": s.nvidia_model,
+        "messages": [{"role": "system", "content": system}]
+        + [{"role": "user" if role == "patient" else "assistant", "content": text} for role, text in turns],
+        "max_tokens": max_output_tokens,
+        "temperature": 0.2,
+        "stream": False,
     }
+    if s.nvidia_disable_thinking and "nemotron" in s.nvidia_model:
+        # Nemotron 3.x models think by default; /no_think in the prompt is ignored.
+        body["chat_template_kwargs"] = {"enable_thinking": False}
     started = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=s.ai_timeout_seconds) as client:
             resp = await client.post(
-                GEMINI_URL.format(model=s.gemini_model),
-                headers={"x-goog-api-key": s.gemini_api_key or "", "content-type": "application/json"},
+                NVIDIA_URL,
+                headers={"authorization": f"Bearer {s.nvidia_api_key or ''}", "accept": "application/json"},
                 json=body,
             )
     except httpx.TimeoutException:
-        return AIResult(None, "timeout", "gemini", s.gemini_model, latency_ms=_ms(started))
+        return AIResult(None, "timeout", "nvidia", s.nvidia_model, latency_ms=_ms(started))
     except httpx.HTTPError as exc:
-        return AIResult(None, "error", "gemini", s.gemini_model, latency_ms=_ms(started), error_code=type(exc).__name__)
+        return AIResult(None, "error", "nvidia", s.nvidia_model, latency_ms=_ms(started), error_code=type(exc).__name__)
 
     latency = _ms(started)
     if resp.status_code == 429:
-        # Google uses 429 RESOURCE_EXHAUSTED for both per-minute and per-day limits.
-        return AIResult(None, "rate_limited", "gemini", s.gemini_model, latency_ms=latency, error_code="429")
+        return AIResult(None, "rate_limited", "nvidia", s.nvidia_model, latency_ms=latency, error_code="429")
+    if resp.status_code == 402:
+        # Free trial credits used up.
+        return AIResult(None, "quota_exhausted", "nvidia", s.nvidia_model, latency_ms=latency, error_code="402")
     if resp.status_code >= 400:
-        return AIResult(None, "error", "gemini", s.gemini_model, latency_ms=latency, error_code=str(resp.status_code))
+        return AIResult(None, "error", "nvidia", s.nvidia_model, latency_ms=latency, error_code=str(resp.status_code))
 
     data = resp.json()
-    usage = data.get("usageMetadata") or {}
-    parts = ((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
-    text = "".join(p.get("text", "") for p in parts).strip() or None
+    usage = data.get("usage") or {}
+    message = ((data.get("choices") or [{}])[0].get("message")) or {}
+    text = _THINK.sub("", message.get("content") or "").strip() or None
     return AIResult(
         text,
         "ok" if text else "error",
-        "gemini",
-        s.gemini_model,
-        input_tokens=usage.get("promptTokenCount"),
-        output_tokens=usage.get("candidatesTokenCount"),
+        "nvidia",
+        s.nvidia_model,
+        input_tokens=usage.get("prompt_tokens"),
+        output_tokens=usage.get("completion_tokens"),
         latency_ms=latency,
         error_code=None if text else "empty_reply",
     )

@@ -262,17 +262,20 @@ class Settings(BaseSettings):
 
     # Ask ANAVA assistant + session feedback (SQL/v1/125, Documents/Ask_ANAVA_Design_Brief.md).
     # ai_provider: "rules" = no external AI at all (stored and data answers only),
-    # "gemini" = Google AI Studio free tier for questions the rules can't answer,
+    # "nvidia" = NVIDIA API Catalog (build.nvidia.com) for questions the rules can't answer,
     # "claude" = reserved for the paid upgrade (not wired yet, behaves like "rules").
     ai_provider: str = "rules"
-    gemini_api_key: str | None = None
-    # gemini-2.5-flash is closed to new keys (404). 3.1 Flash-Lite answered in ~1.5 s in our test;
-    # 3.8-flash was too slow and 3.5-flash-lite rejects thinkingBudget 0.
-    gemini_model: str = "gemini-3.1-flash-lite"
+    nvidia_api_key: str | None = None
+    # Any chat model id from build.nvidia.com (models retire: an id past end of life returns 410).
+    # Oct 2026 test with the real prompt: Nemotron 3.5 Bolt answered en/hi correctly in 0.5-1 s and
+    # said NO_ANSWER for off-topic and medical questions. Lightning-30B misread Hindi, gpt-oss-20b
+    # and gemma-4-31b took 10-20 s, llama-3.3-70b is gone.
+    nvidia_model: str = "nvidia/nemotron-3.5-bolt-e4b"
     # Thinking tokens count against the reply budget and add latency; a short FAQ answer needs none.
-    gemini_disable_thinking: bool = True
+    # Only applies to Nemotron models (sends chat_template_kwargs enable_thinking=false).
+    nvidia_disable_thinking: bool = True
     ai_timeout_seconds: float = 12.0
-    # Keep both just below the free tier's limits (shown in AI Studio). Above them the
+    # Keep both just below the free tier's limits (shown on build.nvidia.com; trial is ~40 requests per minute). Above them the
     # assistant answers from rules only and the patient never sees an error.
     ai_daily_call_cap: int = 200
     ai_per_minute_call_cap: int = 8

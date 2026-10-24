@@ -183,7 +183,7 @@ def ai_calls(monkeypatch):
 
     async def fake_generate(system, turns, **_):
         calls.append({"system": system, "turns": turns})
-        return AIResult("You can bring a family member along.", "ok", "gemini", "test-model", 100, 10, 50)
+        return AIResult("You can bring a family member along.", "ok", "nvidia", "test-model", 100, 10, 50)
 
     async def no_calls_yet(conn, since):
         return 0
@@ -247,7 +247,7 @@ async def test_ai_gets_no_identity_or_records(ai_calls):
 
 async def test_ai_no_answer_falls_back_to_clinic(ai_calls, monkeypatch):
     async def says_no(system, turns, **_):
-        return AIResult("NO_ANSWER", "ok", "gemini", "m")
+        return AIResult("NO_ANSWER", "ok", "nvidia", "m")
 
     monkeypatch.setattr(svc.ai_provider, "generate", says_no)
     reply = await _service(FakeRepo()).ask(CTX, _ask("Can I bring my dog?"))
@@ -256,7 +256,7 @@ async def test_ai_no_answer_falls_back_to_clinic(ai_calls, monkeypatch):
 
 async def test_ai_medical_advice_is_blocked(ai_calls, monkeypatch):
     async def advises(system, turns, **_):
-        return AIResult("Take 50 mg of sertraline daily.", "ok", "gemini", "m")
+        return AIResult("Take 50 mg of sertraline daily.", "ok", "nvidia", "m")
 
     monkeypatch.setattr(svc.ai_provider, "generate", advises)
     reply = await _service(FakeRepo()).ask(CTX, _ask("What should I take for sleep?"))
