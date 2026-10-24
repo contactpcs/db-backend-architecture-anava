@@ -266,8 +266,9 @@ class Settings(BaseSettings):
     # "claude" = reserved for the paid upgrade (not wired yet, behaves like "rules").
     ai_provider: str = "rules"
     gemini_api_key: str | None = None
-    # Copy the exact current free "Flash" model name from AI Studio.
-    gemini_model: str = "gemini-2.5-flash"
+    # gemini-2.5-flash is closed to new keys (404). 3.1 Flash-Lite answered in ~1.5 s in our test;
+    # 3.8-flash was too slow and 3.5-flash-lite rejects thinkingBudget 0.
+    gemini_model: str = "gemini-3.1-flash-lite"
     # Thinking tokens count against the reply budget and add latency; a short FAQ answer needs none.
     gemini_disable_thinking: bool = True
     ai_timeout_seconds: float = 12.0
@@ -278,6 +279,11 @@ class Settings(BaseSettings):
     assistant_daily_message_limit: int = 30
     # Shows the "Demo" label in the app while running on a free AI tier.
     ai_demo: bool = True
+    # One reminder for a completed visit with no feedback yet (workers/feedback_reminder.py).
+    # Feedback itself is asked at completion and stays open for 48 hours.
+    session_feedback_reminder_enabled: bool = True
+    session_feedback_reminder_after_hours: float = 4.0
+    session_feedback_reminder_interval_seconds: int = 600
 
     @model_validator(mode="after")
     def _require_local_jwt_secret_in_local_mode(self) -> "Settings":

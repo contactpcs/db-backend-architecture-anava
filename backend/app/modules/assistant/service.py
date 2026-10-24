@@ -35,6 +35,7 @@ IST = ZoneInfo("Asia/Kolkata")
 CONSENT_VERSION = {"assistant": "2026-10-v1", "feedback": "2026-10-v1"}
 CONTEXT_TURNS = 6  # last messages of the thread sent with a follow-up question
 FAQ_FOR_AI = 8  # closest approved answers given to the model as its only source
+FAQ_ALL_FOR_AI = 150  # Hindi / Marathi questions: all English answers go instead (see _ask_ai)
 FEEDBACK_WINDOW_DAYS = 2  # feedback stays open for 48 hours (by visit date)
 NO_ANSWER = "NO_ANSWER"
 
@@ -226,9 +227,16 @@ class AssistantService:
         names = [profile.get("first_name") or "", profile.get("last_name") or ""]
         values = self._fill_values(clinic, profile)
         values["first_name"] = None  # never send the patient's name
+        if lang == "en":
+            candidates = [row for _, row in ranked[:FAQ_FOR_AI]]
+        else:
+            # The approved answers are written in English, and ranking a Hindi or
+            # Marathi question against English examples finds nothing. Give the
+            # model all of them; it answers in the patient's language.
+            candidates = (await self.repo.faq("en"))[:FAQ_ALL_FOR_AI]
         approved = [
             f"- Q: {row['questions'][0]}\n  A: {fill(row['answer'], values)}"
-            for _, row in ranked[:FAQ_FOR_AI]
+            for row in candidates
             if row["reply_type"] not in ("data", "safety")
         ]
         system = (
@@ -288,8 +296,7 @@ class AssistantService:
     # -- feedback ----------------------------------------------------------------
 
     async def pending_feedback(self, ctx: RequestContext) -> list[dict]:
-        since = _now_ist().date() - timedelta(days=FEEDBACK_WINDOW_DAYS)
-        rows = await self.repo.pending_feedback(UUID(ctx.user_id), since)
+        rows = await self.repo.pending_feedback(UUID(ctx.user_id), datetime.now(IST) - timedelta(days=FEEDBACK_WINDOW_DAYS))
         return [{**r, "form": "device" if r["appointment_type"] == "device_session" else "consult"} for r in rows]
 
     async def submit_feedback(self, ctx: RequestContext, appointment_id: UUID, body) -> dict:
@@ -301,7 +308,8 @@ class AssistantService:
             raise NotFoundError("Appointment not found", code="APPOINTMENT_NOT_FOUND")
         if appt["status"] != "completed":
             raise BusinessRuleError("Feedback opens once the visit is completed", code="FEEDBACK_NOT_OPEN")
-        if appt["appointment_date"] < _now_ist().date() - timedelta(days=FEEDBACK_WINDOW_DAYS):
+        completed = appt.get("completed_at") or datetime.combine(appt["appointment_date"], time.max, tzinfo=IST)
+        if completed < datetime.now(IST) - timedelta(days=FEEDBACK_WINDOW_DAYS):
             raise BusinessRuleError("Feedback for this visit has closed", code="FEEDBACK_WINDOW_CLOSED")
         if await self.repo.feedback_exists(appointment_id):
             raise ConflictError("Feedback for this visit was already sent", code="FEEDBACK_ALREADY_SENT")

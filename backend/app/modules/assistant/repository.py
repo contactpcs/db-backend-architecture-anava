@@ -19,7 +19,7 @@ ACTIVE_STATUSES = ["planned", "selected", "paid", "scheduled", "confirmed", "che
 _PAID_STATUSES = ["paid", "partially_refunded"]
 _VISIT_COLUMNS = (
     "a.appointment_id, a.appointment_type, a.appointment_date, a.start_time, a.end_time, a.status, a.session_number, "
-    "a.clinic_id, a.doctor_id, a.protocol_id, tp.session_count, dev.device_name "
+    "a.clinic_id, a.doctor_id, a.protocol_id, a.completed_at, tp.session_count, dev.device_name "
 )
 _VISIT_FROM = (
     "FROM appointments a "
@@ -191,12 +191,10 @@ class AssistantRepository:
         )
         return rows[0] if rows else None
 
-    async def pending_feedback(self, pid: UUID, since: date) -> list[dict]:
+    async def pending_feedback(self, pid: UUID, since: datetime) -> list[dict]:
         return await self._all(
-            "SELECT "
-            + _VISIT_COLUMNS
-            + _VISIT_FROM
-            + "WHERE a.patient_id = :pid AND a.status = 'completed' AND a.appointment_date >= :since "
+            "SELECT " + _VISIT_COLUMNS + _VISIT_FROM + "WHERE a.patient_id = :pid AND a.status = 'completed' "
+            "AND COALESCE(a.completed_at, a.appointment_date::timestamptz) >= :since "
             "AND NOT EXISTS (SELECT 1 FROM session_feedback f WHERE f.appointment_id = a.appointment_id) "
             "ORDER BY a.appointment_date DESC, a.start_time DESC NULLS LAST",
             {"pid": str(pid), "since": since},

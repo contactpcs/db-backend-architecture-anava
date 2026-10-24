@@ -14,7 +14,7 @@ from difflib import SequenceMatcher
 # Below this the FAQ answer is not used and the message goes to the AI step
 # (or the fallback). Tuned on the brief's question bank; raise it if wrong
 # answers appear, lower it if obvious matches fall through.
-MATCH_THRESHOLD = 0.62
+MATCH_THRESHOLD = 0.54
 
 _PUNCT = re.compile(r"[^\w\s]", re.UNICODE)
 _SPACES = re.compile(r"\s+")

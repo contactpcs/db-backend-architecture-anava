@@ -265,7 +265,7 @@ async def test_ai_medical_advice_is_blocked(ai_calls, monkeypatch):
 
 
 async def test_daily_limit_stops_without_storing(ai_calls):
-    repo = FakeRepo(used=30)
+    repo = FakeRepo(used=svc.get_settings().assistant_daily_message_limit)  # whatever .env sets
     reply = await _service(repo).ask(CTX, _ask("hello"))
     assert reply["answered_by"] == "limit" and reply["remaining_today"] == 0 and not repo.messages
 
@@ -334,3 +334,80 @@ async def test_feedback_only_after_completion_and_within_window():
         await _service(FeedbackRepo(days_ago=3)).submit_feedback(CTX, uuid4(), FeedbackSubmit(form_version="v1"))
     with pytest.raises(ConflictError):
         await _service(FeedbackRepo(exists=True)).submit_feedback(CTX, uuid4(), FeedbackSubmit(form_version="v1"))
+
+
+# -- feedback asked at completion, one reminder later --------------------------
+
+
+class _OneRowSession:
+    def __init__(self, row):
+        self.row = row
+
+    async def execute(self, *_a, **_k):
+        return self
+
+    def mappings(self):
+        return self
+
+    def first(self):
+        return self.row
+
+
+async def test_completed_visit_asks_for_feedback_at_once():
+    from app.workers import event_relay
+
+    notes = await event_relay._handle_appointment_status_changed(
+        _OneRowSession({"patient_id": "p1"}), {"appointment_id": "a1", "status": "completed"}
+    )
+    assert [n["title"] for n in notes] == ["Your appointment is complete", "How was your session today?"]
+    ask = notes[1]
+    assert (ask["entity_type"], ask["entity_id"], ask["metadata"]) == ("session_feedback", "a1", {"kind": "request"})
+
+
+async def test_device_session_ending_asks_for_feedback_too():
+    from app.workers import event_relay
+
+    notes = await event_relay._handle_device_session_ended(_OneRowSession({"patient_id": "p1"}), {"appointment_id": "a1"})
+    assert any(n["entity_type"] == "session_feedback" for n in notes)
+
+
+async def test_other_status_changes_do_not_ask_for_feedback():
+    from app.workers import event_relay
+
+    notes = await event_relay._handle_appointment_status_changed(
+        _OneRowSession({"patient_id": "p1"}), {"appointment_id": "a1", "status": "confirmed"}
+    )
+    assert all(n["entity_type"] != "session_feedback" for n in notes)
+
+
+async def test_reminder_written_only_while_feedback_is_still_missing():
+    from app.workers import event_relay
+
+    note = (await event_relay._handle_session_feedback_reminder(_OneRowSession({"patient_id": "p1"}), {"appointment_id": "a1"}))[0]
+    assert note["metadata"] == {"kind": "reminder"} and note["entity_type"] == "session_feedback" and note["recipient_id"] == "p1"
+    # visit no longer completed, or feedback arrived in the meantime: the query finds no row
+    assert await event_relay._handle_session_feedback_reminder(_OneRowSession(None), {"appointment_id": "a1"}) == []
+
+
+async def test_feedback_window_runs_from_completion_not_visit_date():
+    from datetime import datetime
+
+    repo = FeedbackRepo(days_ago=5)  # visit date long ago ...
+    repo.appt["completed_at"] = datetime.now(svc.IST) - timedelta(hours=3)  # ... but completed three hours ago
+    result = await _service(repo).submit_feedback(CTX, uuid4(), FeedbackSubmit(form_version="v1", overall_rating=5))
+    assert result["status"] == "submitted"
+    repo = FeedbackRepo()
+    repo.appt["completed_at"] = datetime.now(svc.IST) - timedelta(hours=49)
+    with pytest.raises(BusinessRuleError):
+        await _service(repo).submit_feedback(CTX, uuid4(), FeedbackSubmit(form_version="v1"))
+
+
+async def test_ai_for_hindi_gets_all_english_answers(ai_calls):
+    class HindiRepo(FakeRepo):
+        async def faq(self, lang):
+            return FAQ if lang == "en" else []
+
+    reply = await _service(HindiRepo()).ask(CTX, _ask("क्या मेरा परिवार साथ आ सकता है?", "hi"))
+    assert reply["answered_by"] == "ai"
+    system = ai_calls[0]["system"]
+    assert "Hindi" in system and "refund policy" in system and "prepare for my session" in system
