@@ -661,7 +661,7 @@ class ProtocolRepository:
             self.session,
             text(
                 "WITH appt AS ("
-                "  SELECT appointment_id FROM appointments"
+                "  SELECT appointment_id, appointment_date FROM appointments"
                 "  WHERE patient_id = :pid AND appointment_type = 'initial' AND status IN ('in_progress', 'completed')"
                 "  ORDER BY appointment_date DESC, start_time DESC LIMIT 1"
                 "), ana AS ("
@@ -683,7 +683,13 @@ class ProtocolRepository:
                 "   ORDER BY q.section_number, q.display_order) AS missing_questions,"
                 " EXISTS (SELECT 1 FROM prs_assessment_instances i JOIN appt USING (appointment_id)"
                 "   WHERE i.status = 'completed' AND i.is_voided = FALSE) AS prs_completed,"
-                " (SELECT count(*) FROM patient_clinical_notes n JOIN appt USING (appointment_id)) AS notes_count,"
+                # A note saved without visit context (appointment_id NULL —
+                # the patient page's note box sent none until it was fixed)
+                # still counts once written on/after the consultation day.
+                " (SELECT count(*) FROM patient_clinical_notes n, appt"
+                "   WHERE n.appointment_id = appt.appointment_id"
+                "   OR (n.appointment_id IS NULL AND n.patient_id = :pid"
+                "       AND (n.created_at AT TIME ZONE 'Asia/Kolkata')::date >= appt.appointment_date)) AS notes_count,"
                 " EXISTS (SELECT 1 FROM protocol_plan tp JOIN protocol_instances pi ON pi.instance_id = tp.instance_id"
                 "   WHERE pi.patient_id = :pid AND tp.status IN ('active', 'completed', 'superseded')) AS has_started_treatment"
             ),

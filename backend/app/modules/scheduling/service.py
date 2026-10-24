@@ -95,9 +95,20 @@ DEFAULT_SLOT_MINUTES = 30
 DEVICE_MAKEUP_STATUSES = {"no_show", STATUS_MISSED}
 DEVICE_MAKEUP_WINDOW_DAYS = 2
 SAME_DAY_DEVICE_SESSION_REASON = (
-    "Two device sessions on the same day can cause overstimulation or injury, "
-    "so only one device session per day is allowed within a treatment course."
+    "More device sessions in one day than your doctor prescribed can cause overstimulation or injury, "
+    "so each treatment course allows only the number of device sessions per day set by the doctor "
+    "(one, unless the doctor prescribed more)."
 )
+
+
+def same_day_device_session_reason(per_day: int) -> str:
+    """The same-day rule for one course, naming its own limit
+    (protocol_plan.sessions_per_day)."""
+    allowed = "one device session per day is" if per_day == 1 else f"up to {per_day} device sessions per day are"
+    return (
+        "More device sessions in one day than prescribed can cause overstimulation or injury, "
+        f"so only {allowed} allowed within this treatment course."
+    )
 
 
 def device_makeup_window(last_session_date: dt.date, today: dt.date) -> tuple[dt.date, dt.date]:
@@ -109,10 +120,10 @@ def device_makeup_window(last_session_date: dt.date, today: dt.date) -> tuple[dt
     return start, start + dt.timedelta(days=DEVICE_MAKEUP_WINDOW_DAYS - 1)
 
 
-def device_makeup_reason(last_session_date: dt.date, start: dt.date, end: dt.date) -> str:
+def device_makeup_reason(last_session_date: dt.date, start: dt.date, end: dt.date, per_day: int = 1) -> str:
     return (
         f"Device sessions in this treatment course are scheduled until {last_session_date:%d %b %Y}. "
-        f"{SAME_DAY_DEVICE_SESSION_REASON} A missed session can therefore only be rescheduled to "
+        f"{same_day_device_session_reason(per_day)} A missed session can therefore only be rescheduled to "
         f"{start:%d %b %Y} or {end:%d %b %Y}, after the course is complete."
     )
 
@@ -1194,7 +1205,8 @@ class AppointmentService:
             # After reserve(): its device-day advisory lock is held, and every
             # session of one protocol books the same device, so two claims on
             # one day for one course are serialized here.
-            await self.assert_one_device_session_per_day(old, on_date)
+            end_time = (dt.datetime.combine(on_date, start_time) + dt.timedelta(minutes=duration)).time()
+            await self.assert_device_sessions_per_day(old, on_date, start_time, end_time)
         else:
             is_available, duration = await AvailabilityService(self.session).check_slot(UUID(str(old["doctor_id"])), on_date, start_time)
             if not is_available:
@@ -1269,17 +1281,31 @@ class AppointmentService:
         last = await self.repo.last_device_session_date(appt["protocol_id"], exclude_appointment_id=appt["appointment_id"])
         last = max(last, appt["appointment_date"]) if last else appt["appointment_date"]
         start, end = device_makeup_window(last, _now_ist_naive().date())
-        return start, end, device_makeup_reason(last, start, end)
+        per_day = await self.repo.protocol_sessions_per_day(appt["protocol_id"])
+        return start, end, device_makeup_reason(last, start, end, per_day)
 
-    async def assert_one_device_session_per_day(self, appt: dict, on_date: dt.date) -> None:
+    async def assert_device_sessions_per_day(self, appt: dict, on_date: dt.date, start_time: dt.time, end_time: dt.time) -> None:
+        """At most protocol_plan.sessions_per_day device sessions of one
+        course on one day, and never two of them at overlapping times — the
+        patient can only be on one device at once."""
         if not appt.get("protocol_id"):
             return
-        clash = await self.repo.count_device_sessions_on_date(appt["protocol_id"], on_date, exclude_appointment_id=appt["appointment_id"])
-        if clash:
+        others = await self.repo.device_sessions_on_date(appt["protocol_id"], on_date, exclude_appointment_id=appt["appointment_id"])
+        per_day = await self.repo.protocol_sessions_per_day(appt["protocol_id"])
+        if len(others) >= per_day:
+            already = "Another device session" if len(others) == 1 else f"{len(others)} device sessions"
             raise BusinessRuleError(
-                f"Another device session of this treatment course is already on {on_date:%d %b %Y}. {SAME_DAY_DEVICE_SESSION_REASON}",
+                f"{already} of this treatment course {'is' if len(others) == 1 else 'are'} already on {on_date:%d %b %Y}. "
+                f"{same_day_device_session_reason(per_day)}",
                 code="SAME_DAY_DEVICE_SESSION",
             )
+        for other in others:
+            if other["start_time"] and other["end_time"] and other["start_time"] < end_time and start_time < other["end_time"]:
+                raise BusinessRuleError(
+                    f"Another device session of this treatment course is booked from {other['start_time']:%H:%M} to "
+                    f"{other['end_time']:%H:%M} on {on_date:%d %b %Y}. Pick a time that does not overlap it.",
+                    code="SAME_DAY_DEVICE_SESSION_OVERLAP",
+                )
 
     async def reschedule_options(self, appointment_id: UUID, *, ctx: RequestContext) -> dict:
         """Whether this row can be moved right now, and to which dates — the
@@ -1727,7 +1753,8 @@ class PatientBookingService:
             # Counted check under a row lock. Held until this transaction
             # commits, which is what stops two patients taking the last slot.
             duration = await self.capacity.reserve(appt, on_date, start_time)
-            await self.appointments.assert_one_device_session_per_day(appt, on_date)
+            end_time = (dt.datetime.combine(on_date, start_time) + dt.timedelta(minutes=duration)).time()
+            await self.appointments.assert_device_sessions_per_day(appt, on_date, start_time, end_time)
         else:
             doctor_profile_id = UUID(str(appt["doctor_id"]))
             is_available, duration = await self.availability.check_slot(doctor_profile_id, on_date, start_time)

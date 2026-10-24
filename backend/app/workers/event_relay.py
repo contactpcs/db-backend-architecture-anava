@@ -318,13 +318,60 @@ async def _handle_appointment_status_changed(session, payload: dict[str, Any]) -
     )
     if not row:
         return []
-    return [
+    notifications = [
         {
             "recipient_id": str(row["patient_id"]),
             "type": "appointment",
             "title": title,
             "entity_type": "appointment",
             "entity_id": payload["appointment_id"],
+        }
+    ]
+    if payload.get("status") == "completed":
+        # Post-session feedback (SQL/v1/125). The app opens the feedback sheet
+        # for entity_type 'session_feedback'; it stays open for 48 hours.
+        notifications.append(
+            {
+                "recipient_id": str(row["patient_id"]),
+                "type": "appointment",
+                "title": "How was your session today?",
+                "body": "Tell us in under a minute. It helps us improve your care.",
+                "entity_type": "session_feedback",
+                "entity_id": payload["appointment_id"],
+                "metadata": {"kind": "request"},
+            }
+        )
+    return notifications
+
+
+async def _handle_session_feedback_reminder(session, payload: dict[str, Any]) -> list[dict]:
+    """One reminder (workers/feedback_reminder.py) for a completed visit that
+    still has no feedback. Checked again here, so feedback sent between the
+    worker's pass and this relay never gets a reminder."""
+    row = (
+        (
+            await session.execute(
+                text(
+                    "SELECT a.patient_id FROM appointments a WHERE a.appointment_id = :id AND a.status = 'completed' "
+                    "AND NOT EXISTS (SELECT 1 FROM session_feedback f WHERE f.appointment_id = a.appointment_id)"
+                ),
+                {"id": payload["appointment_id"]},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not row:
+        return []
+    return [
+        {
+            "recipient_id": str(row["patient_id"]),
+            "type": "appointment",
+            "title": "A quick reminder: how was your session?",
+            "body": "Your feedback takes under a minute and closes soon.",
+            "entity_type": "session_feedback",
+            "entity_id": payload["appointment_id"],
+            "metadata": {"kind": "reminder"},
         }
     ]
 
@@ -555,6 +602,7 @@ EVENT_HANDLERS = {
     "sos_acknowledged": _handle_sos_acknowledged,
     "patient_registration_decided": _handle_patient_registration_decided,
     "final_report_signed": _handle_final_report_signed,
+    "session_feedback_reminder": _handle_session_feedback_reminder,
 }
 
 
@@ -575,6 +623,9 @@ async def _process_event(session, event: dict) -> None:
             "title": record["title"][:200],
             "body": record["body"] and record["body"][:1000],
             "notification_id": str(record["notification_id"]),
+            # Lets the app open the right screen straight away (feedback sheet).
+            "entity_type": record.get("entity_type"),
+            "entity_id": str(record["entity_id"]) if record.get("entity_id") else None,
         }
         await session.execute(
             text("SELECT pg_notify(:channel, :payload)"),

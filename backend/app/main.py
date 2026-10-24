@@ -27,6 +27,7 @@ from app.core.permissions import require_role
 from app.core.security import warm_jwks
 from app.modules.admin.router import router as admin_router
 from app.modules.anamnesis.router import router as anamnesis_router
+from app.modules.assistant.router import router as assistant_router
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
 from app.modules.clinical.router import router as clinical_router
@@ -46,6 +47,7 @@ from app.modules.staff.router import router as staff_router
 from app.modules.store.router import router as store_router
 from app.modules.treatment_protocols.router import router as treatment_protocols_router
 from app.workers.event_relay import run_forever as run_event_relay_forever
+from app.workers.feedback_reminder import run_feedback_reminder_forever
 from app.workers.hold_sweeper import run_hold_sweeper_forever
 from app.workers.no_show_sweeper import run_no_show_sweeper_forever
 from app.workers.payment_reconciler import run_payment_reconciler_forever
@@ -130,6 +132,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         tasks.append(asyncio.create_task(run_hold_sweeper_forever()))
     if settings.appointment_no_show_sweeper_enabled:
         tasks.append(asyncio.create_task(run_no_show_sweeper_forever()))
+    if settings.session_feedback_reminder_enabled:
+        tasks.append(asyncio.create_task(run_feedback_reminder_forever()))
     if settings.refund_worker_enabled:
         tasks.append(asyncio.create_task(run_refund_worker_forever()))
     if settings.payment_reconciler_enabled:
@@ -255,6 +259,7 @@ app.include_router(notifications_router, prefix="/api/v1", tags=["notifications"
 app.include_router(reception_router, prefix="/api/v1/reception", tags=["reception"])
 app.include_router(reports_router, prefix="/api/v1", tags=["reports"])
 app.include_router(final_reports_router, prefix="/api/v1", tags=["final-reports"])
+app.include_router(assistant_router, prefix="/api/v1", tags=["assistant"])
 app.include_router(audit_router, prefix="/api/v1", tags=["audit"])
 
 

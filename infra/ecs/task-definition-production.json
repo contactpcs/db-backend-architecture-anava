@@ -139,6 +139,18 @@
                 {
                     "name": "TRUST_FORWARDED_FOR",
                     "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/backend/cognito:TRUST_FORWARDED_FOR::"
+                },
+                {
+                    "name": "AI_PROVIDER",
+                    "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/backend/cognito:AI_PROVIDER::"
+                },
+                {
+                    "name": "NVIDIA_API_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/backend/cognito:NVIDIA_API_KEY::"
+                },
+                {
+                    "name": "NVIDIA_MODEL",
+                    "valueFrom": "arn:aws:secretsmanager:ap-south-1:363518210533:secret:anava/backend/cognito:NVIDIA_MODEL::"
                 }
             ],
             "logConfiguration": {

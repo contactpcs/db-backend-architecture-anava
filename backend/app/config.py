@@ -260,6 +260,34 @@ class Settings(BaseSettings):
     # staff profile creation time (see staff/service.py).
     staff_allowed_email_domains: list[str] = ["anavaclinics.com", "manahealthsciences.com", "pcsdatai.com"]
 
+    # Ask ANAVA assistant + session feedback (SQL/v1/125, Documents/Ask_ANAVA_Design_Brief.md).
+    # ai_provider: "rules" = no external AI at all (stored and data answers only),
+    # "nvidia" = NVIDIA API Catalog (build.nvidia.com) for questions the rules can't answer,
+    # "claude" = reserved for the paid upgrade (not wired yet, behaves like "rules").
+    ai_provider: str = "rules"
+    nvidia_api_key: str | None = None
+    # Any chat model id from build.nvidia.com (models retire: an id past end of life returns 410).
+    # Oct 2026 test with the real prompt: Nemotron 3.5 Bolt answered en/hi correctly in 0.5-1 s and
+    # said NO_ANSWER for off-topic and medical questions. Lightning-30B misread Hindi, gpt-oss-20b
+    # and gemma-4-31b took 10-20 s, llama-3.3-70b is gone.
+    nvidia_model: str = "nvidia/nemotron-3.5-bolt-e4b"
+    # Thinking tokens count against the reply budget and add latency; a short FAQ answer needs none.
+    # Only applies to Nemotron models (sends chat_template_kwargs enable_thinking=false).
+    nvidia_disable_thinking: bool = True
+    ai_timeout_seconds: float = 12.0
+    # Keep both just below the free tier's limits (shown on build.nvidia.com; trial is ~40 requests per minute). Above them the
+    # assistant answers from rules only and the patient never sees an error.
+    ai_daily_call_cap: int = 200
+    ai_per_minute_call_cap: int = 8
+    assistant_daily_message_limit: int = 30
+    # Shows the "Demo" label in the app while running on a free AI tier.
+    ai_demo: bool = True
+    # One reminder for a completed visit with no feedback yet (workers/feedback_reminder.py).
+    # Feedback itself is asked at completion and stays open for 48 hours.
+    session_feedback_reminder_enabled: bool = True
+    session_feedback_reminder_after_hours: float = 4.0
+    session_feedback_reminder_interval_seconds: int = 600
+
     @model_validator(mode="after")
     def _require_local_jwt_secret_in_local_mode(self) -> "Settings":
         if self.auth_mode == "local" and not self.local_jwt_secret:

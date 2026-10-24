@@ -380,31 +380,38 @@ class ScheduleService:
     @staticmethod
     def build(req: s.SchedulePreviewRequest) -> dict:
         weekdays = _WEEKDAYS_FOR[req.sessions_per_week]
+        per_day = req.sessions_per_day or 1
         skip = {d for d in req.skip_dates}
         extra = sorted({d for d in req.extra_dates})
 
-        # The cadence supplies session_count dates, minus any the doctor
-        # painted in explicitly — an extra date is one of the requested
-        # sessions moved onto an off-cadence day, not an extra visit on top.
+        # Treatment DAYS first, then sessions: each day holds per_day
+        # sessions, so the course needs ceil(session_count / per_day) days
+        # (the last one may hold fewer).
+        days_needed = -(-req.session_count // per_day)
+
+        # The cadence supplies those days, minus any the doctor painted in
+        # explicitly — an extra date is one of the requested treatment days
+        # moved onto an off-cadence day, not an extra visit on top.
         # Truncating after the merge instead would silently discard a
         # hand-picked date whenever the cadence had already filled the quota,
         # which is the opposite of what clicking that day means.
         extra_wanted = [d for d in extra if d not in skip]
-        from_cadence = max(0, req.session_count - len(extra_wanted))
+        from_cadence = max(0, days_needed - len(extra_wanted))
 
-        dates: builtins.list[dt.date] = []
+        days: builtins.list[dt.date] = []
         cursor = req.start_date
         # Bounded walk: 90 sessions at 1/week is ~630 days, so 1000 is a
         # generous ceiling that still cannot spin.
         for _ in range(1000):
-            if len(dates) >= from_cadence:
+            if len(days) >= from_cadence:
                 break
             if cursor.weekday() in weekdays and cursor not in skip and cursor not in extra_wanted:
-                dates.append(cursor)
+                days.append(cursor)
             cursor += dt.timedelta(days=1)
 
-        dates.extend(extra_wanted)
-        dates = sorted(set(dates))[: req.session_count]
+        days.extend(extra_wanted)
+        days = sorted(set(days))[:days_needed]
+        dates = [d for d in days for _ in range(per_day)][: req.session_count]
 
         # Built from the (number, date) pairs rather than read back out of the
         # dicts below: a dict mixing an int and a date widens to
@@ -444,6 +451,7 @@ class ScheduleService:
             "first_date": first,
             "last_date": last,
             "week_count": weeks,
+            "day_count": len(set(dates)),
         }
 
 
@@ -706,6 +714,7 @@ class ProtocolService:
             "prescribed_tvns_ramp_up_sec": body.prescribed_tvns_ramp_up_sec,
             "prescribed_tvns_ramp_down_sec": body.prescribed_tvns_ramp_down_sec,
             "sessions_per_week": body.sessions_per_week,
+            "sessions_per_day": body.sessions_per_day,
             "supersedes_protocol_id": (str(body.supersedes_protocol_id) if body.supersedes_protocol_id else None),
             "version_major": version_major,
             "version_minor": version_minor,
@@ -729,6 +738,7 @@ class ProtocolService:
                 start_date=body.start_date,
                 session_count=body.session_count,
                 sessions_per_week=body.sessions_per_week,
+                sessions_per_day=body.sessions_per_day,
                 follow_up_every_n=body.follow_up_every_n,
                 skip_dates=body.skip_dates,
                 extra_dates=body.extra_dates,
@@ -805,6 +815,7 @@ class ProtocolService:
                 "modality": device["modality"],
                 "session_count": body.session_count,
                 "sessions_per_week": body.sessions_per_week,
+                "sessions_per_day": body.sessions_per_day,
                 "conditions_recorded": conditions_written,
                 "diagnoses_recorded": diagnoses_written,
                 "scales_assigned": scales_written,
@@ -1218,7 +1229,9 @@ class ProtocolService:
             if before_sc != after_sc:
                 changes["scales"] = {"from": before_sc, "to": after_sc}
         replan = (
-            device_changed or bool(schedule_only) or any(k in changes for k in ("session_count", "sessions_per_week", "follow_up_every_n"))
+            device_changed
+            or bool(schedule_only)
+            or any(k in changes for k in ("session_count", "sessions_per_week", "sessions_per_day", "follow_up_every_n"))
         )
         for k, v in schedule_only.items():
             changes[k] = {"from": None, "to": v}
@@ -1365,12 +1378,16 @@ class ProtocolService:
         new_dates: builtins.list[dt.date] = []
         if to_generate:
             # Bypasses SchedulePreviewRequest's 10-session minimum on purpose:
-            # this is the rest of a course, not a course.
+            # this is the rest of a course, not a course. A day that already
+            # holds a booked session is skipped whole, even when sessions_per_day
+            # would leave room on it — never over the daily limit, at the cost
+            # of a slightly longer course.
             preview = ScheduleService.build(
                 s.SchedulePreviewRequest.model_construct(
                     start_date=start,
                     session_count=to_generate,
                     sessions_per_week=plan["sessions_per_week"],
+                    sessions_per_day=plan.get("sessions_per_day") or 1,
                     follow_up_every_n=None,
                     skip_dates=[*skip_dates, *(b["appointment_date"] for b in booked_sessions)],
                     extra_dates=extra_dates,

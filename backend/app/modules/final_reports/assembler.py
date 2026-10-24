@@ -482,6 +482,7 @@ def build_treatment_plan(detail: dict) -> dict:
         },
         "session_count": detail.get("session_count"),
         "sessions_per_week": detail.get("sessions_per_week"),
+        "sessions_per_day": detail.get("sessions_per_day") or 1,
         "follow_up_every_n": detail.get("follow_up_every_n"),
         "schedule": [
             {

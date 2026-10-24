@@ -700,21 +700,32 @@ class AppointmentRepository:
             )
         ).scalar_one_or_none()
 
-    async def count_device_sessions_on_date(self, protocol_id: UUID, on_date, *, exclude_appointment_id: UUID) -> int:
+    async def device_sessions_on_date(self, protocol_id: UUID, on_date, *, exclude_appointment_id: UUID) -> builtins.list[dict]:
         """Other device sessions of this protocol that will (or did) happen on
-        on_date. no_show/missed/cancelled/rescheduled rows did not happen on
-        their date, so they never block it."""
-        return (
+        on_date, with their times (NULL while still 'planned'). no_show/
+        missed/cancelled/rescheduled rows did not happen on their date, so
+        they never count against it."""
+        rows = await self.session.execute(
+            text(
+                "SELECT appointment_id, start_time, end_time FROM appointments "
+                "WHERE protocol_id = :pid AND appointment_type = 'device_session' "
+                "AND appointment_id <> :aid AND appointment_date = :d "
+                "AND status NOT IN ('cancelled', 'rescheduled', 'no_show', 'missed')"
+            ),
+            {"pid": str(protocol_id), "aid": str(exclude_appointment_id), "d": on_date},
+        )
+        return [dict(r) for r in rows.mappings().all()]
+
+    async def protocol_sessions_per_day(self, protocol_id: UUID) -> int:
+        """The course's prescribed daily device-session limit (124); 1 for a
+        protocol written before the column existed."""
+        per_day = (
             await self.session.execute(
-                text(
-                    "SELECT count(*) FROM appointments "
-                    "WHERE protocol_id = :pid AND appointment_type = 'device_session' "
-                    "AND appointment_id <> :aid AND appointment_date = :d "
-                    "AND status NOT IN ('cancelled', 'rescheduled', 'no_show', 'missed')"
-                ),
-                {"pid": str(protocol_id), "aid": str(exclude_appointment_id), "d": on_date},
+                text("SELECT sessions_per_day FROM protocol_plan WHERE protocol_id = :pid"),
+                {"pid": str(protocol_id)},
             )
-        ).scalar_one()
+        ).scalar_one_or_none()
+        return per_day or 1
 
 
 class AppointmentAuditLogRepository:
