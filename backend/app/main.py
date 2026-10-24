@@ -27,6 +27,7 @@ from app.core.permissions import require_role
 from app.core.security import warm_jwks
 from app.modules.admin.router import router as admin_router
 from app.modules.anamnesis.router import router as anamnesis_router
+from app.modules.assistant.router import router as assistant_router
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
 from app.modules.clinical.router import router as clinical_router
@@ -255,6 +256,7 @@ app.include_router(notifications_router, prefix="/api/v1", tags=["notifications"
 app.include_router(reception_router, prefix="/api/v1/reception", tags=["reception"])
 app.include_router(reports_router, prefix="/api/v1", tags=["reports"])
 app.include_router(final_reports_router, prefix="/api/v1", tags=["final-reports"])
+app.include_router(assistant_router, prefix="/api/v1", tags=["assistant"])
 app.include_router(audit_router, prefix="/api/v1", tags=["audit"])
 
 

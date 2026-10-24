@@ -260,6 +260,25 @@ class Settings(BaseSettings):
     # staff profile creation time (see staff/service.py).
     staff_allowed_email_domains: list[str] = ["anavaclinics.com", "manahealthsciences.com", "pcsdatai.com"]
 
+    # Ask ANAVA assistant + session feedback (SQL/v1/125, Documents/Ask_ANAVA_Design_Brief.md).
+    # ai_provider: "rules" = no external AI at all (stored and data answers only),
+    # "gemini" = Google AI Studio free tier for questions the rules can't answer,
+    # "claude" = reserved for the paid upgrade (not wired yet, behaves like "rules").
+    ai_provider: str = "rules"
+    gemini_api_key: str | None = None
+    # Copy the exact current free "Flash" model name from AI Studio.
+    gemini_model: str = "gemini-2.5-flash"
+    # Thinking tokens count against the reply budget and add latency; a short FAQ answer needs none.
+    gemini_disable_thinking: bool = True
+    ai_timeout_seconds: float = 12.0
+    # Keep both just below the free tier's limits (shown in AI Studio). Above them the
+    # assistant answers from rules only and the patient never sees an error.
+    ai_daily_call_cap: int = 200
+    ai_per_minute_call_cap: int = 8
+    assistant_daily_message_limit: int = 30
+    # Shows the "Demo" label in the app while running on a free AI tier.
+    ai_demo: bool = True
+
     @model_validator(mode="after")
     def _require_local_jwt_secret_in_local_mode(self) -> "Settings":
         if self.auth_mode == "local" and not self.local_jwt_secret:

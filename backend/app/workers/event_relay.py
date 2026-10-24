@@ -318,7 +318,7 @@ async def _handle_appointment_status_changed(session, payload: dict[str, Any]) -
     )
     if not row:
         return []
-    return [
+    notifications = [
         {
             "recipient_id": str(row["patient_id"]),
             "type": "appointment",
@@ -327,6 +327,20 @@ async def _handle_appointment_status_changed(session, payload: dict[str, Any]) -
             "entity_id": payload["appointment_id"],
         }
     ]
+    if payload.get("status") == "completed":
+        # Post-session feedback (SQL/v1/125). The app opens the feedback sheet
+        # for entity_type 'session_feedback'; it stays open for 48 hours.
+        notifications.append(
+            {
+                "recipient_id": str(row["patient_id"]),
+                "type": "appointment",
+                "title": "How was your session today?",
+                "body": "Tell us in under a minute. It helps us improve your care.",
+                "entity_type": "session_feedback",
+                "entity_id": payload["appointment_id"],
+            }
+        )
+    return notifications
 
 
 async def _handle_appointment_rescheduled(session, payload: dict[str, Any]) -> list[dict]:
