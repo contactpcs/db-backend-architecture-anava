@@ -282,6 +282,15 @@ async def verify_appointment_payment(
     )
 
 
+@router.post("/payments/{payment_id}/sync", response_model=s.PaymentRead)
+async def sync_payment(payment_id: UUID, db=Depends(get_db), ctx: RequestContext = Depends(require_role("patient"))):
+    """Asks Razorpay about this payment's order right now (the app calls it when Checkout ended without a
+    readable result), instead of waiting for the webhook or the background reconciler."""
+    service = PaymentService(db)
+    assert_owns_profile(ctx, await service.repo.get_owner_profile_id(payment_id))
+    return await service.sync_with_gateway(payment_id, ctx)
+
+
 @router.get("/appointments/{appointment_id}/payments/receipt")
 async def get_appointment_receipt(
     appointment_id: UUID,

@@ -717,6 +717,23 @@ class PaymentService:
         )
         return "confirmed" if updated["status"] == "paid" else "refund_queued"
 
+    async def sync_with_gateway(self, payment_id: UUID, ctx: RequestContext) -> dict:
+        """Patient-triggered reconcile. When Checkout ends without handing the app its signed result (the Android
+        WebView case), the app asks here instead of waiting for the webhook or the 2-minute reconciler: Razorpay is
+        asked about this one order and, if captured, the normal confirmation runs. Nothing is trusted from the
+        caller; a payment that is not pending, or has no order, is returned as it is."""
+        payment = await self.get(payment_id)
+        if payment["status"] != "pending" or not payment.get("razorpay_order_id") or not razorpay_client.is_configured():
+            return payment
+        if payment.get("appointment_id"):
+            await self._get_appointment_for_pay(payment["appointment_id"], ctx)
+        try:
+            async with as_system(self.session):
+                await self.reconcile(payment)
+        except Exception as exc:  # noqa: BLE001 - gateway hiccup: the webhook / reconciler still settle it
+            logger.warning("payment_sync_error", payment_id=str(payment_id), error=str(exc)[:200])
+        return await self.get(payment_id)
+
     async def record_cancellation_refund(self, appt: dict) -> None:
         """Called from scheduling's update_status right after an appointment
         is transitioned to 'cancelled'. No-op unless there's actually a paid
