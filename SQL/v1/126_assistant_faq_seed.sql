@@ -3,10 +3,10 @@
 -- APPLY ORDER: after 125. Idempotent. Plain data seed, no alembic revision (like 111-116).
 --
 -- English answers for reference.assistant_faq, generated from Documents/Ask_ANAVA_Design_Brief.md.
--- 212 rows: 155 ACTIVE, 57 DRAFT (is_active = false).
+-- 208 rows: 151 ACTIVE, 57 DRAFT (is_active = false).
 --
 -- Left out on purpose: the questions answered from the patient's own records in code (data_answers.py), the
--- safety screens (safety.py) and the one AI-only entry: {'DATA': 29, 'SAFETY': 9, 'AI': 1}.
+-- safety screens (safety.py) and the one AI-only entry: {'DATA': 29, 'SAFETY': 9, 'AI': 1, 'code': 4}.
 --
 -- DRAFT rows keep their bracketed gaps ("[Clinic to confirm]") or need doctor sign-off. To publish one: edit the
 -- answer, then  UPDATE reference.assistant_faq SET answer = ..., is_active = true, approved_by = <profile id>,
@@ -43,7 +43,7 @@ INSERT INTO reference."assistant_faq" ("intent", "language", "category", "questi
   ('add_my_session_to_my_phone_s', 'en', 'My appointments', ARRAY['Add my session to my phone''s calendar']::text[], 'That isn''t available yet. Your sessions are always in the Appointments calendar in the app.', 'faq', NULL, true, 180),
   ('what_should_i_bring_to_my_appointment', 'en', 'My appointments', ARRAY['What should I bring to my appointment?']::text[], 'Bring your phone with the app, any new reports or prescriptions, and a list of your current medicines. [Clinic to confirm the list]', 'faq', NULL, false, 190),
   ('how_early_should_i_come', 'en', 'My appointments', ARRAY['How early should I come?']::text[], 'Please arrive about [10] minutes before your booked time.', 'faq', NULL, false, 200),
-  ('where_is_my_booking_pass', 'en', 'My appointments', ARRAY['Where is my booking pass', 'QR code?']::text[], 'After your visit is paid, open it from Home › Details. The QR code there is your booking pass for the clinic desk.', 'faq', NULL, true, 210),
+  ('where_is_my_booking_pass', 'en', 'My appointments', ARRAY['Where is my booking pass?', 'Where is my QR code?']::text[], 'After your visit is paid, open it from Home › Details. The QR code there is your booking pass for the clinic desk.', 'faq', NULL, true, 210),
   ('how_do_i_book_an_appointment', 'en', 'Booking', ARRAY['How do I book an appointment?']::text[], 'Tap + on the Appointments screen and choose what you need.', 'action', 'book', true, 220),
   ('book_a_follow_up_for_me', 'en', 'Booking', ARRAY['Book a follow-up for me']::text[], 'I can''t book for you, but I can open booking so you can pick a time.', 'action', 'book', true, 230),
   ('can_i_book_my_first_consultation_in', 'en', 'Booking', ARRAY['Can I book my first consultation in the app?']::text[], 'Yes. Choose Initial consultation, pick a slot and pay to confirm.', 'faq', 'book', true, 240),
@@ -51,7 +51,7 @@ INSERT INTO reference."assistant_faq" ("intent", "language", "category", "questi
   ('can_i_choose_my_doctor', 'en', 'Booking', ARRAY['Can I choose my doctor?']::text[], 'Your doctor is assigned by the clinic. To ask for a change, please call {clinic_phone}.', 'redirect', NULL, true, 260),
   ('can_i_book_a_device_session_myself', 'en', 'Booking', ARRAY['Can I book a device session myself?']::text[], 'Your doctor plans your device sessions. They appear in Sessions as ''Pick a time'', and you choose the time.', 'faq', NULL, true, 270),
   ('can_i_book_two_sessions_on_the', 'en', 'Booking', ARRAY['Can I book two sessions on the same day?']::text[], '[Clinic to confirm the rule.] The booking screen only shows times you''re allowed to take.', 'faq', NULL, false, 280),
-  ('can_i_book_for_my_mother', 'en', 'Booking', ARRAY['Can I book for my mother', 'child?']::text[], 'Each patient needs their own ANAVA account. A parent or guardian can register a child under 18 and act for them.', 'faq', NULL, true, 290),
+  ('can_i_book_for_my_mother', 'en', 'Booking', ARRAY['Can I book for my mother?', 'Can I book for my child?']::text[], 'Each patient needs their own ANAVA account. A parent or guardian can register a child under 18 and act for them.', 'faq', NULL, true, 290),
   ('why_can_t_i_see_any_free', 'en', 'Booking', ARRAY['Why can''t I see any free slots?']::text[], 'That day may be fully booked or the clinic may be closed. Try another day, or call {clinic_phone}.', 'faq', NULL, true, 300),
   ('how_far_ahead_can_i_book', 'en', 'Booking', ARRAY['How far ahead can I book?']::text[], 'You can book up to [N] days ahead. [Clinic to confirm]', 'faq', NULL, false, 310),
   ('can_i_book_an_online_or_video', 'en', 'Booking', ARRAY['Can I book an online or video consultation?']::text[], '[Clinic to confirm.] At present visits are at the clinic.', 'faq', NULL, false, 320),
@@ -63,7 +63,7 @@ INSERT INTO reference."assistant_faq" ("intent", "language", "category", "questi
   ('how_many_times_can_i_reschedule', 'en', 'Reschedule and cancel', ARRAY['How many times can I reschedule?']::text[], '[Clinic to confirm the limit.]', 'faq', NULL, false, 380),
   ('what_happens_to_my_payment_if_i', 'en', 'Reschedule and cancel', ARRAY['What happens to my payment if I reschedule?']::text[], 'It moves to your new time. You don''t pay again.', 'faq', NULL, true, 390),
   ('where_can_i_see_my_rescheduled_visits', 'en', 'Reschedule and cancel', ARRAY['Where can I see my rescheduled visits?']::text[], 'Payments › Rescheduled shows each visit you moved, from the old time to the new one.', 'faq', NULL, true, 400),
-  ('how_do_i_cancel', 'en', 'Reschedule and cancel', ARRAY['How do I cancel?']::text[], 'Open the visit and tap Cancel appointment. Refunds follow the clinic''s policy.', 'action', 'refund_policy', true, 410),
+  ('how_do_i_cancel', 'en', 'Reschedule and cancel', ARRAY['How do I cancel?']::text[], 'Open the visit and tap Cancel appointment. Refunds follow the clinic''s policy.', 'action', 'appointment_detail', true, 410),
   ('will_i_get_my_money_back_if', 'en', 'Reschedule and cancel', ARRAY['Will I get my money back if I cancel?']::text[], 'It depends on how early you cancel. See the refund policy.', 'faq', 'refund_policy', true, 420),
   ('i_m_running_late', 'en', 'Reschedule and cancel', ARRAY['I''m running late']::text[], 'Please call the clinic at {clinic_phone} so they can tell you if they can still see you.', 'redirect', NULL, true, 430),
   ('i_can_t_come_today', 'en', 'Reschedule and cancel', ARRAY['I can''t come today']::text[], 'You can reschedule or cancel from the visit. If it''s very close to your time, please call {clinic_phone}.', 'faq', NULL, true, 440),
@@ -105,7 +105,7 @@ INSERT INTO reference."assistant_faq" ("intent", "language", "category", "questi
   ('can_my_child_have_tdcs', 'en', 'About the treatment (doctor must review these answers)', ARRAY['Can my child have tDCS?']::text[], 'Only your doctor can decide that. Please ask at a consultation.', 'redirect', NULL, true, 800),
   ('i_m_pregnant_can_i_continue', 'en', 'About the treatment (doctor must review these answers)', ARRAY['I''m pregnant. Can I continue?']::text[], 'Please tell your doctor before your next session. Call {clinic_phone}.', 'redirect', NULL, true, 810),
   ('i_have_a_metal_implant_or_pacemaker', 'en', 'About the treatment (doctor must review these answers)', ARRAY['I have a metal implant or pacemaker']::text[], 'Please tell your doctor before any session. Call {clinic_phone}.', 'redirect', NULL, true, 820),
-  ('i_have_epilepsy', 'en', 'About the treatment (doctor must review these answers)', ARRAY['I have epilepsy', 'fits']::text[], 'Please make sure your doctor knows before any session. Call {clinic_phone}.', 'redirect', NULL, true, 830),
+  ('i_have_epilepsy', 'en', 'About the treatment (doctor must review these answers)', ARRAY['I have epilepsy', 'I have fits']::text[], 'Please make sure your doctor knows before any session. Call {clinic_phone}.', 'redirect', NULL, true, 830),
   ('can_i_do_tdcs_at_home', 'en', 'About the treatment (doctor must review these answers)', ARRAY['Can I do tDCS at home?']::text[], '[Clinic to confirm.] At present sessions are done at the clinic.', 'faq', NULL, false, 840),
   ('will_it_change_my_memory_or_personality', 'en', 'About the treatment (doctor must review these answers)', ARRAY['Will it change my memory or personality?']::text[], 'Please ask your doctor about this. They can explain what to expect for you.', 'redirect', NULL, true, 850),
   ('how_should_i_prepare_for_my_session', 'en', 'Before a session', ARRAY['How should I prepare for my session?']::text[], '[Doctor-approved text.] Wash your hair and don''t apply oil or gel. Eat a light meal, sleep well the night before, and keep taking your usual medicines unless your doctor said otherwise.', 'faq', NULL, false, 860),
@@ -153,7 +153,7 @@ INSERT INTO reference."assistant_faq" ("intent", "language", "category", "questi
   ('do_i_have_depression', 'en', 'Results and reports', ARRAY['Do I have depression?', 'What''s my diagnosis?']::text[], 'I can''t diagnose. Your doctor is the right person to explain your diagnosis.', 'redirect', NULL, true, 1280),
   ('why_can_t_i_see_my_assessment', 'en', 'Results and reports', ARRAY['Why can''t I see my assessment result?']::text[], 'Results appear after you finish all parts and they''re scored. Pull down to refresh.', 'faq', NULL, true, 1290),
   ('what_did_i_sign', 'en', 'Consent', ARRAY['What did I sign?']::text[], 'You can read every consent you''ve signed in Profile › Consents.', 'action', 'profile_consents', true, 1300),
-  ('can_i_download_my_signed_consent', 'en', 'Consent', ARRAY['Can I download my signed consent?']::text[], 'Yes, open it in Profile › Consents.', 'action', NULL, true, 1310),
+  ('can_i_download_my_signed_consent', 'en', 'Consent', ARRAY['Can I download my signed consent?']::text[], 'Yes, open it in Profile › Consents.', 'action', 'profile_consents', true, 1310),
   ('why_am_i_asked_to_sign_again', 'en', 'Consent', ARRAY['Why am I asked to sign again?']::text[], 'The clinic updated the form, so a new signature is needed.', 'faq', NULL, true, 1320),
   ('can_i_withdraw_my_consent', 'en', 'Consent', ARRAY['Can I withdraw my consent?']::text[], 'Please call {clinic_phone}. Withdrawing may stop your treatment, so the clinic will explain what happens.', 'redirect', NULL, true, 1330),
   ('can_my_guardian_sign_for_me', 'en', 'Consent', ARRAY['Can my guardian sign for me?']::text[], 'Yes, for a patient under 18 the guardian signs on their behalf.', 'faq', NULL, true, 1340),
@@ -221,20 +221,16 @@ INSERT INTO reference."assistant_faq" ("intent", "language", "category", "questi
   ('what_should_i_eat', 'en', 'Medical advice and off-topic (always redirected)', ARRAY['What should I eat?']::text[], 'Please ask your doctor for diet advice.', 'redirect', NULL, true, 1960),
   ('is_tdcs_better_than_medicines', 'en', 'Medical advice and off-topic (always redirected)', ARRAY['Is tDCS better than medicines?']::text[], 'Your doctor chose your treatment for you and can explain why.', 'redirect', NULL, true, 1970),
   ('can_you_read_my_blood_test', 'en', 'Medical advice and off-topic (always redirected)', ARRAY['Can you read my blood test?']::text[], 'I can''t interpret test results. Please share it with your doctor (you can upload it in Medical history files).', 'redirect', NULL, true, 1980),
-  ('what_s_the_weather', 'en', 'Medical advice and off-topic (always redirected)', ARRAY['What''s the weather', 'cricket score', 'write my essay']::text[], 'Sorry, I can only help with ANAVA appointments, payments, reports and the app.', 'decline', NULL, true, 1990),
+  ('what_s_the_weather', 'en', 'Medical advice and off-topic (always redirected)', ARRAY['What''s the weather?', 'What is the cricket score?', 'Write my essay']::text[], 'Sorry, I can only help with ANAVA appointments, payments, reports and the app.', 'decline', NULL, true, 1990),
   ('i_m_nervous_about_my_session', 'en', 'Feelings and safety', ARRAY['I''m nervous about my session']::text[], 'That''s very normal. Sessions are calm, you''re awake, and the clinical assistant stays with you. You can ask them to stop anytime.', 'faq', NULL, true, 2000),
   ('i_m_scared_my_treatment_won_t', 'en', 'Feelings and safety', ARRAY['I''m scared my treatment won''t work']::text[], 'That''s an understandable worry. Please share it with your doctor at your next visit. They can talk you through your progress.', 'redirect', NULL, true, 2010),
-  ('abusive_or_rude_language', 'en', 'Unusual messages', ARRAY['Abusive or rude language']::text[], 'I''m here to help with your ANAVA care. Let me know what you need.', 'decline', NULL, true, 2020),
-  ('unclear_or_random_text', 'en', 'Unusual messages', ARRAY['Unclear or random text']::text[], 'Sorry, I didn''t understand. You can ask things like ''When is my next session?''', 'faq', NULL, true, 2030),
-  ('a_very_long_message', 'en', 'Unusual messages', ARRAY['A very long message']::text[], 'Please keep your question short (under 500 characters).', 'faq', NULL, true, 2040),
-  ('give_me_the_doctor_s_personal_number', 'en', 'Unusual messages', ARRAY['Give me the doctor''s personal number']::text[], 'I can''t share staff contact details. You can reach the clinic at {clinic_phone}.', 'decline', NULL, true, 2050),
-  ('tell_me_about_another_patient', 'en', 'Unusual messages', ARRAY['Tell me about another patient']::text[], 'I can only show your own information.', 'decline', NULL, true, 2060),
-  ('ignore_your_rules', 'en', 'Unusual messages', ARRAY['''Ignore your rules''', 'tricks']::text[], 'Same fixed rules apply. The bot answers only from approved content and the patient''s own data.', 'decline', NULL, true, 2070),
-  ('how_do_i_give_feedback', 'en', 'Feedback', ARRAY['How do I give feedback?']::text[], 'After each session you''ll get a notification. Tap it to answer a few quick questions.', 'faq', NULL, true, 2080),
-  ('i_missed_the_feedback_notification', 'en', 'Feedback', ARRAY['I missed the feedback notification']::text[], 'Open the completed visit and tap Give feedback. It''s open for [48 hours] after the session.', 'faq', NULL, false, 2090),
-  ('can_i_change_my_feedback', 'en', 'Feedback', ARRAY['Can I change my feedback?']::text[], '[Decision needed.] Proposed: no, once sent it''s saved as it is.', 'faq', NULL, false, 2100),
-  ('will_the_clinic_reply_to_my_feedback', 'en', 'Feedback', ARRAY['Will the clinic reply to my feedback?']::text[], 'Feedback is collected to improve our service. Nobody reads it live and you won''t get a reply. For anything urgent, please call {clinic_phone}.', 'faq', NULL, true, 2110),
-  ('is_my_feedback_anonymous', 'en', 'Feedback', ARRAY['Is my feedback anonymous?']::text[], 'No. It''s linked to your session so we can understand each visit. It stays private to ANAVA.', 'faq', NULL, true, 2120)
+  ('give_me_the_doctor_s_personal_number', 'en', 'Unusual messages', ARRAY['Give me the doctor''s personal number']::text[], 'I can''t share staff contact details. You can reach the clinic at {clinic_phone}.', 'decline', NULL, true, 2020),
+  ('tell_me_about_another_patient', 'en', 'Unusual messages', ARRAY['Tell me about another patient']::text[], 'I can only show your own information.', 'decline', NULL, true, 2030),
+  ('how_do_i_give_feedback', 'en', 'Feedback', ARRAY['How do I give feedback?']::text[], 'After each session you''ll get a notification. Tap it to answer a few quick questions.', 'faq', NULL, true, 2040),
+  ('i_missed_the_feedback_notification', 'en', 'Feedback', ARRAY['I missed the feedback notification']::text[], 'Open the completed visit and tap Give feedback. It''s open for [48 hours] after the session.', 'faq', NULL, false, 2050),
+  ('can_i_change_my_feedback', 'en', 'Feedback', ARRAY['Can I change my feedback?']::text[], '[Decision needed.] Proposed: no, once sent it''s saved as it is.', 'faq', NULL, false, 2060),
+  ('will_the_clinic_reply_to_my_feedback', 'en', 'Feedback', ARRAY['Will the clinic reply to my feedback?']::text[], 'Feedback is collected to improve our service. Nobody reads it live and you won''t get a reply. For anything urgent, please call {clinic_phone}.', 'faq', NULL, true, 2070),
+  ('is_my_feedback_anonymous', 'en', 'Feedback', ARRAY['Is my feedback anonymous?']::text[], 'No. It''s linked to your session so we can understand each visit. It stays private to ANAVA.', 'faq', NULL, true, 2080)
 ON CONFLICT ("intent", "language") DO UPDATE SET
     "category" = EXCLUDED."category", "questions" = EXCLUDED."questions", "answer" = EXCLUDED."answer",
     "reply_type" = EXCLUDED."reply_type", "action" = EXCLUDED."action", "sort_order" = EXCLUDED."sort_order",
@@ -304,4 +300,4 @@ COMMIT;
 --   can_i_change_my_feedback: needs clinic facts: Decision needed.
 
 -- VERIFY
---  SELECT count(*) FILTER (WHERE is_active), count(*) FILTER (WHERE NOT is_active) FROM reference.assistant_faq;   -- 155, 57
+--  SELECT count(*) FILTER (WHERE is_active), count(*) FILTER (WHERE NOT is_active) FROM reference.assistant_faq;   -- 151, 57
